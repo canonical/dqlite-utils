@@ -4,7 +4,7 @@ A CLI for passive, read-only inspection and post-mortem debugging of dqlite node
 
 ## Overview
 
-This utility operates directly on the on-disk state of a `dqlite` node, parsing the Raft segments, snapshots, and database files. This approach means it's completely passive and safe to run on a malfunctioning or even a completely stopped node. You can confidently debug issues without ever interacting with a live process or the rest of the cluster.
+This utility operates directly on the on-disk state of a `dqlite` node, parsing the Raft segments, snapshots, and metadata files. This approach means it's completely passive and safe to run on a malfunctioning or even a completely stopped node. You can confidently debug issues without ever interacting with a live process or the rest of the cluster.
 
 ## Features
 
@@ -30,7 +30,7 @@ To build from the latest source code:
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/dqlite-utils.git
+git clone https://github.com/canonical/dqlite-utils.git
 cd dqlite-utils
 
 # Build and install
