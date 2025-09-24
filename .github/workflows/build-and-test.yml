@@ -1,0 +1,27 @@
+name: Build and test
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-test:
+    name: Build and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          # Must be kept in sync with Cargo.toml.
+          toolchain: '1.85'
+          components: clippy,rustfmt
+      - uses: ./.github/actions/cargo-lint
+      - name: Run tests in debug mode
+        uses: ./.github/actions/cargo-test
+      - name: Run tests in release mode
+        uses: ./.github/actions/cargo-test
+        with:
+          flags: '--release'
