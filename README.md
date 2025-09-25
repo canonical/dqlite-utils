@@ -16,7 +16,7 @@ This utility operates directly on the on-disk state of a `dqlite` node, parsing 
 
 ## Installation
 
-### From Crates.io
+### From crates.io
 
 For the latest stable version, you can install directly from crates.io:
 
@@ -62,13 +62,24 @@ Segments:
   Open:       4
   FirstIndex: 128
   LastIndex:  300
+Configuration:
+  6:
+    Address: 10.1.2.2
+    Role: Voter
+  10:
+    Address: 10.1.2.3
+    Role: Spare
+Databases:  ["config-db", "db1", "db2"]
 Snapshots:
   - Index: 128, Term: 1, Size: 19.5 KiB, Created: 2025-09-23 10:43:02
   - Index: 256, Term: 2, Size: 195.7 KiB, Created: 2025-09-23 10:44:04
-Databases:  ["config-db", "db1", "db2"]
 ```
 
+Fields `Configuration` and `Databases` are not shown by default as it is more expensive to fetch them. It is possible to pass the `--full` flag to print them.
+
 ### Inspect the Raft Log
+
+<!-- TODO: update this once we implemented the real output -->
 
 For a `git log`-style history of all Raft entries, use the `log` command. This shows a chronological list of commands applied to the state machine.
 
@@ -82,8 +93,8 @@ For a `git log`-style history of all Raft entries, use the `log` command. This s
 | 130  FRAMES
 └ 129 BARRIER ------------------------| term 2 starts
 ┌ 128  FRAMES database: db3, pages: 1 | term 1 ends
-| 128  FRAMES database: db1, pages: 7
-| 128  FRAMES database: db2, pages: 2
+| 127  FRAMES database: db1, pages: 7
+| 126  FRAMES database: db2, pages: 2
 ```
 
 ### Open a Point-in-Time Database Shell
@@ -102,5 +113,7 @@ db1> .quit
 ```
 
 ## License
+
+<!-- TODO: update this once we decided on the license -->
 
 This project is licensed under the terms of the MIT License. See `LICENSE` file for more details.
