@@ -1,0 +1,9 @@
+name: Cargo test
+description: Tests the project through cargo
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Run tests with Cargo
+      shell: bash
+      run: cargo test --all-features --all-targets
