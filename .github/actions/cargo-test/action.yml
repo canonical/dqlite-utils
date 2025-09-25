@@ -1,17 +1,9 @@
 name: Cargo test
 description: Tests the project through cargo
 
-inputs:
-  flags:
-    description: Run tests in debug mode
-    default: ''
-    type: string
-
 runs:
   using: 'composite'
   steps:
     - name: Run tests with Cargo
       shell: bash
-      env:
-        CARGO_FLAGS: ${{ inputs.flags }}
-      run: cargo test ${CARGO_FLAGS}
+      run: cargo test --all-features --all-targets

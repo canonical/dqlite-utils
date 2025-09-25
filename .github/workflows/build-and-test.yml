@@ -19,9 +19,6 @@ jobs:
           toolchain: '1.85'
           components: clippy,rustfmt
       - uses: ./.github/actions/cargo-lint
-      - name: Run tests in debug mode
+      - name: Run tests
         uses: ./.github/actions/cargo-test
-      - name: Run tests in release mode
-        uses: ./.github/actions/cargo-test
-        with:
-          flags: '--release'
+
