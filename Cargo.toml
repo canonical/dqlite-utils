@@ -1,10 +1,16 @@
 [package]
 name = "dqlite_utils"
 version = "0.1.0"
-rust-version = "1.85"
+rust-version = "1.92"
 edition = "2024"
 
 [dependencies]
+anyhow = "1.0.99"
+chrono = { version = "0.4.42", features = ["serde"] }
+clap = { version = "4.5.48", features = ["derive", "color"] }
+libc = "0.2.176"
+serde = { version = "1.0.226", features = [ "std", "derive" ]}
+serde_yaml_ng = "0.10.0"
 
 [[bin]]
 name = "dqlite-utils"
