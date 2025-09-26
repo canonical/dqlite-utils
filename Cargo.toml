@@ -5,3 +5,8 @@ rust-version = "1.85"
 edition = "2024"
 
 [dependencies]
+anyhow = "1.0.99"
+chrono = { version = "0.4.42", features = ["serde"] }
+clap = { version = "4.5.48", features = ["derive", "color"] }
+serde = { version = "1.0.226", features = [ "std", "derive" ]}
+serde_yaml2 = "0.1.3"
