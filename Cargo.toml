@@ -1,7 +1,11 @@
 [package]
-name = "dqlite-utils"
+name = "dqlite_utils"
 version = "0.1.0"
 rust-version = "1.85"
 edition = "2024"
 
 [dependencies]
+
+[[bin]]
+name = "dqlite-utils"
+path = "src/main.rs"

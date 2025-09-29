@@ -3,5 +3,5 @@
 version = 4
 
 [[package]]
-name = "dqlite-utils"
+name = "dqlite_utils"
 version = "0.1.0"
