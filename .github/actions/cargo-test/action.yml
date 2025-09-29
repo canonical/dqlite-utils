@@ -1,0 +1,12 @@
+name: Cargo test
+description: Tests the project through cargo
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Run tests in debug mode
+      shell: bash
+      run: cargo test --all-features --all-targets
+    - name: Run tests in release mode
+      shell: bash
+      run: cargo test --release --all-features --all-targets
