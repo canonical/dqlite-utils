@@ -23,7 +23,45 @@ impl ParseCallbacks for IgnoreMacros {
 fn main() {
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
 
-    // TODO: remove this once refactoring-for-utils branch gets merged.
+    build_dqlite(&out_dir);
+
+    let dqlite = pkg_config::Config::new()
+        .statik(true)
+        .probe("dqlite")
+        .expect("Failed to find libdqlite");
+
+    for lib_name in dqlite.libs {
+        println!("cargo:rustc-link-lib=static={lib_name}");
+    }
+
+    let bindings = bindgen::Builder::default()
+        .header("dqlite-internal.h")
+        .parse_callbacks(Box::new(IgnoreMacros(
+            [
+                "FP_INFINITE",
+                "FP_NAN",
+                "FP_NORMAL",
+                "FP_SUBNORMAL",
+                "FP_ZERO",
+                "IPPORT_RESERVED",
+            ]
+            .into_iter()
+            .map(|s| s.to_owned())
+            .collect(),
+        )))
+        .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
+        .derive_default(true)
+        .derive_debug(true)
+        .generate()
+        .expect("Unable to generate bindings");
+
+    bindings
+        .write_to_file(out_dir.join("bindings.rs"))
+        .expect("Couldn't write bindings!");
+}
+
+// TODO: remove this once refactoring-for-utils branch gets merged.
+fn build_dqlite(out_dir: &PathBuf) {
     let dqlite_dir = out_dir.join("dqlite");
     let dqlite_repo = "https://github.com/canonical/dqlite.git";
     let dqlite_branch = "refactoring-for-utils";
@@ -64,7 +102,6 @@ fn main() {
             .find_commit(target)
             .expect("internal error: cancannot find commit");
 
-        // Force the checkout to ensure files are updated, updating the directory timestamp
         repo.checkout_tree(
             commit.as_object(),
             Some(git2::build::CheckoutBuilder::new().force()),
@@ -76,11 +113,10 @@ fn main() {
 
     println!("cargo:rerun-if-changed={}", commit_id);
 
-    // Create a Config struct pointing to the cloned source directory
     autotools::Config::new(&dqlite_dir)
         .reconf("-iv")
-        .disable("shared", None) // Often good for vendored dependencies
-        .build(); // Runs ./configure, make, and make install into $OUT_DIR
+        .disable("shared", None)
+        .build();
 
     let pkg_config_path = out_dir.join("lib/pkgconfig");
     let pkg_config_path = match env::var_os("PKG_CONFIG_PATH") {
@@ -95,38 +131,4 @@ fn main() {
     unsafe {
         env::set_var("PKG_CONFIG_PATH", pkg_config_path);
     }
-
-    let dqlite = pkg_config::Config::new()
-        .statik(true)
-        .probe("dqlite")
-        .expect("Failed to find libdqlite");
-
-    for lib_name in dqlite.libs {
-        println!("cargo:rustc-link-lib=static={lib_name}");
-    }
-
-    let bindings = bindgen::Builder::default()
-        .header("dqlite-internal.h")
-        .parse_callbacks(Box::new(IgnoreMacros(
-            [
-                "FP_INFINITE",
-                "FP_NAN",
-                "FP_NORMAL",
-                "FP_SUBNORMAL",
-                "FP_ZERO",
-                "IPPORT_RESERVED",
-            ]
-            .into_iter()
-            .map(|s| s.to_owned())
-            .collect(),
-        )))
-        .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
-        .derive_default(true)
-        .derive_debug(true)
-        .generate()
-        .expect("Unable to generate bindings");
-
-    bindings
-        .write_to_file(out_dir.join("bindings.rs"))
-        .expect("Couldn't write bindings!");
 }
