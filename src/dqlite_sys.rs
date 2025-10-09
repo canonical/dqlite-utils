@@ -10,9 +10,7 @@ mod dqlite_bindings {
 }
 
 pub fn string_array<const N: usize>(s: &str) -> [c_char; N] {
-    if s.len() >= N {
-        panic!("string is too big")
-    }
+    assert!(s.len() < N);
 
     let mut array = [0 as c_char; N];
     let bytes = s.as_bytes();

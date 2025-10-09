@@ -1,19 +1,21 @@
 use std::collections::HashSet;
 use std::env;
+use std::ffi::OsString;
 use std::path::PathBuf;
 
+use bindgen::callbacks::{MacroParsingBehavior, ParseCallbacks};
 use git2::build::RepoBuilder;
 use git2::{FetchOptions, Repository};
 
 #[derive(Debug)]
 struct IgnoreMacros(HashSet<String>);
 
-impl bindgen::callbacks::ParseCallbacks for IgnoreMacros {
-    fn will_parse_macro(&self, name: &str) -> bindgen::callbacks::MacroParsingBehavior {
+impl ParseCallbacks for IgnoreMacros {
+    fn will_parse_macro(&self, name: &str) -> MacroParsingBehavior {
         if self.0.contains(name) {
-            bindgen::callbacks::MacroParsingBehavior::Ignore
+            MacroParsingBehavior::Ignore
         } else {
-            bindgen::callbacks::MacroParsingBehavior::Default
+            MacroParsingBehavior::Default
         }
     }
 }
@@ -34,39 +36,40 @@ fn main() {
             .branch(dqlite_branch)
             .fetch_options(options)
             .clone(dqlite_repo, &dqlite_dir)
-            .expect("Git clone failed");
+            .expect("internal error: cannot clone dqlite repository");
 
         repo.head().unwrap().peel_to_commit().unwrap().id()
     } else {
-        let repo = Repository::open(&dqlite_dir).expect("Failed to open existing repository");
+        let repo =
+            Repository::open(&dqlite_dir).expect("internal error: cannot open dqlite repository");
 
         let mut remote = repo.find_remote("origin").unwrap();
 
         let mut options = FetchOptions::new();
         options.depth(1);
 
-        let fetch_ref = format!("refs/heads/{0}:refs/heads/{0}", dqlite_branch);
+        let fetch_ref = format!("refs/heads/{dqlite_branch}:refs/heads/{dqlite_branch}");
 
         remote
             .fetch(&[&fetch_ref], Some(&mut options), None)
             .expect("Git fetch failed");
 
         let target = repo
-            .find_reference(&format!("refs/heads/{}", dqlite_branch))
-            .expect("Failed to find branch reference")
+            .find_reference(&format!("refs/heads/{dqlite_branch}"))
+            .expect("internal error: cannot find head")
             .target()
-            .expect("Branch reference had no target OID");
+            .expect("internal error: cannot find target for head");
 
         let commit = repo
             .find_commit(target)
-            .expect("Failed to find target commit");
+            .expect("internal error: cancannot find commit");
 
         // Force the checkout to ensure files are updated, updating the directory timestamp
         repo.checkout_tree(
             commit.as_object(),
             Some(git2::build::CheckoutBuilder::new().force()),
         )
-        .expect("Failed to checkout commit");
+        .expect("internal error: cannot checkout commit");
 
         target
     };
@@ -79,20 +82,18 @@ fn main() {
         .disable("shared", None) // Often good for vendored dependencies
         .build(); // Runs ./configure, make, and make install into $OUT_DIR
 
-    println!("cargo:rerun-if-changed=build.rs");
+    let pkg_config_path = out_dir.join("lib/pkgconfig");
+    let pkg_config_path = match env::var_os("PKG_CONFIG_PATH") {
+        Some(mut path) => {
+            path.push(":");
+            path.push(pkg_config_path);
+            path
+        }
+        None => OsString::from(pkg_config_path),
+    };
 
     unsafe {
-        let pkgconfig_path = out_dir.join("lib/pkgconfig");
-        match env::var_os("PKG_CONFIG_PATH") {
-            Some(mut path) => {
-                path.push(":");
-                path.push(pkgconfig_path);
-                env::set_var("PKG_CONFIG_PATH", path);
-            }
-            None => {
-                env::set_var("PKG_CONFIG_PATH", pkgconfig_path);
-            }
-        }
+        env::set_var("PKG_CONFIG_PATH", pkg_config_path);
     }
 
     let dqlite = pkg_config::Config::new()
@@ -116,7 +117,7 @@ fn main() {
                 "IPPORT_RESERVED",
             ]
             .into_iter()
-            .map(|s| s.into())
+            .map(|s| s.to_owned())
             .collect(),
         )))
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
