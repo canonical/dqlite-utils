@@ -3,9 +3,16 @@ name = "dqlite_utils"
 version = "0.1.0"
 rust-version = "1.85"
 edition = "2024"
+build = "build.rs"
 
 [dependencies]
 
 [[bin]]
 name = "dqlite-utils"
 path = "src/main.rs"
+
+[build-dependencies]
+autotools = "0.2"
+bindgen = "0.72.1"
+git2 = "0.18"
+pkg-config = "0.3.32"

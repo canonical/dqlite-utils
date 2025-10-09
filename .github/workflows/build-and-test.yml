@@ -18,6 +18,12 @@ jobs:
           # Must be kept in sync with Cargo.toml.
           toolchain: '1.85'
           components: clippy,rustfmt
+      - name: Set up dependencies
+        run: |
+            sudo apt update
+            sudo apt install -y libsqlite3-dev liblz4-dev libuv1-dev \
+                              linux-libc-dev lcov
+      
       - uses: ./.github/actions/cargo-lint
       - name: Run tests
         uses: ./.github/actions/cargo-test
