@@ -1,6 +1,6 @@
 use std::ffi::CString;
 
-mod dqlite_bindings {
+mod bindings {
     #![allow(non_upper_case_globals)]
     #![allow(non_camel_case_types)]
     #![allow(non_snake_case)]
@@ -20,9 +20,9 @@ fn test() {
         let mut segments = std::ptr::null_mut();
         let mut n_segments = 0usize;
 
-        let mut errmsg = [0; dqlite_bindings::RAFT_ERRMSG_BUF_SIZE as usize];
+        let mut errmsg = [0; bindings::RAFT_ERRMSG_BUF_SIZE as usize];
 
-        let result = dqlite_bindings::UvList(
+        let result = bindings::UvList(
             dir.as_ptr(),
             &mut snapshots as *mut _,
             &mut n_snapshots as *mut _,
