@@ -1,4 +1,4 @@
-use std::ffi::c_char;
+use std::ffi::CString;
 
 mod dqlite_bindings {
     #![allow(non_upper_case_globals)]
@@ -9,26 +9,10 @@ mod dqlite_bindings {
     include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 }
 
-pub fn string_array<const N: usize>(s: &str) -> [c_char; N] {
-    assert!(s.len() < N);
-
-    let mut array = [0 as c_char; N];
-    let bytes = s.as_bytes();
-
-    for (i, byte) in bytes.iter().enumerate() {
-        array[i] = *byte as c_char;
-    }
-
-    array
-}
-
 #[test]
 fn test() {
     unsafe {
-        let mut uv = dqlite_bindings::uv {
-            dir: string_array("."),
-            ..Default::default()
-        };
+        let dir = CString::new(".").unwrap();
 
         let mut snapshots = 0 as *mut dqlite_bindings::uvSnapshotInfo;
         let mut n_snapshots = 0usize;
@@ -39,7 +23,7 @@ fn test() {
         let mut errmsg = [0; dqlite_bindings::RAFT_ERRMSG_BUF_SIZE as usize];
 
         let result = dqlite_bindings::UvList(
-            &mut uv as *mut _,
+            dir.as_ptr(),
             &mut snapshots as *mut _,
             &mut n_snapshots as *mut _,
             &mut segments as *mut _,
