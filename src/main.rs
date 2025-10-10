@@ -44,7 +44,7 @@ fn exec(args: Args) -> Result<()> {
     } else if io::stdin().is_terminal() {
         runner.run_interactive(InteractiveCommandReader::new()?)
     } else {
-        runner.run_batch(stdin_commands()?)
+        runner.run_batch(stdin_commands())
     }
 }
 
@@ -114,7 +114,7 @@ impl Iterator for InteractiveCommandReader {
     }
 }
 
-fn stdin_commands() -> Result<Vec<Command>> {
+fn stdin_commands() -> impl Iterator<Item = Command> {
     io::stdin()
         .lines() // Assumes 1-line commands only
         .enumerate()
@@ -124,5 +124,13 @@ fn stdin_commands() -> Result<Vec<Command>> {
                 .parse()
                 .with_context(|| anyhow!("cannot parse line {line_num}"))
         })
-        .collect()
+        .scan(false, |error_seen, command| match (*error_seen, command) {
+            (true, _) => None, // Stop at first error
+            (_, Ok(command)) => Some(command),
+            (_, Err(err)) => {
+                eprintln!("{err}");
+                *error_seen = true;
+                None
+            }
+        })
 }
