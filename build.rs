@@ -66,6 +66,8 @@ fn build_dqlite(out_dir: &PathBuf) {
     let dqlite_repo = "https://github.com/canonical/dqlite.git";
     let dqlite_branch = "refactoring-for-utils";
 
+    let mut autotools = autotools::Config::new(&dqlite_dir);
+
     let commit_id = if !dqlite_dir.exists() {
         let mut options = FetchOptions::new();
         options.depth(1);
@@ -75,6 +77,8 @@ fn build_dqlite(out_dir: &PathBuf) {
             .fetch_options(options)
             .clone(dqlite_repo, &dqlite_dir)
             .expect("internal error: cannot clone dqlite repository");
+
+        autotools.reconf("-iv");
 
         repo.head().unwrap().peel_to_commit().unwrap().id()
     } else {
@@ -110,13 +114,9 @@ fn build_dqlite(out_dir: &PathBuf) {
 
         target
     };
-
     println!("cargo:rerun-if-changed={}", commit_id);
 
-    autotools::Config::new(&dqlite_dir)
-        .reconf("-iv")
-        .disable("shared", None)
-        .build();
+    autotools.disable("shared", None).fast_build(true).build();
 
     let pkg_config_path = out_dir.join("lib/pkgconfig");
     let pkg_config_path = match env::var_os("PKG_CONFIG_PATH") {
