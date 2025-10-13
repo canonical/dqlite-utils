@@ -20,6 +20,37 @@
 #define RAFT_ERRMSG_BUF_SIZE 256
 typedef unsigned long long raft_id, raft_term, raft_index, raft_time;
 
+enum {
+  RAFT_OK = 0,
+  RAFT_NOMEM,            /* Out of memory */
+  RAFT_BADID,            /* Server ID is not valid */
+  RAFT_DUPLICATEID,      /* Server ID already in use */
+  RAFT_DUPLICATEADDRESS, /* Server address already in use */
+  RAFT_BADROLE,          /* Server role is not valid */
+  RAFT_MALFORMED,
+  RAFT_NOTLEADER,
+  RAFT_LEADERSHIPLOST,
+  RAFT_SHUTDOWN,
+  RAFT_CANTBOOTSTRAP,
+  RAFT_CANTCHANGE,
+  RAFT_CORRUPT,
+  RAFT_CANCELED,
+  RAFT_NAMETOOLONG,
+  RAFT_TOOBIG,
+  RAFT_NOCONNECTION,
+  RAFT_BUSY,
+  RAFT_IOERR,        /* File system or storage error */
+  RAFT_NOTFOUND,     /* Resource not found */
+  RAFT_INVALID,      /* Invalid parameter */
+  RAFT_UNAUTHORIZED, /* No access to a resource */
+  RAFT_NOSPACE,      /* Not enough space on disk */
+  RAFT_TOOMANY,      /* Some system or raft limit was hit */
+  RAFT_ERROR,        /* Generic error */
+};
+
+void *raft_malloc(size_t size);
+void raft_free(void *ptr);
+
 /* Information persisted in a single metadata file. */
 struct uvMetadata {
   unsigned long long version; /* Monotonically increasing version */
