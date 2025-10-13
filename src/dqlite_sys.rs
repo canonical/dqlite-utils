@@ -4,6 +4,7 @@ use std::{
     fs::File,
     ops::Range,
     path::{Path, PathBuf},
+    ptr,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -77,10 +78,10 @@ impl DqliteDir {
     pub fn new(dir: &Path) -> Result<Self> {
         let mut errmsg = [0u8; bindings::RAFT_ERRMSG_BUF_SIZE as usize];
 
-        let mut snapshots = std::ptr::null_mut();
+        let mut snapshots = ptr::null_mut();
         let mut n_snapshots = 0usize;
 
-        let mut segments = std::ptr::null_mut();
+        let mut segments = ptr::null_mut();
         let mut n_segments = 0usize;
 
         let result = unsafe {
@@ -107,7 +108,8 @@ impl DqliteDir {
         if n_snapshots == 0 && n_segments == 0 {
             return Err(anyhow::anyhow!("not ad dqlite folder"));
         }
-        assert!(snapshots != std::ptr::null_mut() && segments != std::ptr::null_mut());
+        assert!(n_snapshots == 0 || snapshots != ptr::null_mut());
+        assert!(n_segments == 0 || segments != ptr::null_mut());
 
         let snapshots = unsafe {
             let vec: Vec<_> = std::slice::from_raw_parts(snapshots, n_snapshots)
