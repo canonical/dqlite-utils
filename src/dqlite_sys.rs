@@ -7,9 +7,9 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 
-use crate::dqlite_sys::bindings::{raft_free, uvSegmentInfo, uvSnapshotInfo};
+use self::bindings::{raft_free, uvSegmentInfo, uvSnapshotInfo};
 
 mod bindings {
     #![allow(non_upper_case_globals)]
@@ -109,19 +109,19 @@ impl DqliteDir {
         }
 
         let snapshots = unsafe {
-            let vec = std::slice::from_raw_parts(snapshots, n_snapshots)
+            let vec: Vec<_> = std::slice::from_raw_parts(snapshots, n_snapshots)
                 .iter()
                 .map(|s| DqliteSnapshot::new(&dir, s))
-                .collect::<Result<Vec<DqliteSnapshot>>>()?;
+                .collect::<Result<_>>()?;
             raft_free(snapshots as *mut _);
             vec
         };
 
         let segments = unsafe {
-            let vec = std::slice::from_raw_parts(segments, n_segments)
+            let vec: Vec<_> = std::slice::from_raw_parts(segments, n_segments)
                 .iter()
-                .map(|s| DqliteSegment::new(&dir, s))
-                .collect::<Result<Vec<DqliteSegment>>>()?;
+                .map(|s| DqliteSegment::new(&dir, *s))
+                .collect::<Result<_>>()?;
             raft_free(segments as *mut _);
             vec
         };
@@ -180,27 +180,23 @@ pub struct DqliteSegment {
 }
 
 impl DqliteSegment {
-    pub fn new(dir: &Path, segment: &uvSegmentInfo) -> Result<Self> {
+    pub fn new(dir: &Path, segment: uvSegmentInfo) -> Result<Self> {
         let path = dir.join(segment.filename());
 
         let file = File::open(path)?;
 
-        Ok(Self {
-            segment: *segment,
-            file,
-        })
+        Ok(Self { segment, file })
     }
 
     pub fn indexes(&self) -> Result<Range<u64>> {
-        if self.segment.is_open {
-            return Err(anyhow::anyhow!(
+        if self.is_open() {
+            return Err(anyhow!(
                 "cannot get indexes from an open segment: not implemented yet"
             ));
         }
 
-        return Ok(unsafe {
-            self.segment.info.closed.first_index..self.segment.info.closed.end_index
-        });
+        let closed = unsafe { self.segment.info.closed };
+        Ok(closed.first_index..closed.end_index)
     }
 
     pub fn is_open(&self) -> bool {
