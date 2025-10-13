@@ -1,22 +1,22 @@
 mod args;
 mod command;
 mod dqlite_sys;
-mod runner;
 
 use std::fs::File;
 use std::io::{self, IsTerminal};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use anyhow::{anyhow, Context};
+use anyhow::{anyhow, Context as _};
 use clap::Parser;
 use rustyline::error::ReadlineError;
 use rustyline::history::DefaultHistory;
 use rustyline::Editor;
 
+use crate::command::PostRunAction;
+
 use self::args::Args;
 use self::command::Command;
-use self::runner::Runner;
 
 pub type Error = anyhow::Error;
 pub type Result<T> = anyhow::Result<T>;
@@ -34,22 +34,39 @@ fn main() -> ExitCode {
 fn exec(args: Args) -> Result<()> {
     let Args { raw_commands, dir } = args;
 
-    let runner = Runner::new(dir);
+    let ctx = Context::new(dir);
     if !raw_commands.is_empty() {
         let commands: Vec<_> = raw_commands
             .into_iter()
             .map(|command| command.parse())
             .collect::<Result<_>>()?;
-        runner.run_batch(commands)
+        run_batch(commands, ctx)
     } else if io::stdin().is_terminal() {
-        runner.run_interactive(InteractiveCommandReader::new()?)
+        run_interactive(InteractiveCommandReader::new()?, ctx)
     } else {
-        runner.run_batch(stdin_commands())
+        run_batch(stdin_commands(), ctx)
     }
 }
 
+fn run_interactive(command_reader: InteractiveCommandReader, ctx: Context) -> Result<()> {
+    // This function is a placeholder to allow us to mutate the `command_reader` during
+    // iteration, e.g. to add context to its prompt. As context currently has no effect on
+    // the prompt, this function is equivalent to `run_batch`.
+    run_batch(command_reader, ctx)
+}
+
+fn run_batch(commands: impl IntoIterator<Item = Command>, mut ctx: Context) -> Result<()> {
+    for command in commands {
+        match command.run(&mut ctx)? {
+            Some(PostRunAction::Quit) => break,
+            None => {}
+        }
+    }
+    Ok(())
+}
+
 struct InteractiveCommandReader {
-    history_path: PathBuf,
+    history_path: Option<PathBuf>,
 
     // TODO(kcza): improve completion.
     line_editor: Editor<(), DefaultHistory>,
@@ -58,14 +75,19 @@ struct InteractiveCommandReader {
 impl InteractiveCommandReader {
     fn new() -> Result<Self> {
         const HISTORY_FILE: &str = ".dqlite-utils-history";
-        let home_dir = home::home_dir().with_context(|| anyhow!("cannot get home directory"))?;
-        let history_path = home_dir.join(HISTORY_FILE);
 
         let mut line_editor = Editor::new()?;
-        let loaded_history = line_editor.load_history(&history_path).is_ok();
-        if !loaded_history {
-            File::create(&history_path)
-                .with_context(|| anyhow!("cannot create {}", history_path.display()))?;
+        let history_path = home::home_dir().map(|home| home.join(HISTORY_FILE));
+
+        if let Some(history_path) = &history_path {
+            let loaded_history = line_editor.load_history(&history_path).is_ok();
+            if !loaded_history {
+                File::create(&history_path)
+                    .inspect_err(|err| eprintln!("cannot create {}: {err}", history_path.display()))
+                    .ok();
+            }
+        } else {
+            eprintln!("cannot load history");
         }
 
         Ok(Self {
@@ -77,9 +99,6 @@ impl InteractiveCommandReader {
     fn next_command(&mut self) -> Result<Option<Command>> {
         let line = self.line_editor.readline("> ")?;
         let trimmed_line = line.trim();
-        if trimmed_line.is_empty() {
-            return Ok(None);
-        }
         let ret = trimmed_line.parse().map(Some);
         self.line_editor.add_history_entry(line)?;
         ret
@@ -88,8 +107,10 @@ impl InteractiveCommandReader {
 
 impl Drop for InteractiveCommandReader {
     fn drop(&mut self) {
-        if let Err(err) = self.line_editor.save_history(&self.history_path) {
-            eprintln!("cannot save history: {err}");
+        if let Some(history_path) = &self.history_path {
+            if let Err(err) = self.line_editor.save_history(history_path) {
+                eprintln!("cannot save history: {err}");
+            }
         }
     }
 }
@@ -118,14 +139,13 @@ fn stdin_commands() -> impl Iterator<Item = Command> {
     io::stdin()
         .lines() // Assumes 1-line commands only
         .enumerate()
-        .filter(|(_, line)| line.as_ref().is_ok_and(|line| !line.trim().is_empty()))
         .map(|(line_num, line)| {
             line?
                 .parse()
                 .with_context(|| anyhow!("cannot parse line {line_num}"))
         })
         .scan(false, |error_seen, command| match (*error_seen, command) {
-            (true, _) => None, // Stop at first error
+            (true, _) => None, // Stop after first error.
             (_, Ok(command)) => Some(command),
             (_, Err(err)) => {
                 eprintln!("{err}");
@@ -133,4 +153,14 @@ fn stdin_commands() -> impl Iterator<Item = Command> {
                 None
             }
         })
+}
+
+pub struct Context {
+    pub dir: PathBuf,
+}
+
+impl Context {
+    fn new(dir: PathBuf) -> Self {
+        Self { dir }
+    }
 }
