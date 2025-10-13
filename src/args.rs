@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
-use clap::builder::styling::{AnsiColor, Effects};
-use clap::builder::Styles;
 use clap::Parser;
+use clap::builder::Styles;
+use clap::builder::styling::{AnsiColor, Effects};
 
 #[derive(Debug, Parser)]
 #[command(version, about, styles = Self::styles())]

@@ -7,11 +7,11 @@ use std::io::{self, IsTerminal};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use anyhow::{anyhow, Context as _};
+use anyhow::{Context as _, anyhow};
 use clap::Parser;
+use rustyline::Editor;
 use rustyline::error::ReadlineError;
 use rustyline::history::DefaultHistory;
-use rustyline::Editor;
 
 use crate::command::PostRunAction;
 
