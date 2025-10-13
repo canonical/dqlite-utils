@@ -107,6 +107,7 @@ impl DqliteDir {
         if n_snapshots == 0 && n_segments == 0 {
             return Err(anyhow::anyhow!("not ad dqlite folder"));
         }
+        assert!(snapshots != std::ptr::null_mut() && segments != std::ptr::null_mut());
 
         let snapshots = unsafe {
             let vec: Vec<_> = std::slice::from_raw_parts(snapshots, n_snapshots)
