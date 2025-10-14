@@ -132,7 +132,7 @@ fn stdin_commands() -> impl Iterator<Item = Command> {
         .map(|(line_num, line)| {
             line?
                 .parse()
-                .with_context(|| anyhow!("cannot parse line {line_num}"))
+                .with_context(|| anyhow!("cannot parse line {}", line_num + 1))
         })
         .scan(false, |error_seen, command| match (*error_seen, command) {
             (true, _) => None, // Stop after first error.
