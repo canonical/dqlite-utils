@@ -13,8 +13,6 @@ use rustyline::Editor;
 use rustyline::error::ReadlineError;
 use rustyline::history::DefaultHistory;
 
-use crate::command::PostRunAction;
-
 use self::args::Args;
 use self::command::Command;
 
@@ -57,10 +55,7 @@ fn run_interactive(command_reader: InteractiveCommandReader, ctx: Context) -> Re
 
 fn run_batch(commands: impl IntoIterator<Item = Command>, mut ctx: Context) -> Result<()> {
     for command in commands {
-        match command.run(&mut ctx)? {
-            Some(PostRunAction::Quit) => break,
-            None => {}
-        }
+        command.run(&mut ctx)?;
     }
     Ok(())
 }

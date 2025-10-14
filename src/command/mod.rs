@@ -1,3 +1,4 @@
+use std::process;
 use std::str::FromStr;
 
 use anyhow::anyhow;
@@ -11,10 +12,12 @@ pub enum Command {
 }
 
 impl Command {
-    pub fn run(&self, _ctx: &mut Context) -> Result<Option<PostRunAction>> {
+    pub fn run(&self, _ctx: &mut Context) -> Result<()> {
         match self {
-            Self::Noop => Ok(None),
-            Self::Quit => Ok(Some(PostRunAction::Quit)),
+            Self::Noop => Ok(()),
+            Self::Quit => {
+                process::exit(0);
+            }
         }
     }
 }
@@ -34,8 +37,4 @@ impl FromStr for Command {
             (_, tail) => Err(anyhow!("unrecognised arguments {tail:?}")),
         }
     }
-}
-
-pub enum PostRunAction {
-    Quit,
 }
