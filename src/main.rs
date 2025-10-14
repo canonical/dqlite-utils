@@ -9,6 +9,7 @@ use std::process::ExitCode;
 
 use anyhow::{Context as _, anyhow};
 use clap::Parser;
+use owo_colors::{OwoColorize, Stream, Style};
 use rustyline::Editor;
 use rustyline::error::ReadlineError;
 use rustyline::history::DefaultHistory;
@@ -63,11 +64,16 @@ fn run_batch(commands: impl IntoIterator<Item = Command>, mut ctx: Context) -> R
 struct InteractiveCommandReader {
     history_path: Option<PathBuf>,
 
+    prompt: String,
+
     // TODO(kcza): improve completion.
     line_editor: Editor<(), DefaultHistory>,
 }
 
 impl InteractiveCommandReader {
+    const ERROR_STYLE: Style = Style::new().bright_red();
+    const PROMPT_STYLE: Style = Style::new().bright_green();
+
     fn new() -> Result<Self> {
         const HISTORY_FILE: &str = ".dqlite-utils-history";
 
@@ -80,14 +86,18 @@ impl InteractiveCommandReader {
             eprintln!("cannot load history");
         }
 
+        let prompt = "> "
+            .if_supports_color(Stream::Stdout, |text| text.style(Self::PROMPT_STYLE))
+            .to_string();
         Ok(Self {
             history_path,
+            prompt,
             line_editor,
         })
     }
 
     fn next_command(&mut self) -> Result<Option<Command>> {
-        let line = self.line_editor.readline("> ")?;
+        let line = self.line_editor.readline(&self.prompt)?;
         let trimmed_line = line.trim();
         let ret = trimmed_line.parse().map(Some);
         self.line_editor.add_history_entry(line)?;
@@ -115,10 +125,18 @@ impl Iterator for InteractiveCommandReader {
                 Ok(None) => continue,
                 Err(err) => match err.downcast_ref() {
                     Some(ReadlineError::Interrupted) => {
-                        eprintln!("(Press Ctrl+D or type 'quit' to exit)")
+                        eprintln!(
+                            "{}",
+                            "(Press Ctrl+D or type 'quit' to exit)"
+                                .if_supports_color(Stream::Stderr, |text| text
+                                    .style(Self::ERROR_STYLE))
+                        )
                     }
                     Some(ReadlineError::Eof) => return Some(Command::Quit),
-                    _ => eprintln!("{err}"),
+                    _ => eprintln!(
+                        "{}",
+                        err.if_supports_color(Stream::Stderr, |text| text.style(Self::ERROR_STYLE))
+                    ),
                 },
             }
         }
