@@ -1,5 +1,156 @@
+mod args;
+mod command;
 mod dqlite_sys;
 
-fn main() {
-    println!("Hello, world!");
+use std::fs::File;
+use std::io::{self, IsTerminal};
+use std::path::PathBuf;
+use std::process::ExitCode;
+
+use anyhow::{Context as _, anyhow};
+use clap::Parser;
+use rustyline::Editor;
+use rustyline::error::ReadlineError;
+use rustyline::history::DefaultHistory;
+
+use self::args::Args;
+use self::command::Command;
+
+pub type Error = anyhow::Error;
+pub type Result<T> = anyhow::Result<T>;
+
+fn main() -> ExitCode {
+    match exec(Args::parse()) {
+        Ok(_) => ExitCode::SUCCESS,
+        Err(err) => {
+            eprintln!("{err:?}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn exec(args: Args) -> Result<()> {
+    let Args { raw_commands, dir } = args;
+
+    let ctx = Context::new(dir);
+    if !raw_commands.is_empty() {
+        let commands: Vec<_> = raw_commands
+            .into_iter()
+            .map(|command| command.parse())
+            .collect::<Result<_>>()?;
+        run_batch(commands, ctx)
+    } else if io::stdin().is_terminal() {
+        run_interactive(InteractiveCommandReader::new()?, ctx)
+    } else {
+        run_batch(stdin_commands(), ctx)
+    }
+}
+
+fn run_interactive(command_reader: InteractiveCommandReader, ctx: Context) -> Result<()> {
+    // This function is a placeholder to allow us to mutate the `command_reader` during
+    // iteration, e.g. to add context to its prompt. As context currently has no effect on
+    // the prompt, this function is equivalent to `run_batch`.
+    run_batch(command_reader, ctx)
+}
+
+fn run_batch(commands: impl IntoIterator<Item = Command>, mut ctx: Context) -> Result<()> {
+    for command in commands {
+        command.run(&mut ctx)?;
+    }
+    Ok(())
+}
+
+struct InteractiveCommandReader {
+    history_path: Option<PathBuf>,
+
+    // TODO(kcza): improve completion.
+    line_editor: Editor<(), DefaultHistory>,
+}
+
+impl InteractiveCommandReader {
+    fn new() -> Result<Self> {
+        const HISTORY_FILE: &str = ".dqlite-utils-history";
+
+        let mut line_editor = Editor::new()?;
+        let history_path = home::home_dir().map(|home| home.join(HISTORY_FILE));
+
+        if let Some(history_path) = &history_path {
+            line_editor.load_history(&history_path).ok();
+        } else {
+            eprintln!("cannot load history");
+        }
+
+        Ok(Self {
+            history_path,
+            line_editor,
+        })
+    }
+
+    fn next_command(&mut self) -> Result<Option<Command>> {
+        let line = self.line_editor.readline("> ")?;
+        let trimmed_line = line.trim();
+        let ret = trimmed_line.parse().map(Some);
+        self.line_editor.add_history_entry(line)?;
+        ret
+    }
+}
+
+impl Drop for InteractiveCommandReader {
+    fn drop(&mut self) {
+        if let Some(history_path) = &self.history_path {
+            if let Err(err) = self.line_editor.save_history(history_path) {
+                eprintln!("cannot save history: {err}");
+            }
+        }
+    }
+}
+
+impl Iterator for InteractiveCommandReader {
+    type Item = Command;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            match self.next_command() {
+                Ok(Some(command)) => return Some(command),
+                Ok(None) => continue,
+                Err(err) => match err.downcast_ref() {
+                    Some(ReadlineError::Interrupted) => {
+                        eprintln!("(Press Ctrl+D or type 'quit' to exit)")
+                    }
+                    Some(ReadlineError::Eof) => return Some(Command::Quit),
+                    _ => eprintln!("{err}"),
+                },
+            }
+        }
+    }
+}
+
+fn stdin_commands() -> impl Iterator<Item = Command> {
+    io::stdin()
+        .lines() // Assumes 1-line commands only
+        .enumerate()
+        .map(|(line_num, line)| {
+            line?
+                .parse()
+                .with_context(|| anyhow!("cannot parse line {}", line_num + 1))
+        })
+        .scan(false, |error_seen, command| match (*error_seen, command) {
+            (true, _) => None, // Stop after first error.
+            (_, Ok(command)) => Some(command),
+            (_, Err(err)) => {
+                eprintln!("{err}");
+                *error_seen = true;
+                None
+            }
+        })
+}
+
+pub struct Context {
+    pub dir: PathBuf,
+}
+
+impl Context {
+    fn new(dir: PathBuf) -> Self {
+        Self { dir }
+    }
 }
