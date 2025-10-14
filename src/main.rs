@@ -75,12 +75,7 @@ impl InteractiveCommandReader {
         let history_path = home::home_dir().map(|home| home.join(HISTORY_FILE));
 
         if let Some(history_path) = &history_path {
-            let loaded_history = line_editor.load_history(&history_path).is_ok();
-            if !loaded_history {
-                File::create(&history_path)
-                    .inspect_err(|err| eprintln!("cannot create {}: {err}", history_path.display()))
-                    .ok();
-            }
+            line_editor.load_history(&history_path).ok();
         } else {
             eprintln!("cannot load history");
         }
