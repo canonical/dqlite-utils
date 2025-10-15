@@ -58,6 +58,8 @@ struct uvMetadata {
   raft_id voted_for;          /* Server ID of last vote, or 0 */
 };
 
+int uvMetadataLoad(const char *dir, struct uvMetadata *metadata, char *errmsg);
+
 /* Metadata about a segment file. */
 struct uvSegmentInfo {
   bool is_open; /* Whether the segment is open */

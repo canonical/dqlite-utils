@@ -11,6 +11,8 @@ use std::{
 
 use anyhow::{Result, anyhow};
 
+use crate::dqlite_sys::bindings::uvMetadata;
+
 use self::bindings::{RAFT_ERRMSG_BUF_SIZE, raft_free, uvSegmentInfo, uvSnapshotInfo};
 
 mod bindings {
@@ -138,11 +140,21 @@ pub struct DqliteDir {
     dir: PathBuf,
     snapshots: Vec<DqliteSnapshot>,
     segments: Vec<DqliteSegment>,
+    term: u64,
+    voted_for: u64,
 }
 
 impl DqliteDir {
     pub fn new(dir: &Path) -> Result<Self> {
+        let cdir = CString::new(dir.to_str().unwrap()).unwrap();
         let mut err = RaftError::new();
+
+        let mut metadata = uvMetadata::default();
+        let rv =
+            unsafe { bindings::uvMetadataLoad(cdir.as_ptr(), &mut metadata as *mut _, err.as_mut_ptr()) };
+        if rv != bindings::RAFT_OK as _ {
+            return Err(anyhow!("failed to load metadata: {}", err));
+        }
 
         let mut snapshots = ptr::null_mut();
         let mut n_snapshots = 0usize;
@@ -161,7 +173,7 @@ impl DqliteDir {
             )
         };
 
-        if result != bindings::RAFT_OK as i32 {
+        if result != bindings::RAFT_OK as _ {
             return Err(anyhow!("failed to list snapshots and segments: {}", err));
         }
 
@@ -188,6 +200,8 @@ impl DqliteDir {
             dir: PathBuf::from(dir),
             snapshots,
             segments,
+            term: metadata.term,
+            voted_for: metadata.voted_for,
         })
     }
 
@@ -197,6 +211,14 @@ impl DqliteDir {
 
     pub fn segments(&self) -> &[DqliteSegment] {
         &self.segments
+    }
+
+    pub fn term(&self) -> u64 {
+        self.term
+    }
+
+    pub fn voted_for(&self) -> u64 {
+        self.voted_for
     }
 }
 
@@ -286,6 +308,8 @@ mod tests {
 
         let dqlite = DqliteDir::new(dir).expect("cannot open dqlite dir");
 
+        assert!(dqlite.term() > 0);
+        assert!(dqlite.voted_for() == 0);
         assert!(dqlite.snapshots().len() > 0);
         assert!(dqlite.segments().len() > 0);
 
