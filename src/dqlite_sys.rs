@@ -1,6 +1,7 @@
 use std::{
+    error::Error,
     ffi::{CStr, CString},
-    fmt::Debug,
+    fmt::{Debug, Display},
     fs::File,
     ops::Range,
     path::{Path, PathBuf},
@@ -10,7 +11,7 @@ use std::{
 
 use anyhow::{Result, anyhow};
 
-use self::bindings::{raft_free, uvSegmentInfo, uvSnapshotInfo};
+use self::bindings::{RAFT_ERRMSG_BUF_SIZE, raft_free, uvSegmentInfo, uvSnapshotInfo};
 
 mod bindings {
     #![allow(non_upper_case_globals)]
@@ -67,6 +68,71 @@ mod bindings {
     }
 }
 
+struct RaftError([u8; RAFT_ERRMSG_BUF_SIZE as usize]);
+
+impl RaftError {
+    fn new() -> Self {
+        Self([0u8; RAFT_ERRMSG_BUF_SIZE as usize])
+    }
+
+    fn as_str(&self) -> &str {
+        CStr::from_bytes_until_nul(self.0.as_slice())
+            .expect("display malformet error message")
+            .to_str()
+            .expect("cannot display malformet error message")
+    }
+
+    fn as_mut_ptr<T>(&mut self) -> *mut T {
+        self.0.as_mut_ptr() as *mut T
+    }
+}
+
+impl Error for RaftError {}
+
+impl Debug for RaftError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self.as_str())
+    }
+}
+
+impl Display for RaftError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self.as_str())
+    }
+}
+
+struct RaftPtr<T>(*mut T);
+
+impl<T> RaftPtr<T> {
+    unsafe fn new(ptr: *mut T) -> Self {
+        Self(ptr)
+    }
+
+    fn as_ptr(&self) -> *const T {
+        self.0
+    }
+
+    fn as_mut_ptr(&mut self) -> *mut T {
+        self.0
+    }
+
+    unsafe fn as_slice(&self, len: usize) -> &[T] {
+        assert!(len != 0 || !self.0.is_null());
+        unsafe { std::slice::from_raw_parts(self.0, len) }
+    }
+
+    unsafe fn as_mut_slice(&mut self, len: usize) -> &mut [T] {
+        assert!(len != 0 || !self.0.is_null());
+        unsafe { std::slice::from_raw_parts_mut(self.0, len) }
+    }
+}
+
+impl<T> Drop for RaftPtr<T> {
+    fn drop(&mut self) {
+        unsafe { raft_free(self.0 as *mut _) };
+    }
+}
+
 #[derive(Debug)]
 pub struct DqliteDir {
     dir: PathBuf,
@@ -76,7 +142,7 @@ pub struct DqliteDir {
 
 impl DqliteDir {
     pub fn new(dir: &Path) -> Result<Self> {
-        let mut errmsg = [0u8; bindings::RAFT_ERRMSG_BUF_SIZE as usize];
+        let mut err = RaftError::new();
 
         let mut snapshots = ptr::null_mut();
         let mut n_snapshots = 0usize;
@@ -87,47 +153,36 @@ impl DqliteDir {
         let result = unsafe {
             bindings::UvList(
                 CString::new(dir.to_str().unwrap()).unwrap().as_ptr(),
-                &mut snapshots as *mut _,
-                &mut n_snapshots as *mut _,
-                &mut segments as *mut _,
-                &mut n_segments as *mut _,
-                errmsg.as_mut_ptr() as *mut _,
+                &mut snapshots,
+                &mut n_snapshots,
+                &mut segments,
+                &mut n_segments,
+                err.as_mut_ptr(),
             )
         };
 
         if result != bindings::RAFT_OK as i32 {
-            return Err(anyhow::anyhow!(
-                "failed to list snapshots and segments: {}",
-                CStr::from_bytes_until_nul(errmsg.as_slice())
-                    .unwrap()
-                    .to_str()
-                    .unwrap(),
-            ));
+            return Err(anyhow!("failed to list snapshots and segments: {}", err));
         }
 
         if n_snapshots == 0 && n_segments == 0 {
-            return Err(anyhow::anyhow!("not ad dqlite folder"));
+            return Err(anyhow!("not ad dqlite folder"));
         }
         assert!(n_snapshots == 0 || snapshots != ptr::null_mut());
         assert!(n_segments == 0 || segments != ptr::null_mut());
 
-        let snapshots = unsafe {
-            let vec: Vec<_> = std::slice::from_raw_parts(snapshots, n_snapshots)
-                .iter()
-                .map(|s| DqliteSnapshot::new(&dir, s))
-                .collect::<Result<_>>()?;
-            raft_free(snapshots as *mut _);
-            vec
-        };
+        let snapshots = unsafe { RaftPtr::new(snapshots) };
+        let segments = unsafe { RaftPtr::new(segments) };
 
-        let segments = unsafe {
-            let vec: Vec<_> = std::slice::from_raw_parts(segments, n_segments)
-                .iter()
-                .map(|s| DqliteSegment::new(&dir, *s))
-                .collect::<Result<_>>()?;
-            raft_free(segments as *mut _);
-            vec
-        };
+        let snapshots: Vec<_> = unsafe { snapshots.as_slice(n_snapshots) }
+            .iter()
+            .map(|s| DqliteSnapshot::new(&dir, s))
+            .collect::<Result<_>>()?;
+
+        let segments: Vec<_> = unsafe { segments.as_slice(n_segments) }
+            .iter()
+            .map(|s| DqliteSegment::new(&dir, *s))
+            .collect::<Result<_>>()?;
 
         Ok(Self {
             dir: PathBuf::from(dir),
@@ -209,7 +264,7 @@ impl DqliteSegment {
 
 #[cfg(test)]
 mod tests {
-    use std::{env, process::Termination};
+    use std::env;
 
     use super::*;
 
