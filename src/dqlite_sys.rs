@@ -11,7 +11,7 @@ use std::{
 
 use anyhow::{Result, anyhow};
 
-use self::bindings::*;
+use self::bindings::{RAFT_ERRMSG_BUF_SIZE, raft_free, uvSegmentInfo, uvSnapshotInfo};
 
 mod bindings {
     #![allow(non_upper_case_globals)]
