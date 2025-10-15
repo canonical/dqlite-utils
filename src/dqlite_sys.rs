@@ -10,7 +10,7 @@ use std::{
 
 use anyhow::{Result, anyhow};
 
-use self::bindings::{raft_free, uvSegmentInfo, uvSnapshotInfo};
+use self::bindings::*;
 
 mod bindings {
     #![allow(non_upper_case_globals)]
@@ -21,7 +21,7 @@ mod bindings {
     include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
     use std::ffi::{CStr, OsStr};
-    use std::fmt::Debug;
+    use std::fmt::{Debug, Display};
     use std::os::unix::ffi::OsStrExt;
 
     impl uvSnapshotInfo {
@@ -65,6 +65,37 @@ mod bindings {
             debug.finish()
         }
     }
+
+    pub struct raft_error([u8; RAFT_ERRMSG_BUF_SIZE as usize]);
+
+    impl raft_error {
+        pub fn new() -> Self {
+            Self([0u8; RAFT_ERRMSG_BUF_SIZE as usize])
+        }
+
+        pub fn as_str(&self) -> &str {
+            CStr::from_bytes_until_nul(self.0.as_slice())
+                .unwrap()
+                .to_str()
+                .unwrap()
+        }
+
+        pub fn as_mut_ptr<T>(&mut self) -> *mut T {
+            self.0.as_mut_ptr() as *mut T
+        }
+    }
+
+    impl Debug for raft_error {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str(self.as_str())
+        }
+    }
+
+    impl Display for raft_error {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str(self.as_str())
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -76,7 +107,7 @@ pub struct DqliteDir {
 
 impl DqliteDir {
     pub fn new(dir: &Path) -> Result<Self> {
-        let mut errmsg = [0u8; bindings::RAFT_ERRMSG_BUF_SIZE as usize];
+        let mut err = raft_error::new();
 
         let mut snapshots = ptr::null_mut();
         let mut n_snapshots = 0usize;
@@ -87,47 +118,41 @@ impl DqliteDir {
         let result = unsafe {
             bindings::UvList(
                 CString::new(dir.to_str().unwrap()).unwrap().as_ptr(),
-                &mut snapshots as *mut _,
-                &mut n_snapshots as *mut _,
-                &mut segments as *mut _,
-                &mut n_segments as *mut _,
-                errmsg.as_mut_ptr() as *mut _,
+                &mut snapshots,
+                &mut n_snapshots,
+                &mut segments,
+                &mut n_segments,
+                err.as_mut_ptr(),
             )
         };
 
         if result != bindings::RAFT_OK as i32 {
-            return Err(anyhow::anyhow!(
-                "failed to list snapshots and segments: {}",
-                CStr::from_bytes_until_nul(errmsg.as_slice())
-                    .unwrap()
-                    .to_str()
-                    .unwrap(),
-            ));
+            return Err(anyhow!("failed to list snapshots and segments: {}", err));
         }
 
         if n_snapshots == 0 && n_segments == 0 {
-            return Err(anyhow::anyhow!("not ad dqlite folder"));
+            return Err(anyhow!("not ad dqlite folder"));
         }
         assert!(n_snapshots == 0 || snapshots != ptr::null_mut());
         assert!(n_segments == 0 || segments != ptr::null_mut());
 
         let snapshots = unsafe {
-            let vec: Vec<_> = std::slice::from_raw_parts(snapshots, n_snapshots)
+            let vec = std::slice::from_raw_parts(snapshots, n_snapshots)
                 .iter()
                 .map(|s| DqliteSnapshot::new(&dir, s))
-                .collect::<Result<_>>()?;
+                .collect::<Result<_>>();
             raft_free(snapshots as *mut _);
             vec
         };
-
         let segments = unsafe {
-            let vec: Vec<_> = std::slice::from_raw_parts(segments, n_segments)
+            let vec = std::slice::from_raw_parts(segments, n_segments)
                 .iter()
                 .map(|s| DqliteSegment::new(&dir, *s))
-                .collect::<Result<_>>()?;
+                .collect::<Result<_>>();
             raft_free(segments as *mut _);
             vec
         };
+        let (snapshots, segments) = (snapshots?, segments?);
 
         Ok(Self {
             dir: PathBuf::from(dir),
@@ -209,7 +234,7 @@ impl DqliteSegment {
 
 #[cfg(test)]
 mod tests {
-    use std::{env, process::Termination};
+    use std::env;
 
     use super::*;
 
