@@ -1,8 +1,9 @@
 use std::{
+    error::Error,
     ffi::{CStr, CString},
-    fmt::Debug,
+    fmt::{Debug, Display},
     fs::File,
-    ops::{DerefMut, Range},
+    ops::{Deref, DerefMut, Range},
     path::{Path, PathBuf},
     ptr,
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -21,8 +22,7 @@ mod bindings {
     include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
     use std::ffi::{CStr, OsStr};
-    use std::fmt::{Debug, Display};
-    use std::ops::{Deref, DerefMut};
+    use std::fmt::Debug;
     use std::os::unix::ffi::OsStrExt;
 
     impl uvSnapshotInfo {
@@ -66,72 +66,74 @@ mod bindings {
             debug.finish()
         }
     }
+}
 
-    pub struct raft_error([u8; RAFT_ERRMSG_BUF_SIZE as usize]);
+struct RaftError([u8; RAFT_ERRMSG_BUF_SIZE as usize]);
 
-    impl raft_error {
-        pub fn new() -> Self {
-            Self([0u8; RAFT_ERRMSG_BUF_SIZE as usize])
-        }
-
-        pub fn as_str(&self) -> &str {
-            CStr::from_bytes_until_nul(self.0.as_slice())
-                .unwrap()
-                .to_str()
-                .unwrap()
-        }
-
-        pub fn as_mut_ptr<T>(&mut self) -> *mut T {
-            self.0.as_mut_ptr() as *mut T
-        }
+impl RaftError {
+    fn new() -> Self {
+        Self([0u8; RAFT_ERRMSG_BUF_SIZE as usize])
     }
 
-    impl Debug for raft_error {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            f.write_str(self.as_str())
-        }
+    fn as_str(&self) -> &str {
+        CStr::from_bytes_until_nul(self.0.as_slice())
+            .unwrap()
+            .to_str()
+            .unwrap()
     }
 
-    impl Display for raft_error {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            f.write_str(self.as_str())
-        }
+    fn as_mut_ptr<T>(&mut self) -> *mut T {
+        self.0.as_mut_ptr() as *mut T
+    }
+}
+
+impl Error for RaftError {}
+
+impl Debug for RaftError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self.as_str())
+    }
+}
+
+impl Display for RaftError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self.as_str())
+    }
+}
+
+struct RaftPtr<T>(*mut T);
+
+impl<T> RaftPtr<T> {
+    fn new(ptr: *mut T) -> Self {
+        Self(ptr)
     }
 
-    pub struct RaftPtr<T>(*mut T);
-
-    impl<T> RaftPtr<T> {
-        pub fn new(ptr: *mut T) -> Self {
-            Self(ptr)
-        }
-
-        pub fn as_ptr(&self) -> *const T {
-            self.0
-        }
-
-        pub fn as_mut_ptr(&mut self) -> *mut T {
-            self.0
-        }
+    fn as_ptr(&self) -> *const T {
+        self.0
     }
 
-    impl<T> Drop for RaftPtr<T> {
-        fn drop(&mut self) {
-            unsafe { raft_free(self.0 as *mut _) };
-        }
+    fn as_mut_ptr(&mut self) -> *mut T {
+        self.0
     }
+}
 
-    impl<T> Deref for RaftPtr<T> {
-        type Target = T;
-
-        fn deref(&self) -> &Self::Target {
-            unsafe { &*self.0 }
-        }
+impl<T> Drop for RaftPtr<T> {
+    fn drop(&mut self) {
+        unsafe { raft_free(self.0 as *mut _) };
     }
+}
 
-    impl<T> DerefMut for RaftPtr<T> {
-        fn deref_mut(&mut self) -> &mut Self::Target {
-            unsafe { &mut *self.0 }
-        }
+impl<T> Deref for RaftPtr<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        unsafe { &*self.0 }
+    }
+}
+
+impl<T> DerefMut for RaftPtr<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unsafe { &mut *self.0 }
     }
 }
 
@@ -144,7 +146,7 @@ pub struct DqliteDir {
 
 impl DqliteDir {
     pub fn new(dir: &Path) -> Result<Self> {
-        let mut err = raft_error::new();
+        let mut err = RaftError::new();
 
         let mut snapshots = ptr::null_mut();
         let mut n_snapshots = 0usize;
