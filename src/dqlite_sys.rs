@@ -2,7 +2,7 @@ use std::{
     ffi::{CStr, CString},
     fmt::Debug,
     fs::File,
-    ops::Range,
+    ops::{DerefMut, Range},
     path::{Path, PathBuf},
     ptr,
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -22,6 +22,7 @@ mod bindings {
 
     use std::ffi::{CStr, OsStr};
     use std::fmt::{Debug, Display};
+    use std::ops::{Deref, DerefMut};
     use std::os::unix::ffi::OsStrExt;
 
     impl uvSnapshotInfo {
@@ -96,6 +97,42 @@ mod bindings {
             f.write_str(self.as_str())
         }
     }
+
+    pub struct RaftPtr<T>(*mut T);
+
+    impl<T> RaftPtr<T> {
+        pub fn new(ptr: *mut T) -> Self {
+            Self(ptr)
+        }
+
+        pub fn as_ptr(&self) -> *const T {
+            self.0
+        }
+
+        pub fn as_mut_ptr(&mut self) -> *mut T {
+            self.0
+        }
+    }
+
+    impl<T> Drop for RaftPtr<T> {
+        fn drop(&mut self) {
+            unsafe { raft_free(self.0 as *mut _) };
+        }
+    }
+
+    impl<T> Deref for RaftPtr<T> {
+        type Target = T;
+
+        fn deref(&self) -> &Self::Target {
+            unsafe { &*self.0 }
+        }
+    }
+
+    impl<T> DerefMut for RaftPtr<T> {
+        fn deref_mut(&mut self) -> &mut Self::Target {
+            unsafe { &mut *self.0 }
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -136,23 +173,19 @@ impl DqliteDir {
         assert!(n_snapshots == 0 || snapshots != ptr::null_mut());
         assert!(n_segments == 0 || segments != ptr::null_mut());
 
-        let snapshots = unsafe {
-            let vec = std::slice::from_raw_parts(snapshots, n_snapshots)
+        let snapshots = RaftPtr::new(snapshots);
+        let segments = RaftPtr::new(segments);
+
+        let snapshots: Vec<_> =
+            unsafe { std::slice::from_raw_parts(snapshots.as_ptr(), n_snapshots) }
                 .iter()
                 .map(|s| DqliteSnapshot::new(&dir, s))
-                .collect::<Result<_>>();
-            raft_free(snapshots as *mut _);
-            vec
-        };
-        let segments = unsafe {
-            let vec = std::slice::from_raw_parts(segments, n_segments)
-                .iter()
-                .map(|s| DqliteSegment::new(&dir, *s))
-                .collect::<Result<_>>();
-            raft_free(segments as *mut _);
-            vec
-        };
-        let (snapshots, segments) = (snapshots?, segments?);
+                .collect::<Result<_>>()?;
+
+        let segments: Vec<_> = unsafe { std::slice::from_raw_parts(segments.as_ptr(), n_segments) }
+            .iter()
+            .map(|s| DqliteSegment::new(&dir, *s))
+            .collect::<Result<_>>()?;
 
         Ok(Self {
             dir: PathBuf::from(dir),
