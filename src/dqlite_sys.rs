@@ -147,7 +147,7 @@ pub struct DqliteDir {
     dir: PathBuf,
     snapshots: Vec<DqliteSnapshot>,
     segments: Vec<DqliteSegment>,
-    start_index: u64,
+    first_index: u64,
 }
 
 impl DqliteDir {
@@ -206,12 +206,16 @@ impl DqliteDir {
             dir: PathBuf::from(dir),
             snapshots,
             segments,
-            start_index,
+            first_index: start_index,
         })
     }
 
     pub fn snapshots(&self) -> &[DqliteSnapshot] {
         &self.snapshots
+    }
+
+    pub fn snapshots_mut(&mut self) -> &mut [DqliteSnapshot] {
+        &mut self.snapshots
     }
 
     pub fn segments(&self) -> &[DqliteSegment] {
@@ -220,6 +224,10 @@ impl DqliteDir {
 
     pub fn segments_mut(&mut self) -> &mut [DqliteSegment] {
         &mut self.segments
+    }
+
+    pub fn first_index(&self) -> u64 {
+        self.first_index
     }
 }
 
