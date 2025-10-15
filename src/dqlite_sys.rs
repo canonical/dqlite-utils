@@ -77,9 +77,9 @@ impl RaftError {
 
     fn as_str(&self) -> &str {
         CStr::from_bytes_until_nul(self.0.as_slice())
-            .unwrap()
+            .expect("display malformet error message")
             .to_str()
-            .unwrap()
+            .expect("cannot display malformet error message")
     }
 
     fn as_mut_ptr<T>(&mut self) -> *mut T {
