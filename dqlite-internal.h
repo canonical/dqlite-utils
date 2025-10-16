@@ -20,7 +20,7 @@
 #define RAFT_ERRMSG_BUF_SIZE 256
 typedef unsigned long long raft_id, raft_term, raft_index, raft_time;
 
-enum {
+enum raft_result_code {
   RAFT_OK = 0,
   RAFT_NOMEM,            /* Out of memory */
   RAFT_BADID,            /* Server ID is not valid */
@@ -47,6 +47,9 @@ enum {
   RAFT_TOOMANY,      /* Some system or raft limit was hit */
   RAFT_ERROR,        /* Generic error */
 };
+
+typedef int raft_result;
+const char *raft_strerror(raft_result err);
 
 void *raft_malloc(size_t size);
 void raft_free(void *ptr);
@@ -80,8 +83,8 @@ struct uvSnapshotInfo {
   char filename[UV__FILENAME_LEN];
 };
 
-int UvList(const char *dir, struct uvSnapshotInfo *snapshots[],
-           size_t *n_snapshots, struct uvSegmentInfo *segments[],
-           size_t *n_segments, char errmsg[RAFT_ERRMSG_BUF_SIZE]);
+raft_result UvList(const char *dir, struct uvSnapshotInfo *snapshots[],
+                   size_t *n_snapshots, struct uvSegmentInfo *segments[],
+                   size_t *n_segments, char errmsg[RAFT_ERRMSG_BUF_SIZE]);
 
 #endif /* DQLITE_INTERNAL_H */
