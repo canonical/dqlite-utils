@@ -8,11 +8,13 @@ use git2::build::RepoBuilder;
 use git2::{FetchOptions, Repository};
 
 #[derive(Debug)]
-struct IgnoreMacros(HashSet<String>);
+struct DqliteBindgenRules {
+    ingoreMacros: HashSet<String>,
+}
 
-impl ParseCallbacks for IgnoreMacros {
+impl ParseCallbacks for DqliteBindgenRules {
     fn will_parse_macro(&self, name: &str) -> MacroParsingBehavior {
-        if self.0.contains(name) {
+        if self.ingoreMacros.contains(name) {
             MacroParsingBehavior::Ignore
         } else {
             MacroParsingBehavior::Default
@@ -46,19 +48,9 @@ fn main() {
         .header("dqlite-internal.h")
         .new_type_alias("raft_result")
         .constified_enum_module("raft_result_code")
-        .parse_callbacks(Box::new(IgnoreMacros(
-            [
-                "FP_INFINITE",
-                "FP_NAN",
-                "FP_NORMAL",
-                "FP_SUBNORMAL",
-                "FP_ZERO",
-                "IPPORT_RESERVED",
-            ]
-            .into_iter()
-            .map(|s| s.to_owned())
-            .collect(),
-        )))
+        .parse_callbacks(Box::new(DqliteBindgenRules {
+            ingoreMacros: HashSet::new(),
+        }))
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
         .derive_default(true)
         .derive_debug(false)
