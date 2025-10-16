@@ -8,13 +8,13 @@ use git2::build::RepoBuilder;
 use git2::{FetchOptions, Repository};
 
 #[derive(Debug)]
-struct DqliteBindgenRules {
-    ingoreMacros: HashSet<String>,
+struct BindgenRules {
+    ingore_macros: HashSet<String>,
 }
 
-impl ParseCallbacks for DqliteBindgenRules {
+impl ParseCallbacks for BindgenRules {
     fn will_parse_macro(&self, name: &str) -> MacroParsingBehavior {
-        if self.ingoreMacros.contains(name) {
+        if self.ingore_macros.contains(name) {
             MacroParsingBehavior::Ignore
         } else {
             MacroParsingBehavior::Default
@@ -22,10 +22,9 @@ impl ParseCallbacks for DqliteBindgenRules {
     }
 
     fn add_derives(&self, info: &DeriveInfo<'_>) -> Vec<String> {
-        if info.name == "raft_result" {
-            vec!["PartialEq".to_owned(), "Eq".to_owned()]
-        } else {
-            vec![]
+        match info.name {
+            "raft_result" => vec!["PartialEq".to_owned(), "Eq".to_owned()],
+            _ => vec![],
         }
     }
 }
@@ -48,8 +47,8 @@ fn main() {
         .header("dqlite-internal.h")
         .new_type_alias("raft_result")
         .constified_enum_module("raft_result_code")
-        .parse_callbacks(Box::new(DqliteBindgenRules {
-            ingoreMacros: HashSet::new(),
+        .parse_callbacks(Box::new(BindgenRules {
+            ingore_macros: HashSet::new(),
         }))
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
         .derive_default(true)
