@@ -5,6 +5,7 @@ use std::{
     fs::File,
     io::Read,
     ops::RangeInclusive,
+    os::unix::ffi::OsStrExt,
     path::{Path, PathBuf},
     ptr,
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -12,9 +13,9 @@ use std::{
 
 use anyhow::{Result, anyhow};
 
-use crate::dqlite_sys::bindings::raft_buffer;
-
-use self::bindings::{RAFT_ERRMSG_BUF_SIZE, raft_free, uvSegmentInfo, uvSnapshotInfo};
+use self::bindings::{
+    RAFT_ERRMSG_BUF_SIZE, raft_buffer, raft_free, raft_result, uvSegmentInfo, uvSnapshotInfo,
+};
 
 mod bindings {
     #![allow(non_upper_case_globals)]
@@ -24,9 +25,64 @@ mod bindings {
 
     include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
+    use std::error::Error;
     use std::ffi::{CStr, OsStr};
-    use std::fmt::Debug;
+    use std::fmt::{Debug, Display};
     use std::os::unix::ffi::OsStrExt;
+
+    impl raft_result {
+        pub const OK: Self = Self(raft_result_code::RAFT_OK as _);
+        pub const NOMEM: Self = Self(raft_result_code::RAFT_NOMEM as _);
+        pub const BADID: Self = Self(raft_result_code::RAFT_BADID as _);
+        pub const DUPLICATEID: Self = Self(raft_result_code::RAFT_DUPLICATEID as _);
+        pub const DUPLICATEADDRESS: Self = Self(raft_result_code::RAFT_DUPLICATEADDRESS as _);
+        pub const BADROLE: Self = Self(raft_result_code::RAFT_BADROLE as _);
+        pub const MALFORMED: Self = Self(raft_result_code::RAFT_MALFORMED as _);
+        pub const NOTLEADER: Self = Self(raft_result_code::RAFT_NOTLEADER as _);
+        pub const LEADERSHIPLOST: Self = Self(raft_result_code::RAFT_LEADERSHIPLOST as _);
+        pub const SHUTDOWN: Self = Self(raft_result_code::RAFT_SHUTDOWN as _);
+        pub const CANTBOOTSTRAP: Self = Self(raft_result_code::RAFT_CANTBOOTSTRAP as _);
+        pub const CANTCHANGE: Self = Self(raft_result_code::RAFT_CANTCHANGE as _);
+        pub const CORRUPT: Self = Self(raft_result_code::RAFT_CORRUPT as _);
+        pub const CANCELED: Self = Self(raft_result_code::RAFT_CANCELED as _);
+        pub const NAMETOOLONG: Self = Self(raft_result_code::RAFT_NAMETOOLONG as _);
+        pub const TOOBIG: Self = Self(raft_result_code::RAFT_TOOBIG as _);
+        pub const NOCONNECTION: Self = Self(raft_result_code::RAFT_NOCONNECTION as _);
+        pub const BUSY: Self = Self(raft_result_code::RAFT_BUSY as _);
+        pub const IOERR: Self = Self(raft_result_code::RAFT_IOERR as _);
+        pub const NOTFOUND: Self = Self(raft_result_code::RAFT_NOTFOUND as _);
+        pub const INVALID: Self = Self(raft_result_code::RAFT_INVALID as _);
+        pub const UNAUTHORIZED: Self = Self(raft_result_code::RAFT_UNAUTHORIZED as _);
+        pub const NOSPACE: Self = Self(raft_result_code::RAFT_NOSPACE as _);
+        pub const TOOMANY: Self = Self(raft_result_code::RAFT_TOOMANY as _);
+        pub const ERROR: Self = Self(raft_result_code::RAFT_ERROR as _);
+    }
+
+    impl Error for raft_result {}
+
+    impl Debug for raft_result {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(
+                f,
+                "{}",
+                unsafe { CStr::from_ptr(raft_strerror(*self)) }
+                    .to_str()
+                    .unwrap()
+            )
+        }
+    }
+
+    impl Display for raft_result {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(
+                f,
+                "{}",
+                unsafe { CStr::from_ptr(raft_strerror(*self)) }
+                    .to_str()
+                    .unwrap()
+            )
+        }
+    }
 
     impl raft_buffer {
         pub fn to_vec<T: Clone>(&self) -> Vec<T> {
@@ -77,9 +133,9 @@ mod bindings {
     }
 }
 
-struct RaftError([u8; RAFT_ERRMSG_BUF_SIZE as usize]);
+struct RaftErrorStr([u8; RAFT_ERRMSG_BUF_SIZE as usize]);
 
-impl RaftError {
+impl RaftErrorStr {
     fn new() -> Self {
         Self([0u8; RAFT_ERRMSG_BUF_SIZE as usize])
     }
@@ -96,15 +152,15 @@ impl RaftError {
     }
 }
 
-impl Error for RaftError {}
+impl Error for RaftErrorStr {}
 
-impl Debug for RaftError {
+impl Debug for RaftErrorStr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self.as_str())
     }
 }
 
-impl Display for RaftError {
+impl Display for RaftErrorStr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self.as_str())
     }
@@ -152,7 +208,7 @@ pub struct DqliteDir {
 
 impl DqliteDir {
     pub fn new(dir: &Path) -> Result<Self> {
-        let mut err = RaftError::new();
+        let mut err = RaftErrorStr::new();
 
         let mut snapshots = ptr::null_mut();
         let mut n_snapshots = 0usize;
@@ -162,7 +218,7 @@ impl DqliteDir {
 
         let result = unsafe {
             bindings::UvList(
-                CString::new(dir.to_str().unwrap()).unwrap().as_ptr(),
+                CString::new(dir.as_os_str().as_bytes()).unwrap().as_ptr(),
                 &mut snapshots,
                 &mut n_snapshots,
                 &mut segments,
@@ -171,7 +227,7 @@ impl DqliteDir {
             )
         };
 
-        if result != bindings::RAFT_OK as i32 {
+        if result != raft_result::OK {
             return Err(anyhow!("failed to list snapshots and segments: {}", err));
         }
 
@@ -341,13 +397,13 @@ impl DqliteSegmentContent {
 
         let mut result = Vec::new();
         let mut offset = 8;
-        let mut err = RaftError::new();
+        let mut err = RaftErrorStr::new();
         let mut last = false;
         while !last {
             let mut entries = ptr::null_mut();
             let mut n_entries = 0;
 
-            let rv = unsafe {
+            let rc = unsafe {
                 bindings::uvLoadEntriesBatch(
                     &raft_buffer {
                         base: buf.as_mut_ptr() as *mut _,
@@ -360,14 +416,13 @@ impl DqliteSegmentContent {
                     err.as_mut_ptr() as *mut _,
                 )
             };
-
-            if rv == bindings::RAFT_CORRUPT as _ {
+            if rc == raft_result::CORRUPT {
                 if buf[offset..].iter().all(|b| *b == 0) {
                     break;
                 } else {
                     return Err(anyhow!("corrupt segment file"));
                 }
-            } else if rv != bindings::RAFT_OK as _ {
+            } else if rc != raft_result::OK {
                 return Err(anyhow!("failed to load segment file: {}", err));
             }
 
