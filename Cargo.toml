@@ -20,5 +20,5 @@ path = "src/main.rs"
 [build-dependencies]
 autotools = "0.2"
 bindgen = "0.72.1"
-git2 = "0.18"
+git2 = "0.20"
 pkg-config = "0.3.32"
