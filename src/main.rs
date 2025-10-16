@@ -2,7 +2,6 @@ mod args;
 mod command;
 mod dqlite_sys;
 
-use std::fs::File;
 use std::io::{self, IsTerminal};
 use std::path::PathBuf;
 use std::process::ExitCode;

@@ -53,6 +53,8 @@ fn main() {
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
         .derive_default(true)
         .derive_debug(false)
+        .derive_copy(true)
+        .no_copy("uvSegmentBuffer")
         .generate()
         .expect("Unable to generate bindings");
 

@@ -91,6 +91,12 @@ mod bindings {
         }
     }
 
+    impl uv_buf_t {
+        pub unsafe fn as_bytes(&self) -> &[u8] {
+            unsafe { std::slice::from_raw_parts(self.base as *const _, self.len) }
+        }
+    }
+
     impl uvSnapshotInfo {
         pub fn filename(&self) -> &OsStr {
             OsStr::from_bytes(unsafe { CStr::from_ptr(self.filename.as_ptr()).to_bytes() })
@@ -130,6 +136,12 @@ mod bindings {
             }
 
             debug.finish()
+        }
+    }
+
+    impl Drop for uvSegmentBuffer {
+        fn drop(&mut self) {
+            unsafe { uvSegmentBufferClose(self) };
         }
     }
 }
@@ -183,12 +195,18 @@ impl<T> RaftPtr<T> {
     }
 
     unsafe fn as_slice(&self, len: usize) -> &[T] {
-        assert!(len != 0 || !self.0.is_null());
+        if len == 0 {
+            assert!(self.0.is_null());
+            return &[];
+        }
         unsafe { std::slice::from_raw_parts(self.0, len) }
     }
 
     unsafe fn as_mut_slice(&mut self, len: usize) -> &mut [T] {
-        assert!(len != 0 || !self.0.is_null());
+        if len == 0 {
+            assert!(self.0.is_null());
+            return &mut [];
+        }
         unsafe { std::slice::from_raw_parts_mut(self.0, len) }
     }
 }
@@ -221,6 +239,9 @@ impl DqliteDir {
         if rc != raft_result::OK {
             return Err(anyhow!("failed to load metadata: {}", err));
         }
+        if metadata.version == 0 {
+            return Err(anyhow!("not ad dqlite folder"));
+        }
 
         let mut snapshots = ptr::null_mut();
         let mut n_snapshots = 0usize;
@@ -242,9 +263,6 @@ impl DqliteDir {
             return Err(anyhow!("failed to list snapshots and segments: {}", err));
         }
 
-        if n_snapshots == 0 && n_segments == 0 {
-            return Err(anyhow!("not ad dqlite folder"));
-        }
         assert!(n_snapshots == 0 || snapshots != ptr::null_mut());
         assert!(n_segments == 0 || segments != ptr::null_mut());
 
@@ -253,7 +271,7 @@ impl DqliteDir {
 
         let snapshots: Vec<_> = unsafe { snapshots.as_slice(n_snapshots) }
             .iter()
-            .map(|s| DqliteSnapshot::new(&dir, s))
+            .map(|s| DqliteSnapshot::new(&dir, *s))
             .collect::<Result<_>>()?;
 
         let segments: Vec<_> = unsafe { segments.as_slice(n_segments) }
@@ -307,15 +325,12 @@ pub struct DqliteSnapshot {
 }
 
 impl DqliteSnapshot {
-    pub fn new(dir: &Path, snapshot: &uvSnapshotInfo) -> Result<Self> {
+    pub fn new(dir: &Path, snapshot: uvSnapshotInfo) -> Result<Self> {
         let path = dir.join(snapshot.filename());
 
         let file = File::open(path)?;
 
-        Ok(Self {
-            snapshot: *snapshot,
-            file,
-        })
+        Ok(Self { snapshot, file })
     }
 
     pub fn term(&self) -> u64 {
@@ -358,7 +373,7 @@ impl DqliteSegment {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct DqliteLogEntry {
     term: u64,
     /* TODO: save the deserialied entry instead of the raw data. This will also remove the need for the `entry_type` field. */
@@ -456,61 +471,265 @@ impl DqliteSegment {
 
 #[cfg(test)]
 mod tests {
-    use std::env;
+    use std::ffi::c_uint;
+    use std::io::Write;
+    use std::os::unix::ffi::OsStrExt;
+
+    use anyhow::Ok;
+    use tempfile::tempdir;
+
+    use crate::dqlite_sys::bindings::{
+        raft_entry, uv_buf_t, uvSegmentBuffer, uvSegmentBufferAppend, uvSegmentBufferFinalize,
+        uvSegmentBufferFormat, uvSegmentBufferInit,
+    };
 
     use super::*;
 
+    struct DqliteSegmentBuilder(Vec<Vec<DqliteLogEntry>>);
+
+    impl DqliteSegmentBuilder {
+        fn new() -> Self {
+            Self(Vec::new())
+        }
+
+        /* Adds a single batch containing entries to the segment. */
+        fn add_batch(mut self, entries: Vec<DqliteLogEntry>) -> Self {
+            self.0.push(entries);
+            self
+        }
+
+        /* Adds entries to the segment, using one batch each. */
+        fn add_entries(mut self, entries: &[DqliteLogEntry]) -> Self {
+            for entry in entries {
+                self.0.push(vec![entry.clone()]);
+            }
+            self
+        }
+
+        fn write_to(&self, file: &mut File) -> Result<()> {
+            let mut buf = uvSegmentBuffer::default();
+            unsafe { uvSegmentBufferInit(&mut buf, 4096) };
+
+            let rc = unsafe { uvSegmentBufferFormat(&mut buf) };
+            if rc != raft_result::OK {
+                return Err(anyhow!("failed to format segment buffer: {}", rc));
+            }
+
+            for batch in self.0.iter() {
+                let entries: Vec<_> = batch
+                    .iter()
+                    .map(|e| raft_entry {
+                        term: e.term,
+                        type_: e.entry_type,
+                        buf: raft_buffer {
+                            /* Safety: the buffer is only used within this block and it is only ever read from. */
+                            base: e.data.as_ptr() as *mut _,
+                            len: e.data.len(),
+                        },
+                        ..Default::default()
+                    })
+                    .collect();
+                let rc = unsafe {
+                    uvSegmentBufferAppend(&mut buf, entries.as_ptr(), entries.len() as c_uint)
+                };
+                if rc != raft_result::OK {
+                    return Err(anyhow!("failed to append to segment buffer: {}", rc));
+                }
+            }
+
+            let mut write_buffer = uv_buf_t::default();
+            unsafe { uvSegmentBufferFinalize(&mut buf, &mut write_buffer) };
+            file.write_all(unsafe { write_buffer.as_bytes() })?;
+
+            Ok(())
+        }
+    }
+
+    struct DqliteDirBuilder {
+        term: u64,
+        voted_for: u64,
+        first_index: u64,
+        closed_segments: Vec<DqliteSegmentBuilder>,
+        open_segments: Vec<DqliteSegmentBuilder>,
+    }
+
+    impl DqliteDirBuilder {
+        fn new(term: u64, voted_for: u64, first_index: u64) -> Self {
+            Self {
+                term,
+                voted_for,
+                first_index,
+                closed_segments: Vec::new(),
+                open_segments: Vec::new(),
+            }
+        }
+
+        fn add_closed_segment(mut self, segment: DqliteSegmentBuilder) -> Self {
+            assert!(segment.0.len() > 0);
+            self.closed_segments.push(segment);
+            self
+        }
+
+        fn add_open_segment(mut self, segment: DqliteSegmentBuilder) -> Self {
+            self.open_segments.push(segment);
+            self
+        }
+
+        fn build(&mut self, dir: &Path) -> Result<()> {
+            let mut err = RaftErrorStr::new();
+
+            let rc = unsafe {
+                bindings::uvMetadataStore(
+                    CString::new(dir.as_os_str().as_bytes()).unwrap().as_ptr(),
+                    &bindings::uvMetadata {
+                        version: 1,
+                        term: self.term,
+                        voted_for: self.voted_for,
+                    },
+                    err.as_mut_ptr(),
+                )
+            };
+            if rc != raft_result::OK {
+                return Err(anyhow!("failed to store metadata: {}", err));
+            }
+
+            let mut path = PathBuf::from(dir);
+            let mut index = self.first_index;
+            for closed_segment in self.closed_segments.iter() {
+                let last_index = index + closed_segment.0.len() as u64 - 1;
+                path.push(format!("{:0>16}-{:0>16}", index, last_index));
+
+                let mut file = File::create(path.as_path())?;
+                closed_segment.write_to(&mut file)?;
+
+                path.pop();
+                index = last_index + 1;
+            }
+
+            let mut index = 0;
+            for open_segment in self.open_segments.iter() {
+                path.push(format!("open-{}", index));
+
+                let mut file = File::create(path.as_path())?;
+                open_segment.write_to(&mut file)?;
+
+                path.pop();
+                index = index + 1;
+            }
+
+            Ok(())
+        }
+    }
+
     #[test]
     fn test_non_dqlite_folder() {
-        let dir = Path::new(".");
-        let err = DqliteDir::new(dir).unwrap_err();
+        let dir = tempdir().unwrap();
+        let err = DqliteDir::new(dir.path()).unwrap_err();
 
         assert!(err.to_string().contains("not ad dqlite folder"));
     }
 
     #[test]
-    fn test_load_folder() {
-        let dir = env::var_os("DQLITE_DATA_DIR");
-        let dir = match &dir {
-            Some(dir) => Path::new(dir),
-            None => return,
-        };
+    fn test_metadata_only() {
+        let dir = tempdir().unwrap();
+        DqliteDirBuilder::new(1, 0, 1).build(dir.path()).unwrap();
 
-        let dqlite = DqliteDir::new(dir).expect("cannot open dqlite dir");
+        let state = DqliteDir::new(dir.path()).unwrap();
+        assert_eq!(state.term(), 1);
+        assert_eq!(state.voted_for(), 0);
+        assert_eq!(state.first_index(), 1);
+        assert_eq!(state.snapshots().len(), 0);
+        assert_eq!(state.segments().len(), 0);
 
-        assert!(dqlite.term() > 0);
-        assert!(dqlite.voted_for() == 0);
-        assert!(dqlite.snapshots().len() > 0);
-        assert!(dqlite.segments().len() > 0);
+        drop(dir)
+    }
 
-        let mut min_index = u64::MAX;
-        let mut max_index = 0;
+    #[test]
+    fn test_single_closed_segment() {
+        let dir = tempdir().unwrap();
+        let entries = [
+            DqliteLogEntry {
+                term: 1,
+                entry_type: 1,
+                data: vec![0u8; 1000],
+            },
+            DqliteLogEntry {
+                term: 1,
+                entry_type: 2,
+                data: vec![1u8; 40],
+            },
+            DqliteLogEntry {
+                term: 2,
+                entry_type: 3,
+                data: vec![2u8; 128],
+            },
+        ];
+        DqliteDirBuilder::new(3, 1, 1000)
+            .add_closed_segment(DqliteSegmentBuilder::new().add_entries(&entries))
+            .build(dir.path())
+            .unwrap();
 
-        for segment in dqlite.segments() {
-            let entries = segment.entries().expect("cannot load entries");
-            let indexes = match segment {
-                DqliteSegment::Closed { indexes, .. } => {
-                    assert!(entries.len() == indexes.clone().count());
-                    indexes
-                }
-                DqliteSegment::Open { .. } => continue,
-            };
-            let start = *indexes.start();
-            let end = *indexes.end();
-            if start < min_index {
-                min_index = start;
-            }
-            if end > max_index {
-                max_index = end;
-            }
+        let state = DqliteDir::new(dir.path()).unwrap();
+        assert_eq!(state.term(), 3);
+        assert_eq!(state.voted_for(), 1);
+        assert_eq!(state.first_index(), 1000);
+        assert_eq!(state.snapshots().len(), 0);
+
+        let segment = &state.segments()[0];
+
+        if let DqliteSegment::Closed { indexes, .. } = segment {
+            assert_eq!(*indexes.start(), 1000);
+            assert_eq!(indexes.clone().count(), entries.len());
+        } else {
+            panic!("expected closed segment");
         }
 
-        assert!(min_index > 0);
-        assert!(max_index > min_index);
+        assert_eq!(entries, segment.entries().unwrap());
 
-        for snapshot in dqlite.snapshots() {
-            assert!(snapshot.index() >= min_index);
-            assert!(snapshot.index() <= max_index);
+        drop(dir)
+    }
+
+    #[test]
+    fn test_single_open_segment() {
+        let dir = tempdir().unwrap();
+        let entries = [
+            DqliteLogEntry {
+                term: 1,
+                entry_type: 1,
+                data: vec![0u8; 1000],
+            },
+            DqliteLogEntry {
+                term: 1,
+                entry_type: 2,
+                data: vec![1u8; 40],
+            },
+            DqliteLogEntry {
+                term: 2,
+                entry_type: 3,
+                data: vec![2u8; 128],
+            },
+        ];
+        DqliteDirBuilder::new(3, 1, 1)
+            .add_open_segment(DqliteSegmentBuilder::new().add_entries(&entries))
+            .build(dir.path())
+            .unwrap();
+
+        let state = DqliteDir::new(dir.path()).unwrap();
+        assert_eq!(state.term(), 3);
+        assert_eq!(state.voted_for(), 1);
+        assert_eq!(state.first_index(), 1);
+        assert_eq!(state.snapshots().len(), 0);
+
+        let segment = &state.segments()[0];
+
+        if let DqliteSegment::Open { counter, .. } = segment {
+            assert_eq!(*counter, 0);
+        } else {
+            panic!("expected closed segment");
         }
+
+        assert_eq!(entries, segment.entries().unwrap());
+
+        drop(dir)
     }
 }
