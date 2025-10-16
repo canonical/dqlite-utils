@@ -150,10 +150,10 @@ impl DqliteDir {
         let mut err = RaftError::new();
 
         let mut metadata = uvMetadata::default();
-        let rv = unsafe {
+        let rc = unsafe {
             bindings::uvMetadataLoad(cdir.as_ptr(), &mut metadata as *mut _, err.as_mut_ptr())
         };
-        if rv != bindings::RAFT_OK as _ {
+        if rc != bindings::RAFT_OK as _ {
             return Err(anyhow!("failed to load metadata: {}", err));
         }
 
