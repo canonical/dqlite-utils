@@ -12,7 +12,9 @@ use std::{
 
 use anyhow::{Result, anyhow};
 
-use self::bindings::{RAFT_ERRMSG_BUF_SIZE, raft_free, raft_result, uvSegmentInfo, uvSnapshotInfo};
+use self::bindings::{
+    RAFT_ERRMSG_BUF_SIZE, raft_free, raft_result, uvMetadata, uvSegmentInfo, uvSnapshotInfo,
+};
 
 mod bindings {
     #![allow(non_upper_case_globals)]
@@ -194,11 +196,22 @@ pub struct DqliteDir {
     dir: PathBuf,
     snapshots: Vec<DqliteSnapshot>,
     segments: Vec<DqliteSegment>,
+    term: u64,
+    voted_for: u64,
 }
 
 impl DqliteDir {
     pub fn new(dir: &Path) -> Result<Self> {
+        let cdir = CString::new(dir.as_os_str().as_bytes()).unwrap();
         let mut err = RaftErrorStr::new();
+
+        let mut metadata = uvMetadata::default();
+        let rc = unsafe {
+            bindings::uvMetadataLoad(cdir.as_ptr(), &mut metadata as *mut _, err.as_mut_ptr())
+        };
+        if rc != raft_result::OK {
+            return Err(anyhow!("failed to load metadata: {}", err));
+        }
 
         let mut snapshots = ptr::null_mut();
         let mut n_snapshots = 0usize;
@@ -206,7 +219,7 @@ impl DqliteDir {
         let mut segments = ptr::null_mut();
         let mut n_segments = 0usize;
 
-        let result = unsafe {
+        let rc = unsafe {
             bindings::UvList(
                 CString::new(dir.as_os_str().as_bytes()).unwrap().as_ptr(),
                 &mut snapshots,
@@ -216,8 +229,7 @@ impl DqliteDir {
                 err.as_mut_ptr(),
             )
         };
-
-        if result != raft_result::OK {
+        if rc != raft_result::OK {
             return Err(anyhow!("failed to list snapshots and segments: {}", err));
         }
 
@@ -244,6 +256,8 @@ impl DqliteDir {
             dir: PathBuf::from(dir),
             snapshots,
             segments,
+            term: metadata.term,
+            voted_for: metadata.voted_for,
         })
     }
 
@@ -253,6 +267,14 @@ impl DqliteDir {
 
     pub fn segments(&self) -> &[DqliteSegment] {
         &self.segments
+    }
+
+    pub fn term(&self) -> u64 {
+        self.term
+    }
+
+    pub fn voted_for(&self) -> u64 {
+        self.voted_for
     }
 }
 
@@ -342,6 +364,8 @@ mod tests {
 
         let dqlite = DqliteDir::new(dir).expect("cannot open dqlite dir");
 
+        assert!(dqlite.term() > 0);
+        assert!(dqlite.voted_for() == 0);
         assert!(dqlite.snapshots().len() > 0);
         assert!(dqlite.segments().len() > 0);
 
