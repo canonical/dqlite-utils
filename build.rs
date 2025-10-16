@@ -3,19 +3,28 @@ use std::env;
 use std::ffi::OsString;
 use std::path::PathBuf;
 
-use bindgen::callbacks::{MacroParsingBehavior, ParseCallbacks};
+use bindgen::callbacks::{DeriveInfo, MacroParsingBehavior, ParseCallbacks};
 use git2::build::RepoBuilder;
 use git2::{FetchOptions, Repository};
 
 #[derive(Debug)]
-struct IgnoreMacros(HashSet<String>);
+struct BindgenRules {
+    ingore_macros: HashSet<String>,
+}
 
-impl ParseCallbacks for IgnoreMacros {
+impl ParseCallbacks for BindgenRules {
     fn will_parse_macro(&self, name: &str) -> MacroParsingBehavior {
-        if self.0.contains(name) {
+        if self.ingore_macros.contains(name) {
             MacroParsingBehavior::Ignore
         } else {
             MacroParsingBehavior::Default
+        }
+    }
+
+    fn add_derives(&self, info: &DeriveInfo<'_>) -> Vec<String> {
+        match info.name {
+            "raft_result" => vec!["PartialEq".to_owned(), "Eq".to_owned()],
+            _ => vec![],
         }
     }
 }
@@ -36,19 +45,11 @@ fn main() {
 
     let bindings = bindgen::Builder::default()
         .header("dqlite-internal.h")
-        .parse_callbacks(Box::new(IgnoreMacros(
-            [
-                "FP_INFINITE",
-                "FP_NAN",
-                "FP_NORMAL",
-                "FP_SUBNORMAL",
-                "FP_ZERO",
-                "IPPORT_RESERVED",
-            ]
-            .into_iter()
-            .map(|s| s.to_owned())
-            .collect(),
-        )))
+        .new_type_alias("raft_result")
+        .constified_enum_module("raft_result_code")
+        .parse_callbacks(Box::new(BindgenRules {
+            ingore_macros: HashSet::new(),
+        }))
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
         .derive_default(true)
         .derive_debug(false)
