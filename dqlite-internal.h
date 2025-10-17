@@ -122,6 +122,58 @@ struct uvSnapshotInfo {
   char filename[UV__FILENAME_LEN];
 };
 
+enum raft_role {
+  RAFT_STANDBY, /* Replicate log, does not participate in quorum. */
+  RAFT_VOTER,   /* Replicate log, does participate in quorum. */
+  RAFT_SPARE    /* Does not replicate log, or participate in quorum. */
+};
+
+struct raft_server {
+  raft_id id;    /* Server ID, must be greater than zero. */
+  char *address; /* Server address. User defined. */
+  int role;      /* Server role. */
+};
+
+struct raft_configuration {
+  struct raft_server *servers; /* Array of servers member of the cluster. */
+  unsigned n;                  /* Number of servers in the array. */
+};
+
+void configurationInit(struct raft_configuration *c);
+raft_result configurationAdd(struct raft_configuration *c, raft_id id,
+                             const char *address, int role);
+raft_result configurationEncode(const struct raft_configuration *c,
+                                struct raft_buffer *buf);
+void configurationClose(struct raft_configuration *c);
+
+struct raft_snapshot {
+  /* Index and term of last entry included in the snapshot. */
+  raft_index index;
+  raft_term term;
+
+  /* Last committed configuration included in the snapshot, along with the
+   * index it was committed at. */
+  struct raft_configuration configuration;
+  raft_index configuration_index;
+
+  /* Content of the snapshot. When a snapshot is taken, the user FSM can
+   * fill the bufs array with more than one buffer. When a snapshot is
+   * restored, there will always be a single buffer. */
+  struct raft_buffer *bufs;
+  unsigned n_bufs;
+};
+
+void snapshotClose(struct raft_snapshot *s);
+
+void formatSnapshotMetaHeader(void *header, raft_index index,
+                              const struct raft_buffer *content);
+
+raft_result uvSnapshotLoadMeta(const char *dir,
+                               const struct uvSnapshotInfo *info,
+                               struct raft_snapshot *snapshot, char *errmsg);
+
+raft_result encodeSnapshotHeader(size_t n, struct raft_buffer *buf);
+
 raft_result UvList(const char *dir, struct uvSnapshotInfo *snapshots[],
                    size_t *n_snapshots, struct uvSegmentInfo *segments[],
                    size_t *n_segments, char errmsg[RAFT_ERRMSG_BUF_SIZE]);

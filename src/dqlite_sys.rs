@@ -14,8 +14,9 @@ use std::{
 use anyhow::{Result, anyhow};
 
 use self::bindings::{
-    RAFT_ERRMSG_BUF_SIZE, raft_buffer, raft_free, raft_result, uvMetadata, uvSegmentInfo,
-    uvSnapshotInfo,
+    RAFT_ERRMSG_BUF_SIZE, configurationEncode, encodeSnapshotHeader, formatSnapshotMetaHeader,
+    raft_buffer, raft_configuration, raft_free, raft_index, raft_result, raft_role, raft_server,
+    raft_snapshot, uvMetadata, uvSegmentInfo, uvSnapshotInfo, uvSnapshotLoadMeta,
 };
 
 mod bindings {
@@ -142,6 +143,18 @@ mod bindings {
     impl Drop for uvSegmentBuffer {
         fn drop(&mut self) {
             unsafe { uvSegmentBufferClose(self) };
+        }
+    }
+
+    impl Drop for raft_configuration {
+        fn drop(&mut self) {
+            unsafe { configurationClose(self) };
+        }
+    }
+
+    impl Drop for raft_snapshot {
+        fn drop(&mut self) {
+            unsafe { snapshotClose(self) };
         }
     }
 }
@@ -273,19 +286,19 @@ impl DqliteDir {
 
         let snapshots: Vec<_> = unsafe { snapshots.as_slice(n_snapshots) }
             .iter()
-            .map(|s| DqliteSnapshot::new(&dir, *s))
+            .map(|s| DqliteSnapshot::new(&dir, s))
             .collect::<Result<_>>()?;
 
         let segments: Vec<_> = unsafe { segments.as_slice(n_segments) }
             .iter()
-            .map(|s| DqliteSegment::new(&dir, *s))
+            .map(|s| DqliteSegment::new(&dir, s))
             .collect::<Result<_>>()?;
 
         let start_index = segments
             .first()
             .and_then(|s| match &s {
                 DqliteSegment::Closed { indexes, .. } => Some(*indexes.start()),
-                DqliteSegment::Open { .. } => snapshots.first().map(|s| s.index() + 1),
+                DqliteSegment::Open { .. } => snapshots.first().map(|s| s.index + 1),
             })
             .unwrap_or(1);
 
@@ -322,29 +335,94 @@ impl DqliteDir {
 
 #[derive(Debug)]
 pub struct DqliteSnapshot {
-    snapshot: uvSnapshotInfo,
+    pub term: u64,
+    pub index: u64,
+    pub timestamp: SystemTime,
+    pub configuration: RaftConfiguration,
     file: File,
 }
 
-impl DqliteSnapshot {
-    pub fn new(dir: &Path, snapshot: uvSnapshotInfo) -> Result<Self> {
-        let path = dir.join(snapshot.filename());
+#[derive(Debug, Clone, PartialEq)]
+pub struct RaftConfiguration {
+    pub index: u64, // TODO: not sure about this one, maybe it should be stored outside of this struct?
+    pub servers: Vec<RaftServer>,
+}
 
+impl RaftConfiguration {
+    fn from(configuration: &raft_configuration, index: raft_index) -> Result<Self> {
+        let mut servers = Vec::new();
+        servers.reserve(configuration.n as usize);
+        for server in
+            unsafe { std::slice::from_raw_parts(configuration.servers, configuration.n as usize) }
+        {
+            servers.push(RaftServer::from(server)?);
+        }
+        Ok(Self {
+            index: index as u64,
+            servers,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RaftServer {
+    pub id: u64,
+    pub address: String,
+    pub role: RaftRole,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum RaftRole {
+    Standby,
+    Voter,
+    Spare,
+}
+
+impl RaftServer {
+    fn from(server: &raft_server) -> Result<Self> {
+        let role = match server.role as _ {
+            raft_role::RAFT_STANDBY => RaftRole::Standby,
+            raft_role::RAFT_VOTER => RaftRole::Voter,
+            raft_role::RAFT_SPARE => RaftRole::Spare,
+            _ => return Err(anyhow!("invalid role")),
+        };
+        Ok(Self {
+            id: server.id,
+            address: unsafe { CStr::from_ptr(server.address).to_str()?.to_owned() },
+            role,
+        })
+    }
+}
+
+impl DqliteSnapshot {
+    pub fn new(dir: &Path, snapshot: &uvSnapshotInfo) -> Result<Self> {
+        let mut metadata = raft_snapshot::default();
+        let mut err = RaftErrorStr::new();
+        let rc = unsafe {
+            uvSnapshotLoadMeta(
+                CStr::from_bytes_with_nul_unchecked(dir.as_os_str().as_bytes()).as_ptr(),
+                snapshot,
+                &mut metadata,
+                err.as_mut_ptr(),
+            )
+        };
+        if rc != raft_result::OK {
+            return Err(anyhow!("failed to load metadata: {err}"));
+        }
+
+        let mut path = dir.join(snapshot.filename());
+        path.set_extension("");
         let file = File::open(path)?;
 
-        Ok(Self { snapshot, file })
-    }
+        let configuration = RaftConfiguration::from(&metadata.configuration, snapshot.index)?;
 
-    pub fn term(&self) -> u64 {
-        self.snapshot.term
-    }
-
-    pub fn index(&self) -> u64 {
-        self.snapshot.index
-    }
-
-    pub fn timestamp(&self) -> SystemTime {
-        UNIX_EPOCH + Duration::from_millis(self.snapshot.timestamp)
+        Ok(Self {
+            term: snapshot.term,
+            index: snapshot.index,
+            timestamp: UNIX_EPOCH + Duration::from_millis(snapshot.timestamp),
+            configuration,
+            file,
+        })
     }
 }
 
@@ -384,7 +462,7 @@ pub struct DqliteLogEntry {
 }
 
 impl DqliteSegment {
-    pub fn new(dir: &Path, segment: uvSegmentInfo) -> Result<Self> {
+    pub fn new(dir: &Path, segment: &uvSegmentInfo) -> Result<Self> {
         let path = dir.join(segment.filename());
         // It is important to open the file here, as soon as possible,
         // so that in case dqlite is running and decides to remove or
@@ -476,10 +554,11 @@ mod tests {
     use std::ffi::c_uint;
     use std::io::Write;
     use std::os::unix::ffi::OsStrExt;
+    use std::str::FromStr;
 
     use super::bindings::{
-        raft_entry, uv_buf_t, uvSegmentBuffer, uvSegmentBufferAppend, uvSegmentBufferFinalize,
-        uvSegmentBufferFormat, uvSegmentBufferInit,
+        configurationAdd, configurationInit, raft_entry, uv_buf_t, uvSegmentBuffer,
+        uvSegmentBufferAppend, uvSegmentBufferFinalize, uvSegmentBufferFormat, uvSegmentBufferInit,
     };
 
     use super::*;
@@ -544,6 +623,95 @@ mod tests {
         }
     }
 
+    struct DqliteSnapshotBuilder {
+        term: u64,
+        index: u64,
+        timestamp: SystemTime,
+        configuration: RaftConfiguration,
+    }
+
+    impl DqliteSnapshotBuilder {
+        fn new(
+            term: u64,
+            index: u64,
+            timestamp: SystemTime,
+            configuration: RaftConfiguration,
+        ) -> Self {
+            Self {
+                term,
+                index,
+                timestamp,
+                configuration,
+            }
+        }
+
+        // TODO: add method to add databases in the snapshot. For not the snapshot will be empty (data-wise).
+        fn write_to(&self, folder: &Path) -> Result<()> {
+            let mut path = folder.join(format!(
+                "snapshot-{}-{}-{}",
+                self.term,
+                self.index,
+                self.timestamp.duration_since(UNIX_EPOCH)?.as_millis()
+            ));
+
+            {
+                let mut data = File::create(&path)?;
+                let mut header_buf = raft_buffer::default();
+                let rc = unsafe { encodeSnapshotHeader(0, &mut header_buf) };
+                if rc != raft_result::OK {
+                    return Err(anyhow!("failed to encode snapshot header"));
+                }
+                let result = data.write_all(unsafe { header_buf.as_bytes() });
+                unsafe { raft_free(header_buf.base) };
+                result?;
+            }
+
+            {
+                path.set_extension("meta");
+                let mut meta = File::create(path)?;
+
+                let mut config = raft_configuration::default();
+                unsafe { configurationInit(&mut config) };
+
+                for server in &self.configuration.servers {
+                    let rc = unsafe {
+                        configurationAdd(
+                            &mut config,
+                            server.id,
+                            CString::from_str(server.address.as_str()).unwrap().as_ptr(),
+                            match server.role {
+                                RaftRole::Standby => raft_role::RAFT_STANDBY,
+                                RaftRole::Voter => raft_role::RAFT_VOTER,
+                                RaftRole::Spare => raft_role::RAFT_SPARE,
+                            } as _,
+                        )
+                    };
+                    if rc != raft_result::OK {
+                        return Err(anyhow!("failed to add server to configuration"));
+                    }
+                }
+
+                let mut config_buf = raft_buffer::default();
+                let rc = unsafe { configurationEncode(&config, &mut config_buf) };
+                if rc != raft_result::OK {
+                    return Err(anyhow!("failed to encode configuration"));
+                }
+
+                let mut header = [0u8; 32];
+                unsafe {
+                    formatSnapshotMetaHeader(header.as_mut_ptr() as *mut _, self.index, &config_buf)
+                };
+                let result = meta
+                    .write_all(header.as_slice())
+                    .and_then(|_| meta.write_all(unsafe { config_buf.as_bytes() }));
+                unsafe { raft_free(config_buf.base) };
+                result?;
+            }
+
+            Ok(())
+        }
+    }
+
     struct DqliteDirWriter {
         dir: PathBuf,
         term: u64,
@@ -551,6 +719,7 @@ mod tests {
         first_index: u64,
         closed_segments: Vec<DqliteSegmentBuilder>,
         open_segments: Vec<DqliteSegmentBuilder>,
+        snapshots: Vec<DqliteSnapshotBuilder>,
     }
 
     impl DqliteDirWriter {
@@ -562,6 +731,7 @@ mod tests {
                 first_index,
                 closed_segments: Vec::new(),
                 open_segments: Vec::new(),
+                snapshots: Vec::new(),
             }
         }
 
@@ -576,7 +746,12 @@ mod tests {
             self
         }
 
-        fn write(&self) -> Result<()> {
+        fn add_snapshot(mut self, snapshot: DqliteSnapshotBuilder) -> Self {
+            self.snapshots.push(snapshot);
+            self
+        }
+
+        fn write(&mut self) -> Result<()> {
             let mut err = RaftErrorStr::new();
 
             let rc = unsafe {
@@ -618,6 +793,10 @@ mod tests {
 
                 path.pop();
                 index += 1;
+            }
+
+            for snapshot in self.snapshots.iter() {
+                snapshot.write_to(self.dir.as_path())?;
             }
 
             Ok(())
@@ -738,5 +917,43 @@ mod tests {
         assert_eq!(entries, segment.entries().unwrap());
 
         drop(dir)
+    }
+
+    #[test]
+    fn test_snapshots() {
+        let dir = tempfile::tempdir().unwrap();
+        let configuration = RaftConfiguration {
+            index: 1,
+            servers: vec![RaftServer {
+                id: 1,
+                address: "127.0.0.1:8080".to_owned(),
+                role: RaftRole::Voter,
+            }],
+        };
+        let timestamp = UNIX_EPOCH
+            + Duration::from_millis(
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis() as u64,
+            );
+        DqliteDirWriter::new(dir.path().to_path_buf(), 3, 1, 1)
+            .add_snapshot(DqliteSnapshotBuilder::new(
+                3,
+                1,
+                SystemTime::now(),
+                configuration.clone(),
+            ))
+            .write()
+            .unwrap();
+
+        let state = DqliteDir::open(dir.path()).unwrap();
+
+        let snapshots = state.snapshots();
+        assert_eq!(snapshots.len(), 1);
+        assert_eq!(snapshots[0].term, 3);
+        assert_eq!(snapshots[0].index, 1);
+        assert_eq!(snapshots[0].timestamp, timestamp);
+        assert_eq!(snapshots[0].configuration, configuration);
     }
 }
