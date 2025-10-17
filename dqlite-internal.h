@@ -5,12 +5,7 @@
 #include <stddef.h>
 
 #define UV__DISK_FORMAT 1
-#define UV__PATH_SZ 1024
 #define UV__FILENAME_LEN 128
-#define UV__SEP_LEN 1
-#define UV__DIR_LEN (UV__PATH_SZ - UV__SEP_LEN - UV__FILENAME_LEN - 1)
-#define UV__MAX_SEGMENT_SIZE (8 * 1024 * 1024)
-
 #define UV__SEGMENT_FILENAME_BUF_SIZE 34
 
 /* Template string for snapshot metadata filenames: snapshot term,  snapshot
