@@ -369,6 +369,9 @@ pub struct DqliteLogEntry {
 impl DqliteSegment {
     pub fn new(dir: &Path, segment: uvSegmentInfo) -> Result<Self> {
         let path = dir.join(segment.filename());
+        // It is important to open the file here, as soon as possible,
+        // so that in case dqlite is running and decides to remove or
+        // rename a segment file then we can still load the entries.
         let file = File::open(path)?;
         let content = LazyCell::new(Box::new(move || Self::load_segment_file(file)));
         if segment.is_open {
