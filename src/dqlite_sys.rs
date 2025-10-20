@@ -353,7 +353,7 @@ impl DqliteSegment {
         };
         Ok(content
             .as_ref()
-            .map_err(|e| anyhow!("cannot load entries: {e}"))?
+            .map_err(|err| anyhow!("cannot load entries: {err}"))?
             .as_slice())
     }
 }
