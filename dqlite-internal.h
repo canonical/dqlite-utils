@@ -4,12 +4,8 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-#define UV__PATH_SZ 1024
+#define UV__DISK_FORMAT 1
 #define UV__FILENAME_LEN 128
-#define UV__SEP_LEN 1
-#define UV__DIR_LEN (UV__PATH_SZ - UV__SEP_LEN - UV__FILENAME_LEN - 1)
-#define UV__MAX_SEGMENT_SIZE (8 * 1024 * 1024)
-
 #define UV__SEGMENT_FILENAME_BUF_SIZE 34
 
 /* Template string for snapshot metadata filenames: snapshot term,  snapshot
@@ -54,6 +50,25 @@ const char *raft_strerror(raft_result err);
 void *raft_malloc(size_t size);
 void raft_free(void *ptr);
 
+struct raft_buffer {
+  void *base; /* Pointer to the buffer data. */
+  size_t len; /* Length of the buffer. */
+};
+
+enum {
+  RAFT_COMMAND = 1, /* Command for the application FSM. */
+  RAFT_BARRIER,     /* Wait for all previous commands to be applied. */
+  RAFT_CHANGE       /* Raft configuration change. */
+};
+
+struct raft_entry {
+  raft_term term;      /* Term in which the entry was created. */
+  unsigned short type; /* Type (FSM command, barrier, config change). */
+  bool is_local;       /* Placed here so it goes in the padding after @type. */
+  struct raft_buffer buf; /* Entry data. */
+  void *batch;            /* Batch that buf's memory points to, if any. */
+};
+
 /* Information persisted in a single metadata file. */
 struct uvMetadata {
   unsigned long long version; /* Monotonically increasing version */
@@ -89,5 +104,10 @@ struct uvSnapshotInfo {
 raft_result UvList(const char *dir, struct uvSnapshotInfo *snapshots[],
                    size_t *n_snapshots, struct uvSegmentInfo *segments[],
                    size_t *n_segments, char errmsg[RAFT_ERRMSG_BUF_SIZE]);
+
+raft_result uvLoadEntriesBatch(const struct raft_buffer *content,
+                               struct raft_entry **entries, unsigned *n_entries,
+                               size_t *offset, /* Offset of last batch */
+                               bool *last, char errmsg[RAFT_ERRMSG_BUF_SIZE]);
 
 #endif /* DQLITE_INTERNAL_H */

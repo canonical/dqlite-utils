@@ -3,7 +3,8 @@ use std::{
     ffi::{CStr, CString},
     fmt::{Debug, Display},
     fs::File,
-    ops::Range,
+    io::Read,
+    ops::RangeInclusive,
     os::unix::ffi::OsStrExt,
     path::{Path, PathBuf},
     ptr,
@@ -13,7 +14,8 @@ use std::{
 use anyhow::{Result, anyhow};
 
 use self::bindings::{
-    RAFT_ERRMSG_BUF_SIZE, raft_free, raft_result, uvMetadata, uvSegmentInfo, uvSnapshotInfo,
+    RAFT_ERRMSG_BUF_SIZE, raft_buffer, raft_free, raft_result, uvMetadata, uvSegmentInfo,
+    uvSnapshotInfo,
 };
 
 mod bindings {
@@ -80,6 +82,12 @@ mod bindings {
                     .to_str()
                     .unwrap()
             )
+        }
+    }
+
+    impl raft_buffer {
+        pub unsafe fn as_bytes(&self) -> &[u8] {
+            unsafe { std::slice::from_raw_parts(self.base as *const u8, self.len) }
         }
     }
 
@@ -198,6 +206,7 @@ pub struct DqliteDir {
     segments: Vec<DqliteSegment>,
     term: u64,
     voted_for: u64,
+    first_index: u64,
 }
 
 impl DqliteDir {
@@ -252,12 +261,21 @@ impl DqliteDir {
             .map(|s| DqliteSegment::new(&dir, *s))
             .collect::<Result<_>>()?;
 
+        let start_index = segments
+            .first()
+            .and_then(|s| match &s {
+                DqliteSegment::Closed { indexes, .. } => Some(*indexes.start()),
+                DqliteSegment::Open { .. } => snapshots.first().map(|s| s.index() + 1),
+            })
+            .unwrap_or(1);
+
         Ok(Self {
             dir: PathBuf::from(dir),
             snapshots,
             segments,
             term: metadata.term,
             voted_for: metadata.voted_for,
+            first_index: start_index,
         })
     }
 
@@ -275,6 +293,10 @@ impl DqliteDir {
 
     pub fn voted_for(&self) -> u64 {
         self.voted_for
+    }
+
+    pub fn first_index(&self) -> u64 {
+        self.first_index
     }
 }
 
@@ -309,34 +331,126 @@ impl DqliteSnapshot {
     }
 }
 
+type LazyCell<T> = std::cell::LazyCell<T, Box<dyn std::ops::FnOnce() -> T>>;
+
 #[derive(Debug)]
-pub struct DqliteSegment {
-    segment: uvSegmentInfo,
-    file: File,
+pub enum DqliteSegment {
+    Open {
+        counter: u64,
+        content: LazyCell<Result<Vec<DqliteLogEntry>>>,
+    },
+    Closed {
+        indexes: RangeInclusive<u64>,
+        content: LazyCell<Result<Vec<DqliteLogEntry>>>,
+    },
+}
+
+impl DqliteSegment {
+    pub fn entries(&self) -> Result<&[DqliteLogEntry]> {
+        let content = match self {
+            DqliteSegment::Open { content, .. } => content,
+            DqliteSegment::Closed { content, .. } => content,
+        };
+        Ok(content
+            .as_ref()
+            .map_err(|err| anyhow!("cannot load entries: {err}"))?
+            .as_slice())
+    }
+}
+
+#[derive(Debug)]
+pub struct DqliteLogEntry {
+    term: u64,
+    /* TODO: save the deserialied entry instead of the raw data. This will also remove the need for the `entry_type` field. */
+    entry_type: u16,
+    data: Vec<u8>,
 }
 
 impl DqliteSegment {
     pub fn new(dir: &Path, segment: uvSegmentInfo) -> Result<Self> {
         let path = dir.join(segment.filename());
-
+        // It is important to open the file here, as soon as possible,
+        // so that in case dqlite is running and decides to remove or
+        // rename a segment file then we can still load the entries.
         let file = File::open(path)?;
-
-        Ok(Self { segment, file })
+        let content = LazyCell::new(Box::new(move || Self::load_segment_file(file)));
+        if segment.is_open {
+            Ok(Self::Open {
+                counter: unsafe { segment.info.open.counter },
+                content,
+            })
+        } else {
+            let closed = unsafe { segment.info.closed };
+            Ok(Self::Closed {
+                indexes: closed.first_index..=closed.end_index,
+                content,
+            })
+        }
     }
 
-    pub fn indexes(&self) -> Result<Range<u64>> {
-        if self.is_open() {
-            return Err(anyhow!(
-                "cannot get indexes from an open segment: not implemented yet"
-            ));
+    fn load_segment_file(mut file: File) -> Result<Vec<DqliteLogEntry>> {
+        let mut buf = Vec::new();
+        file.read_to_end(&mut buf)?;
+
+        if buf.len() == 0 {
+            return Ok(Vec::new());
+        } else if buf.len() < 8 {
+            return Err(anyhow!("invalid segment file"));
         }
 
-        let closed = unsafe { self.segment.info.closed };
-        Ok(closed.first_index..closed.end_index)
-    }
+        let format = u64::from_le_bytes(buf[0..8].try_into().unwrap());
+        if format == 0 {
+            if buf.iter().all(|b| *b == 0) {
+                return Ok(Vec::new());
+            }
 
-    pub fn is_open(&self) -> bool {
-        self.segment.is_open
+            return Err(anyhow!("invalid segment file"));
+        } else if format != bindings::UV__DISK_FORMAT as u64 {
+            return Err(anyhow!("unsupported segment file format"));
+        }
+
+        let mut ret = Vec::new();
+        let mut offset = 8;
+        let mut err = RaftErrorStr::new();
+        let mut last = false;
+        while !last {
+            let mut entries = ptr::null_mut();
+            let mut n_entries = 0;
+
+            let rc = unsafe {
+                bindings::uvLoadEntriesBatch(
+                    &raft_buffer {
+                        base: buf.as_mut_ptr() as *mut _,
+                        len: buf.len(),
+                    },
+                    &mut entries,
+                    &mut n_entries,
+                    &mut offset,
+                    &mut last,
+                    err.as_mut_ptr() as *mut _,
+                )
+            };
+            if rc == raft_result::CORRUPT {
+                if buf[offset..].iter().all(|b| *b == 0) {
+                    break;
+                } else {
+                    return Err(anyhow!("corrupt segment file"));
+                }
+            } else if rc != raft_result::OK {
+                return Err(anyhow!("failed to load segment file: {err}"));
+            }
+
+            for i in 0..n_entries {
+                let entry = unsafe { &*entries.offset(i as _) };
+
+                ret.push(DqliteLogEntry {
+                    term: entry.term,
+                    entry_type: entry.type_,
+                    data: unsafe { entry.buf.as_bytes() }.to_vec(),
+                });
+            }
+        }
+        return Ok(ret);
     }
 }
 
@@ -373,11 +487,16 @@ mod tests {
         let mut max_index = 0;
 
         for segment in dqlite.segments() {
-            if segment.is_open() {
-                continue;
-            }
-
-            let Range { start, end } = segment.indexes().expect("cannot get indexes");
+            let entries = segment.entries().expect("cannot load entries");
+            let indexes = match segment {
+                DqliteSegment::Closed { indexes, .. } => {
+                    assert!(entries.len() == indexes.clone().count());
+                    indexes
+                }
+                DqliteSegment::Open { .. } => continue,
+            };
+            let start = *indexes.start();
+            let end = *indexes.end();
             if start < min_index {
                 min_index = start;
             }
