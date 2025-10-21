@@ -199,6 +199,7 @@ impl<T> RaftPtr<T> {
             assert!(self.0.is_null());
             return &[];
         }
+        assert!(!self.0.is_null());
         unsafe { std::slice::from_raw_parts(self.0, len) }
     }
 
@@ -207,6 +208,7 @@ impl<T> RaftPtr<T> {
             assert!(self.0.is_null());
             return &mut [];
         }
+        assert!(!self.0.is_null());
         unsafe { std::slice::from_raw_parts_mut(self.0, len) }
     }
 }
@@ -373,7 +375,7 @@ impl DqliteSegment {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DqliteLogEntry {
     term: u64,
     /* TODO: save the deserialied entry instead of the raw data. This will also remove the need for the `entry_type` field. */
@@ -475,10 +477,7 @@ mod tests {
     use std::io::Write;
     use std::os::unix::ffi::OsStrExt;
 
-    use anyhow::Ok;
-    use tempfile::tempdir;
-
-    use crate::dqlite_sys::bindings::{
+    use super::bindings::{
         raft_entry, uv_buf_t, uvSegmentBuffer, uvSegmentBufferAppend, uvSegmentBufferFinalize,
         uvSegmentBufferFormat, uvSegmentBufferInit,
     };
@@ -492,13 +491,13 @@ mod tests {
             Self(Vec::new())
         }
 
-        /* Adds a single batch containing entries to the segment. */
+        /// Adds a single batch containing entries to the segment.
         fn add_batch(mut self, entries: Vec<DqliteLogEntry>) -> Self {
             self.0.push(entries);
             self
         }
 
-        /* Adds entries to the segment, using one batch each. */
+        /// Adds entries to the segment, using one batch each.
         fn add_entries(mut self, entries: &[DqliteLogEntry]) -> Self {
             for entry in entries {
                 self.0.push(vec![entry.clone()]);
@@ -515,14 +514,14 @@ mod tests {
                 return Err(anyhow!("failed to format segment buffer: {}", rc));
             }
 
-            for batch in self.0.iter() {
+            for batch in &self.0 {
                 let entries: Vec<_> = batch
                     .iter()
                     .map(|e| raft_entry {
                         term: e.term,
                         type_: e.entry_type,
                         buf: raft_buffer {
-                            /* Safety: the buffer is only used within this block and it is only ever read from. */
+                            // Safety: the buffer is only used within this block and it is only ever read from.
                             base: e.data.as_ptr() as *mut _,
                             len: e.data.len(),
                         },
@@ -575,7 +574,7 @@ mod tests {
             self
         }
 
-        fn build(&mut self, dir: &Path) -> Result<()> {
+        fn build(&self, dir: PathBuf) -> Result<()> {
             let mut err = RaftErrorStr::new();
 
             let rc = unsafe {
@@ -593,11 +592,11 @@ mod tests {
                 return Err(anyhow!("failed to store metadata: {}", err));
             }
 
-            let mut path = PathBuf::from(dir);
+            let mut path = dir;
             let mut index = self.first_index;
             for closed_segment in self.closed_segments.iter() {
                 let last_index = index + closed_segment.0.len() as u64 - 1;
-                path.push(format!("{:0>16}-{:0>16}", index, last_index));
+                path.push(format!("{index:0>16}-{last_index:0>16}"));
 
                 let mut file = File::create(path.as_path())?;
                 closed_segment.write_to(&mut file)?;
@@ -614,7 +613,7 @@ mod tests {
                 open_segment.write_to(&mut file)?;
 
                 path.pop();
-                index = index + 1;
+                index += 1;
             }
 
             Ok(())
@@ -623,7 +622,7 @@ mod tests {
 
     #[test]
     fn test_non_dqlite_folder() {
-        let dir = tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap();
         let err = DqliteDir::new(dir.path()).unwrap_err();
 
         assert!(err.to_string().contains("not ad dqlite folder"));
@@ -631,8 +630,10 @@ mod tests {
 
     #[test]
     fn test_metadata_only() {
-        let dir = tempdir().unwrap();
-        DqliteDirBuilder::new(1, 0, 1).build(dir.path()).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        DqliteDirBuilder::new(1, 0, 1)
+            .build(dir.path().to_path_buf())
+            .unwrap();
 
         let state = DqliteDir::new(dir.path()).unwrap();
         assert_eq!(state.term(), 1);
@@ -646,7 +647,7 @@ mod tests {
 
     #[test]
     fn test_single_closed_segment() {
-        let dir = tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap();
         let entries = [
             DqliteLogEntry {
                 term: 1,
@@ -666,7 +667,7 @@ mod tests {
         ];
         DqliteDirBuilder::new(3, 1, 1000)
             .add_closed_segment(DqliteSegmentBuilder::new().add_entries(&entries))
-            .build(dir.path())
+            .build(dir.path().to_path_buf())
             .unwrap();
 
         let state = DqliteDir::new(dir.path()).unwrap();
@@ -674,6 +675,7 @@ mod tests {
         assert_eq!(state.voted_for(), 1);
         assert_eq!(state.first_index(), 1000);
         assert_eq!(state.snapshots().len(), 0);
+        assert_eq!(state.segments().len(), 1);
 
         let segment = &state.segments()[0];
 
@@ -691,7 +693,7 @@ mod tests {
 
     #[test]
     fn test_single_open_segment() {
-        let dir = tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap();
         let entries = [
             DqliteLogEntry {
                 term: 1,
@@ -711,7 +713,7 @@ mod tests {
         ];
         DqliteDirBuilder::new(3, 1, 1)
             .add_open_segment(DqliteSegmentBuilder::new().add_entries(&entries))
-            .build(dir.path())
+            .build(dir.path().to_path_buf())
             .unwrap();
 
         let state = DqliteDir::new(dir.path()).unwrap();
@@ -719,6 +721,7 @@ mod tests {
         assert_eq!(state.voted_for(), 1);
         assert_eq!(state.first_index(), 1);
         assert_eq!(state.snapshots().len(), 0);
+        assert_eq!(state.segments().len(), 1);
 
         let segment = &state.segments()[0];
 
