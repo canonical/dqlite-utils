@@ -13,6 +13,11 @@
 #define UV__SNAPSHOT_META_TEMPLATE                                             \
   UV__SNAPSHOT_TEMPLATE UV__SNAPSHOT_META_SUFFIX
 
+typedef struct uv_buf_t {
+  char *base;
+  size_t len;
+} uv_buf_t;
+
 #define RAFT_ERRMSG_BUF_SIZE 256
 typedef unsigned long long raft_id, raft_term, raft_index, raft_time;
 
@@ -78,6 +83,8 @@ struct uvMetadata {
 
 raft_result uvMetadataLoad(const char *dir, struct uvMetadata *metadata,
                            char *errmsg);
+raft_result uvMetadataStore(const char *dir, const struct uvMetadata *metadata,
+                            char *errmsg);
 
 /* Metadata about a segment file. */
 struct uvSegmentInfo {
@@ -93,6 +100,20 @@ struct uvSegmentInfo {
   } info;
   char filename[UV__SEGMENT_FILENAME_BUF_SIZE]; /* Segment filename */
 };
+
+struct uvSegmentBuffer {
+  size_t block_size; /* Disk block size for direct I/O */
+  uv_buf_t arena;    /* Previously allocated memory that can be re-used */
+  size_t n;          /* Write offset */
+};
+
+void uvSegmentBufferInit(struct uvSegmentBuffer *b, size_t block_size);
+raft_result uvSegmentBufferFormat(struct uvSegmentBuffer *b);
+raft_result uvSegmentBufferAppend(struct uvSegmentBuffer *b,
+                                  const struct raft_entry entries[],
+                                  unsigned n_entries);
+void uvSegmentBufferFinalize(struct uvSegmentBuffer *b, uv_buf_t *out);
+raft_result uvSegmentBufferClose(struct uvSegmentBuffer *b);
 
 struct uvSnapshotInfo {
   raft_term term;
