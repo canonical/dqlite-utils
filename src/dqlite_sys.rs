@@ -230,7 +230,7 @@ pub struct DqliteDir {
 }
 
 impl DqliteDir {
-    pub fn new(dir: &Path) -> Result<Self> {
+    pub fn open(dir: &Path) -> Result<Self> {
         let cdir = CString::new(dir.as_os_str().as_bytes()).unwrap();
         let mut err = RaftErrorStr::new();
 
@@ -627,7 +627,7 @@ mod tests {
     #[test]
     fn test_non_dqlite_folder() {
         let dir = tempfile::tempdir().unwrap();
-        let err = DqliteDir::new(dir.path()).unwrap_err();
+        let err = DqliteDir::open(dir.path()).unwrap_err();
 
         assert!(err.to_string().contains("not ad dqlite folder"));
     }
@@ -639,7 +639,7 @@ mod tests {
             .write()
             .unwrap();
 
-        let state = DqliteDir::new(dir.path()).unwrap();
+        let state = DqliteDir::open(dir.path()).unwrap();
         assert_eq!(state.term(), 1);
         assert_eq!(state.voted_for(), 0);
         assert_eq!(state.first_index(), 1);
@@ -674,7 +674,7 @@ mod tests {
             .write()
             .unwrap();
 
-        let state = DqliteDir::new(dir.path()).unwrap();
+        let state = DqliteDir::open(dir.path()).unwrap();
         assert_eq!(state.term(), 3);
         assert_eq!(state.voted_for(), 1);
         assert_eq!(state.first_index(), 1000);
@@ -720,7 +720,7 @@ mod tests {
             .write()
             .unwrap();
 
-        let state = DqliteDir::new(dir.path()).unwrap();
+        let state = DqliteDir::open(dir.path()).unwrap();
         assert_eq!(state.term(), 3);
         assert_eq!(state.voted_for(), 1);
         assert_eq!(state.first_index(), 1);
