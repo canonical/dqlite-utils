@@ -581,7 +581,9 @@ mod tests {
 
             let rc = unsafe {
                 bindings::uvMetadataStore(
-                    CString::new(self.dir.as_os_str().as_bytes()).unwrap().as_ptr(),
+                    CString::new(self.dir.as_os_str().as_bytes())
+                        .unwrap()
+                        .as_ptr(),
                     &bindings::uvMetadata {
                         version: 1,
                         term: self.term,
