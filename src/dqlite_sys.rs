@@ -545,6 +545,7 @@ mod tests {
     }
 
     struct DqliteDirWriter {
+        dir: PathBuf,
         term: u64,
         voted_for: u64,
         first_index: u64,
@@ -553,8 +554,9 @@ mod tests {
     }
 
     impl DqliteDirWriter {
-        fn new(term: u64, voted_for: u64, first_index: u64) -> Self {
+        fn new(dir: PathBuf, term: u64, voted_for: u64, first_index: u64) -> Self {
             Self {
+                dir,
                 term,
                 voted_for,
                 first_index,
@@ -574,12 +576,12 @@ mod tests {
             self
         }
 
-        fn build(&self, dir: PathBuf) -> Result<()> {
+        fn write(&self) -> Result<()> {
             let mut err = RaftErrorStr::new();
 
             let rc = unsafe {
                 bindings::uvMetadataStore(
-                    CString::new(dir.as_os_str().as_bytes()).unwrap().as_ptr(),
+                    CString::new(self.dir.as_os_str().as_bytes()).unwrap().as_ptr(),
                     &bindings::uvMetadata {
                         version: 1,
                         term: self.term,
@@ -592,7 +594,7 @@ mod tests {
                 return Err(anyhow!("failed to store metadata: {}", err));
             }
 
-            let mut path = dir;
+            let mut path = self.dir.clone();
             let mut index = self.first_index;
             for closed_segment in self.closed_segments.iter() {
                 let last_index = index + closed_segment.0.len() as u64 - 1;
@@ -631,8 +633,8 @@ mod tests {
     #[test]
     fn test_metadata_only() {
         let dir = tempfile::tempdir().unwrap();
-        DqliteDirWriter::new(1, 0, 1)
-            .build(dir.path().to_path_buf())
+        DqliteDirWriter::new(dir.path().to_path_buf(), 1, 0, 1)
+            .write()
             .unwrap();
 
         let state = DqliteDir::new(dir.path()).unwrap();
@@ -665,9 +667,9 @@ mod tests {
                 data: vec![2u8; 128],
             },
         ];
-        DqliteDirWriter::new(3, 1, 1000)
+        DqliteDirWriter::new(dir.path().to_path_buf(), 3, 1, 1000)
             .add_closed_segment(DqliteSegmentBuilder::new().add_entries(&entries))
-            .build(dir.path().to_path_buf())
+            .write()
             .unwrap();
 
         let state = DqliteDir::new(dir.path()).unwrap();
@@ -711,9 +713,9 @@ mod tests {
                 data: vec![2u8; 128],
             },
         ];
-        DqliteDirWriter::new(3, 1, 1)
+        DqliteDirWriter::new(dir.path().to_path_buf(), 3, 1, 1)
             .add_open_segment(DqliteSegmentBuilder::new().add_entries(&entries))
-            .build(dir.path().to_path_buf())
+            .write()
             .unwrap();
 
         let state = DqliteDir::new(dir.path()).unwrap();
