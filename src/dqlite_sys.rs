@@ -544,7 +544,7 @@ mod tests {
         }
     }
 
-    struct DqliteDirBuilder {
+    struct DqliteDirWriter {
         term: u64,
         voted_for: u64,
         first_index: u64,
@@ -552,7 +552,7 @@ mod tests {
         open_segments: Vec<DqliteSegmentBuilder>,
     }
 
-    impl DqliteDirBuilder {
+    impl DqliteDirWriter {
         fn new(term: u64, voted_for: u64, first_index: u64) -> Self {
             Self {
                 term,
@@ -631,7 +631,7 @@ mod tests {
     #[test]
     fn test_metadata_only() {
         let dir = tempfile::tempdir().unwrap();
-        DqliteDirBuilder::new(1, 0, 1)
+        DqliteDirWriter::new(1, 0, 1)
             .build(dir.path().to_path_buf())
             .unwrap();
 
@@ -665,7 +665,7 @@ mod tests {
                 data: vec![2u8; 128],
             },
         ];
-        DqliteDirBuilder::new(3, 1, 1000)
+        DqliteDirWriter::new(3, 1, 1000)
             .add_closed_segment(DqliteSegmentBuilder::new().add_entries(&entries))
             .build(dir.path().to_path_buf())
             .unwrap();
@@ -711,7 +711,7 @@ mod tests {
                 data: vec![2u8; 128],
             },
         ];
-        DqliteDirBuilder::new(3, 1, 1)
+        DqliteDirWriter::new(3, 1, 1)
             .add_open_segment(DqliteSegmentBuilder::new().add_entries(&entries))
             .build(dir.path().to_path_buf())
             .unwrap();
