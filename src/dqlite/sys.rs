@@ -58,6 +58,14 @@ impl Display for raft_result {
     }
 }
 
+impl dqlite_result {
+    pub const OK: Self = Self(dqlite_result_code::DQLITE_OK as _);
+    pub const ERROR: Self = Self(dqlite_result_code::DQLITE_ERROR as _);
+    pub const MISUSE: Self = Self(dqlite_result_code::DQLITE_MISUSE as _);
+    pub const NOMEM: Self = Self(dqlite_result_code::DQLITE_NOMEM as _);
+    pub const PARSE: Self = Self(dqlite_result_code::DQLITE_PARSE as _);
+}
+
 impl raft_buffer {
     pub unsafe fn as_bytes(&self) -> &[u8] {
         unsafe { std::slice::from_raw_parts(self.base as *const u8, self.len) }
@@ -128,4 +136,41 @@ impl Drop for raft_snapshot {
     fn drop(&mut self) {
         unsafe { snapshotClose(self) };
     }
+}
+
+pub trait Decode {
+    const try_decode: unsafe extern "C" fn(*mut cursor, *mut Self) -> dqlite_result;
+
+    fn decode(r: &mut impl std::io::Read, buf: &mut Vec<u8>) -> std::io::Result<Self>
+    where
+        Self: Sized + Default,
+    {
+        let mut ret = Self::default();
+        let mut chunk = [0u8; 8192];
+        loop {
+            let mut cursor = cursor {
+                p: buf.as_ptr() as *const i8,
+                cap: buf.len(),
+            };
+            let rc = unsafe { Self::try_decode(&mut cursor, &mut ret) };
+            if rc == dqlite_result::PARSE {
+                let n = r.read(&mut chunk)?;
+                buf.extend_from_slice(&chunk[..n]);
+                continue;
+            }
+            assert!(rc == dqlite_result::OK);
+            buf.drain(..(buf.len() - cursor.cap));
+            return Ok(ret);
+        }
+    }
+}
+
+impl Decode for snapshotHeader {
+    const try_decode: unsafe extern "C" fn(*mut cursor, *mut Self) -> dqlite_result =
+        snapshotHeader__decode;
+}
+
+impl Decode for snapshotDatabase {
+    const try_decode: unsafe extern "C" fn(*mut cursor, *mut Self) -> dqlite_result =
+        snapshotDatabase__decode;
 }

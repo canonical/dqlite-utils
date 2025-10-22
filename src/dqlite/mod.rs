@@ -7,7 +7,7 @@ use std::{
     fs::File,
     io::{Read, Seek, Write},
     ops::RangeInclusive,
-    os::unix::ffi::OsStrExt,
+    os::unix::{ffi::OsStrExt, fs::FileExt},
     path::{Path, PathBuf},
     ptr,
     sync::Mutex,
@@ -15,6 +15,9 @@ use std::{
 };
 
 use anyhow::{Result, anyhow};
+use lz4_flex::frame::FrameDecoder;
+
+use crate::dqlite::sys::{Decode, snapshotDatabase, snapshotHeader};
 
 use self::sys::{
     RAFT_ERRMSG_BUF_SIZE, command_checkpoint, command_frames, command_open, command_undo, frames_t,
@@ -232,8 +235,14 @@ pub struct DqliteSnapshot {
     pub index: u64,
     pub timestamp: SystemTime,
     pub configuration: RaftConfiguration,
+    content: DynLazyCell<Result<Vec<DqliteDatabase>>>,
+}
 
-    file: File,
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DqliteDatabase {
+    pub name: OsString,
+    pub main: Vec<u8>,
+    pub wal: Vec<u8>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -321,17 +330,68 @@ impl DqliteSnapshot {
 
         let mut path = PathBuf::from(OsStr::from_bytes(dir.to_bytes())).join(snapshot.filename());
         path.set_extension("");
-        let file = File::open(path)?;
-
         let configuration = RaftConfiguration::new(&metadata.configuration)?;
         let timestamp = UNIX_EPOCH + Duration::from_millis(snapshot.timestamp);
+        let file = File::open(path)?;
+        let content = DynLazyCell::new(Box::new(move || Self::load_snapshot(file)));
+
         Ok(Self {
             term: snapshot.term,
             index: snapshot.index,
             timestamp,
             configuration,
-            file,
+            content,
         })
+    }
+
+    fn is_compressed(file: &mut File) -> Result<bool> {
+        // LZ4 magic number is 0x184D2204 (little endian)
+        const LZ4_MAGIC: [u8; 4] = [0x04, 0x22, 0x4D, 0x18];
+        let mut header = [0u8; 4];
+        file.read_exact_at(&mut header, 0)?;
+        Ok(header == LZ4_MAGIC)
+    }
+
+    fn load_snapshot(mut file: File) -> Result<Vec<DqliteDatabase>> {
+        if Self::is_compressed(&mut file)? {
+            let mut decoder = FrameDecoder::new(file);
+            Self::load_content(&mut decoder)
+        } else {
+            Self::load_content(&mut file)
+        }
+    }
+
+    fn load_content<T: Read>(file: &mut T) -> Result<Vec<DqliteDatabase>> {
+        // Due to the lack of peek() I can't use BufReader here. I will use a `Vec` instead which requires a bit more copying.
+        // TODO(marco6): refactor when `BufRead::peek` is stabilized.
+        let mut buf = Vec::with_capacity(8192);
+
+        let snapshot_header = snapshotHeader::decode(file, &mut buf)?;
+        let mut databases = Vec::with_capacity(snapshot_header.n as usize);
+
+        for _ in 0..snapshot_header.n {
+            let database = snapshotDatabase::decode(file, &mut buf)?;
+
+            let name = OsStr::from_bytes(unsafe { CStr::from_ptr(database.filename) }.to_bytes())
+                .to_owned();
+
+            let mut read_file = |size: usize| -> Result<Vec<u8>> {
+                if buf.len() >= size {
+                    return Ok(buf.drain(..size).collect());
+                }
+                let mut ret = Vec::with_capacity(size);
+                ret.extend_from_slice(&buf);
+                file.take((size - buf.len()) as u64).read_to_end(&mut ret)?;
+                Ok(ret)
+            };
+
+            let main = read_file(database.main_size as usize)?;
+            let wal = read_file(database.wal_size as usize)?;
+
+            databases.push(DqliteDatabase { name, main, wal });
+        }
+
+        Ok(databases)
     }
 }
 

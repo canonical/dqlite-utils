@@ -10,6 +10,7 @@ anyhow = "1.0.100"
 clap = { version = "4.5.48", features = ["color", "derive", "wrap_help"] }
 home = "0.5.11"
 indoc = "2.0.7"
+lz4_flex = "0.11.5"
 owo-colors = { version = "4.2.3", features = ["supports-colors"] }
 rustyline = "17.0.2"
 shell-words = "1.1.0"
