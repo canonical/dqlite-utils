@@ -675,7 +675,7 @@ mod tests {
                         configurationAdd(
                             &mut config,
                             server.id,
-                            CString::from_str(server.address.as_str()).unwrap().as_ptr(),
+                            CString::new(server.address.as_str()).unwrap().as_ptr(),
                             match server.role {
                                 RaftRole::Standby => raft_role::RAFT_STANDBY,
                                 RaftRole::Voter => raft_role::RAFT_VOTER,
