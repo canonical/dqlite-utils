@@ -481,7 +481,7 @@ impl DqliteSegment {
     }
 }
 
-struct DqliteSegmentBuilder(Vec<Vec<DqliteLogEntry>>);
+pub struct DqliteSegmentBuilder(Vec<Vec<DqliteLogEntry>>);
 
 impl DqliteSegmentBuilder {
     fn new() -> Self {
@@ -503,7 +503,7 @@ impl DqliteSegmentBuilder {
     }
 }
 
-struct DqliteDirCreator {
+pub struct DqliteDirCreator {
     dir: PathBuf,
     term: u64,
     voted_for: u64,
