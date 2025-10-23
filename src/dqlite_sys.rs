@@ -745,13 +745,13 @@ mod tests {
 
     use super::*;
 
-    struct DqliteSnapshotBuilderEntry {
+    struct DqliteSegmentBuilderEntry {
         term: u64,
         entry_type: u16,
         data: Vec<u8>,
     }
 
-    impl TryFrom<&DqliteLogEntry> for DqliteSnapshotBuilderEntry {
+    impl TryFrom<&DqliteLogEntry> for DqliteSegmentBuilderEntry {
         type Error = anyhow::Error;
 
         fn try_from(entry: &DqliteLogEntry) -> Result<Self> {
@@ -857,7 +857,7 @@ mod tests {
         }
     }
 
-    struct DqliteSegmentBuilder(Vec<Vec<DqliteSnapshotBuilderEntry>>);
+    struct DqliteSegmentBuilder(Vec<Vec<DqliteSegmentBuilderEntry>>);
 
     impl DqliteSegmentBuilder {
         fn new() -> Self {
