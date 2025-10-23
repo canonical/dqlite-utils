@@ -533,7 +533,7 @@ impl DqliteDirCreator {
         f: impl std::ops::FnOnce(DqliteSegmentBuilder) -> DqliteSegmentBuilder,
     ) -> Self {
         let segment = f(DqliteSegmentBuilder::new());
-        assert!(segment.0.len() > 0);
+        assert!(!segment.0.is_empty());
 
         self.closed_segments.push(segment);
         self
