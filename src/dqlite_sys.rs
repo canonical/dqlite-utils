@@ -339,28 +339,26 @@ pub struct DqliteSnapshot {
     pub index: u64,
     pub timestamp: SystemTime,
     pub configuration: RaftConfiguration,
+
     file: File,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RaftConfiguration {
-    pub index: u64, // TODO: not sure about this one, maybe it should be stored outside of this struct?
     pub servers: Vec<RaftServer>,
 }
 
-impl RaftConfiguration {
-    fn from(configuration: &raft_configuration, index: raft_index) -> Result<Self> {
-        let mut servers = Vec::new();
-        servers.reserve(configuration.n as usize);
-        for server in
-            unsafe { std::slice::from_raw_parts(configuration.servers, configuration.n as usize) }
-        {
-            servers.push(RaftServer::from(server)?);
+impl TryFrom<&raft_configuration> for RaftConfiguration {
+    type Error = anyhow::Error;
+
+    fn try_from(configuration: &raft_configuration) -> Result<Self> {
+        let mut servers = Vec::with_capacity(configuration.n as usize);
+        let raw_servers =
+            unsafe { std::slice::from_raw_parts(configuration.servers, configuration.n as usize) };
+        for server in raw_servers {
+            servers.push(RaftServer::try_from(server)?);
         }
-        Ok(Self {
-            index: index as u64,
-            servers,
-        })
+        Ok(Self { servers })
     }
 }
 
@@ -378,8 +376,10 @@ pub enum RaftRole {
     Spare,
 }
 
-impl RaftServer {
-    fn from(server: &raft_server) -> Result<Self> {
+impl TryFrom<&raft_server> for RaftServer {
+    type Error = anyhow::Error;
+
+    fn try_from(server: &raft_server) -> Result<Self> {
         let role = match server.role as _ {
             raft_role::RAFT_STANDBY => RaftRole::Standby,
             raft_role::RAFT_VOTER => RaftRole::Voter,
@@ -414,12 +414,12 @@ impl DqliteSnapshot {
         path.set_extension("");
         let file = File::open(path)?;
 
-        let configuration = RaftConfiguration::from(&metadata.configuration, snapshot.index)?;
-
+        let configuration = RaftConfiguration::try_from(&metadata.configuration)?;
+        let timestamp = UNIX_EPOCH + Duration::from_millis(snapshot.timestamp);
         Ok(Self {
             term: snapshot.term,
             index: snapshot.index,
-            timestamp: UNIX_EPOCH + Duration::from_millis(snapshot.timestamp),
+            timestamp,
             configuration,
             file,
         })
@@ -555,6 +555,7 @@ mod tests {
     use std::io::Write;
     use std::os::unix::ffi::OsStrExt;
     use std::str::FromStr;
+    use std::time;
 
     use super::bindings::{
         configurationAdd, configurationInit, raft_entry, uv_buf_t, uvSegmentBuffer,
@@ -645,14 +646,14 @@ mod tests {
             }
         }
 
-        // TODO: add method to add databases in the snapshot. For not the snapshot will be empty (data-wise).
+        // TODO: add method to add databases in the snapshot. For now the snapshot will be empty (data-wise).
         fn write_to(&self, folder: &Path) -> Result<()> {
-            let mut path = folder.join(format!(
-                "snapshot-{}-{}-{}",
-                self.term,
-                self.index,
-                self.timestamp.duration_since(UNIX_EPOCH)?.as_millis()
-            ));
+            let mut path = {
+                let term = self.term;
+                let index = self.index;
+                let timestamp = self.timestamp.duration_since(UNIX_EPOCH)?.as_millis();
+                folder.join(format!("snapshot-{term}-{index}-{timestamp}"))
+            };
 
             {
                 let mut data = File::create(&path)?;
@@ -773,7 +774,7 @@ mod tests {
 
             let mut path = self.dir.clone();
             let mut index = self.first_index;
-            for closed_segment in self.closed_segments.iter() {
+            for closed_segment in &self.closed_segments {
                 let last_index = index + closed_segment.0.len() as u64 - 1;
                 path.push(format!("{index:0>16}-{last_index:0>16}"));
 
@@ -785,7 +786,7 @@ mod tests {
             }
 
             let mut index = 0;
-            for open_segment in self.open_segments.iter() {
+            for open_segment in &self.open_segments {
                 path.push(format!("open-{}", index));
 
                 let mut file = File::create(path.as_path())?;
@@ -795,7 +796,7 @@ mod tests {
                 index += 1;
             }
 
-            for snapshot in self.snapshots.iter() {
+            for snapshot in &self.snapshots {
                 snapshot.write_to(self.dir.as_path())?;
             }
 
@@ -923,7 +924,6 @@ mod tests {
     fn test_snapshots() {
         let dir = tempfile::tempdir().unwrap();
         let configuration = RaftConfiguration {
-            index: 1,
             servers: vec![RaftServer {
                 id: 1,
                 address: "127.0.0.1:8080".to_owned(),
