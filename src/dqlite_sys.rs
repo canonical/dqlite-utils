@@ -748,7 +748,7 @@ mod tests {
             self
         }
 
-        fn write(&mut self) -> Result<()> {
+        fn write(&self) -> Result<()> {
             let mut err = RaftErrorStr::new();
 
             let rc = unsafe {
