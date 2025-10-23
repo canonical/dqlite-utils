@@ -937,7 +937,7 @@ mod tests {
             .add_snapshot(DqliteSnapshotBuilder::new(
                 3,
                 1,
-                SystemTime::now(),
+                timestamp,
                 configuration.clone(),
             ))
             .write()
