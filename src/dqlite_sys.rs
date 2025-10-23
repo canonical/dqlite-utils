@@ -1,9 +1,9 @@
 use std::{
     error::Error,
-    ffi::{CStr, CString},
+    ffi::{CStr, CString, c_uint},
     fmt::{Debug, Display},
     fs::File,
-    io::Read,
+    io::{Read, Write},
     ops::RangeInclusive,
     os::unix::ffi::OsStrExt,
     path::{Path, PathBuf},
@@ -14,8 +14,9 @@ use std::{
 use anyhow::{Result, anyhow};
 
 use self::bindings::{
-    RAFT_ERRMSG_BUF_SIZE, raft_buffer, raft_free, raft_result, uvMetadata, uvSegmentInfo,
-    uvSnapshotInfo,
+    RAFT_ERRMSG_BUF_SIZE, raft_buffer, raft_entry, raft_free, raft_result, uv_buf_t, uvMetadata,
+    uvSegmentBuffer, uvSegmentBufferAppend, uvSegmentBufferFinalize, uvSegmentBufferFormat,
+    uvSegmentBufferInit, uvSegmentInfo, uvSnapshotInfo,
 };
 
 mod bindings {
@@ -221,7 +222,6 @@ impl<T> Drop for RaftPtr<T> {
 
 #[derive(Debug)]
 pub struct DqliteDir {
-    dir: PathBuf,
     snapshots: Vec<DqliteSnapshot>,
     segments: Vec<DqliteSegment>,
     term: u64,
@@ -290,13 +290,23 @@ impl DqliteDir {
             .unwrap_or(1);
 
         Ok(Self {
-            dir: PathBuf::from(dir),
             snapshots,
             segments,
             term: metadata.term,
             voted_for: metadata.voted_for,
             first_index: start_index,
         })
+    }
+
+    pub fn init(dir: PathBuf) -> DqliteDirCreator {
+        DqliteDirCreator {
+            dir,
+            term: 1,
+            voted_for: 0,
+            first_index: 1,
+            closed_segments: Vec::new(),
+            open_segments: Vec::new(),
+        }
     }
 
     pub fn snapshots(&self) -> &[DqliteSnapshot] {
@@ -471,158 +481,164 @@ impl DqliteSegment {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use std::ffi::c_uint;
-    use std::io::Write;
-    use std::os::unix::ffi::OsStrExt;
+struct DqliteSegmentBuilder(Vec<Vec<DqliteLogEntry>>);
 
-    use super::bindings::{
-        raft_entry, uv_buf_t, uvSegmentBuffer, uvSegmentBufferAppend, uvSegmentBufferFinalize,
-        uvSegmentBufferFormat, uvSegmentBufferInit,
-    };
-
-    use super::*;
-
-    struct DqliteSegmentBuilder(Vec<Vec<DqliteLogEntry>>);
-
-    impl DqliteSegmentBuilder {
-        fn new() -> Self {
-            Self(Vec::new())
-        }
-
-        /// Adds a single batch containing entries to the segment.
-        fn add_batch(mut self, entries: Vec<DqliteLogEntry>) -> Self {
-            self.0.push(entries);
-            self
-        }
-
-        /// Adds entries to the segment, using one batch each.
-        fn add_entries(mut self, entries: &[DqliteLogEntry]) -> Self {
-            for entry in entries {
-                self.0.push(vec![entry.clone()]);
-            }
-            self
-        }
-
-        fn write_to(&self, file: &mut File) -> Result<()> {
-            let mut buf = uvSegmentBuffer::default();
-            unsafe { uvSegmentBufferInit(&mut buf, 4096) };
-
-            let rc = unsafe { uvSegmentBufferFormat(&mut buf) };
-            if rc != raft_result::OK {
-                return Err(anyhow!("failed to format segment buffer: {}", rc));
-            }
-
-            for batch in &self.0 {
-                let entries: Vec<_> = batch
-                    .iter()
-                    .map(|e| raft_entry {
-                        term: e.term,
-                        type_: e.entry_type,
-                        buf: raft_buffer {
-                            // Safety: the buffer is only used within this block and it is only ever read from.
-                            base: e.data.as_ptr() as *mut _,
-                            len: e.data.len(),
-                        },
-                        ..Default::default()
-                    })
-                    .collect();
-                let rc = unsafe {
-                    uvSegmentBufferAppend(&mut buf, entries.as_ptr(), entries.len() as c_uint)
-                };
-                if rc != raft_result::OK {
-                    return Err(anyhow!("failed to append to segment buffer: {}", rc));
-                }
-            }
-
-            let mut write_buffer = uv_buf_t::default();
-            unsafe { uvSegmentBufferFinalize(&mut buf, &mut write_buffer) };
-            file.write_all(unsafe { write_buffer.as_bytes() })?;
-
-            Ok(())
-        }
+impl DqliteSegmentBuilder {
+    fn new() -> Self {
+        Self(Vec::new())
     }
 
-    struct DqliteDirWriter {
-        dir: PathBuf,
-        term: u64,
-        voted_for: u64,
-        first_index: u64,
-        closed_segments: Vec<DqliteSegmentBuilder>,
-        open_segments: Vec<DqliteSegmentBuilder>,
+    /// Adds a single batch containing entries to the segment.
+    fn add_batch(mut self, entries: Vec<DqliteLogEntry>) -> Self {
+        self.0.push(entries);
+        self
     }
 
-    impl DqliteDirWriter {
-        fn new(dir: PathBuf, term: u64, voted_for: u64, first_index: u64) -> Self {
-            Self {
-                dir,
-                term,
-                voted_for,
-                first_index,
-                closed_segments: Vec::new(),
-                open_segments: Vec::new(),
-            }
+    /// Adds entries to the segment, using one batch each.
+    fn add_entries(mut self, entries: &[DqliteLogEntry]) -> Self {
+        for entry in entries {
+            self.0.push(vec![entry.clone()]);
+        }
+        self
+    }
+}
+
+struct DqliteDirCreator {
+    dir: PathBuf,
+    term: u64,
+    voted_for: u64,
+    first_index: u64,
+    closed_segments: Vec<DqliteSegmentBuilder>,
+    open_segments: Vec<DqliteSegmentBuilder>,
+}
+
+impl DqliteDirCreator {
+    pub fn with_term(mut self, term: u64) -> Self {
+        self.term = term;
+        self
+    }
+
+    pub fn with_voted_for(mut self, voted_for: u64) -> Self {
+        self.voted_for = voted_for;
+        self
+    }
+
+    pub fn with_first_index(mut self, first_index: u64) -> Self {
+        self.first_index = first_index;
+        self
+    }
+
+    pub fn with_closed_segment(
+        mut self,
+        f: impl std::ops::FnOnce(DqliteSegmentBuilder) -> DqliteSegmentBuilder,
+    ) -> Self {
+        let segment = f(DqliteSegmentBuilder::new());
+        assert!(segment.0.len() > 0);
+
+        self.closed_segments.push(segment);
+        self
+    }
+
+    pub fn with_open_segment(
+        mut self,
+        f: impl std::ops::FnOnce(DqliteSegmentBuilder) -> DqliteSegmentBuilder,
+    ) -> Self {
+        let segment = f(DqliteSegmentBuilder::new());
+        self.open_segments.push(segment);
+        self
+    }
+}
+
+impl DqliteDirCreator {
+    fn write_segment(file: &mut File, batches: &Vec<Vec<DqliteLogEntry>>) -> Result<()> {
+        let mut buf = uvSegmentBuffer::default();
+        unsafe { uvSegmentBufferInit(&mut buf, 4096) };
+
+        let rc = unsafe { uvSegmentBufferFormat(&mut buf) };
+        if rc != raft_result::OK {
+            return Err(anyhow!("failed to format segment buffer: {}", rc));
         }
 
-        fn add_closed_segment(mut self, segment: DqliteSegmentBuilder) -> Self {
-            assert!(segment.0.len() > 0);
-            self.closed_segments.push(segment);
-            self
-        }
-
-        fn add_open_segment(mut self, segment: DqliteSegmentBuilder) -> Self {
-            self.open_segments.push(segment);
-            self
-        }
-
-        fn write(&self) -> Result<()> {
-            let mut err = RaftErrorStr::new();
-
-            let rc = unsafe {
-                bindings::uvMetadataStore(
-                    CString::new(self.dir.as_os_str().as_bytes())
-                        .unwrap()
-                        .as_ptr(),
-                    &bindings::uvMetadata {
-                        version: 1,
-                        term: self.term,
-                        voted_for: self.voted_for,
+        for batch in batches {
+            let entries: Vec<_> = batch
+                .iter()
+                .map(|e| raft_entry {
+                    term: e.term,
+                    type_: e.entry_type,
+                    buf: raft_buffer {
+                        // Safety: the buffer is only used within this block and it is only ever read from.
+                        base: e.data.as_ptr() as *mut _,
+                        len: e.data.len(),
                     },
-                    err.as_mut_ptr(),
-                )
+                    ..Default::default()
+                })
+                .collect();
+            let rc = unsafe {
+                uvSegmentBufferAppend(&mut buf, entries.as_ptr(), entries.len() as c_uint)
             };
             if rc != raft_result::OK {
-                return Err(anyhow!("failed to store metadata: {}", err));
+                return Err(anyhow!("failed to append to segment buffer: {}", rc));
             }
-
-            let mut path = self.dir.clone();
-            let mut index = self.first_index;
-            for closed_segment in self.closed_segments.iter() {
-                let last_index = index + closed_segment.0.len() as u64 - 1;
-                path.push(format!("{index:0>16}-{last_index:0>16}"));
-
-                let mut file = File::create(path.as_path())?;
-                closed_segment.write_to(&mut file)?;
-
-                path.pop();
-                index = last_index + 1;
-            }
-
-            let mut index = 0;
-            for open_segment in self.open_segments.iter() {
-                path.push(format!("open-{}", index));
-
-                let mut file = File::create(path.as_path())?;
-                open_segment.write_to(&mut file)?;
-
-                path.pop();
-                index += 1;
-            }
-
-            Ok(())
         }
+
+        let mut write_buffer = uv_buf_t::default();
+        unsafe { uvSegmentBufferFinalize(&mut buf, &mut write_buffer) };
+        file.write_all(unsafe { write_buffer.as_bytes() })?;
+
+        Ok(())
     }
+
+    pub fn create(&self) -> Result<()> {
+        let mut err = RaftErrorStr::new();
+
+        let rc = unsafe {
+            bindings::uvMetadataStore(
+                CString::new(self.dir.as_os_str().as_bytes())
+                    .unwrap()
+                    .as_ptr(),
+                &bindings::uvMetadata {
+                    version: 1,
+                    term: self.term,
+                    voted_for: self.voted_for,
+                },
+                err.as_mut_ptr(),
+            )
+        };
+        if rc != raft_result::OK {
+            return Err(anyhow!("failed to store metadata: {}", err));
+        }
+
+        let mut path = self.dir.clone();
+        let mut index = self.first_index;
+        for closed_segment in self.closed_segments.iter() {
+            let last_index = index + closed_segment.0.len() as u64 - 1;
+            path.push(format!("{index:0>16}-{last_index:0>16}"));
+
+            let mut file = File::create(path.as_path())?;
+            Self::write_segment(&mut file, &closed_segment.0)?;
+
+            path.pop();
+            index = last_index + 1;
+        }
+
+        let mut index = 0;
+        for open_segment in self.open_segments.iter() {
+            path.push(format!("open-{}", index));
+
+            let mut file = File::create(path.as_path())?;
+            Self::write_segment(&mut file, &open_segment.0)?;
+
+            path.pop();
+            index += 1;
+        }
+
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
 
     #[test]
     fn test_non_dqlite_folder() {
@@ -635,9 +651,7 @@ mod tests {
     #[test]
     fn test_metadata_only() {
         let dir = tempfile::tempdir().unwrap();
-        DqliteDirWriter::new(dir.path().to_path_buf(), 1, 0, 1)
-            .write()
-            .unwrap();
+        DqliteDir::init(dir.path().to_path_buf()).create().unwrap();
 
         let state = DqliteDir::open(dir.path()).unwrap();
         assert_eq!(state.term(), 1);
@@ -669,9 +683,12 @@ mod tests {
                 data: vec![2u8; 128],
             },
         ];
-        DqliteDirWriter::new(dir.path().to_path_buf(), 3, 1, 1000)
-            .add_closed_segment(DqliteSegmentBuilder::new().add_entries(&entries))
-            .write()
+        DqliteDir::init(dir.path().to_path_buf())
+            .with_term(3)
+            .with_voted_for(1)
+            .with_first_index(1000)
+            .with_closed_segment(|s| s.add_entries(&entries))
+            .create()
             .unwrap();
 
         let state = DqliteDir::open(dir.path()).unwrap();
@@ -715,9 +732,12 @@ mod tests {
                 data: vec![2u8; 128],
             },
         ];
-        DqliteDirWriter::new(dir.path().to_path_buf(), 3, 1, 1)
-            .add_open_segment(DqliteSegmentBuilder::new().add_entries(&entries))
-            .write()
+        DqliteDir::init(dir.path().to_path_buf())
+            .with_term(3)
+            .with_voted_for(1)
+            .with_first_index(1)
+            .with_open_segment(|s| s.add_entries(&entries))
+            .create()
             .unwrap();
 
         let state = DqliteDir::open(dir.path()).unwrap();
