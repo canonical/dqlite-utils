@@ -489,13 +489,13 @@ impl DqliteSegmentBuilder {
     }
 
     /// Adds a single batch containing entries to the segment.
-    fn add_batch(mut self, entries: Vec<DqliteLogEntry>) -> Self {
+    pub fn add_batch(mut self, entries: Vec<DqliteLogEntry>) -> Self {
         self.0.push(entries);
         self
     }
 
     /// Adds entries to the segment, using one batch each.
-    fn add_entries(mut self, entries: &[DqliteLogEntry]) -> Self {
+    pub fn add_entries(mut self, entries: &[DqliteLogEntry]) -> Self {
         for entry in entries {
             self.0.push(vec![entry.clone()]);
         }
