@@ -348,15 +348,13 @@ pub struct RaftConfiguration {
     pub servers: Vec<RaftServer>,
 }
 
-impl TryFrom<&raft_configuration> for RaftConfiguration {
-    type Error = anyhow::Error;
-
-    fn try_from(configuration: &raft_configuration) -> Result<Self> {
+impl RaftConfiguration {
+    fn new(configuration: &raft_configuration) -> Result<Self> {
         let mut servers = Vec::with_capacity(configuration.n as usize);
         let raw_servers =
             unsafe { std::slice::from_raw_parts(configuration.servers, configuration.n as usize) };
         for server in raw_servers {
-            servers.push(RaftServer::try_from(server)?);
+            servers.push(RaftServer::new(server)?);
         }
         Ok(Self { servers })
     }
@@ -376,10 +374,8 @@ pub enum RaftRole {
     Spare,
 }
 
-impl TryFrom<&raft_server> for RaftServer {
-    type Error = anyhow::Error;
-
-    fn try_from(server: &raft_server) -> Result<Self> {
+impl RaftServer {
+    fn new(server: &raft_server) -> Result<Self> {
         let role = match server.role as _ {
             raft_role::RAFT_STANDBY => RaftRole::Standby,
             raft_role::RAFT_VOTER => RaftRole::Voter,
@@ -414,7 +410,7 @@ impl DqliteSnapshot {
         path.set_extension("");
         let file = File::open(path)?;
 
-        let configuration = RaftConfiguration::try_from(&metadata.configuration)?;
+        let configuration = RaftConfiguration::new(&metadata.configuration)?;
         let timestamp = UNIX_EPOCH + Duration::from_millis(snapshot.timestamp);
         Ok(Self {
             term: snapshot.term,
