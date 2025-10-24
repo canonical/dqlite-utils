@@ -1,6 +1,6 @@
 use std::{
     error::Error,
-    ffi::{CStr, CString},
+    ffi::{CStr, CString, OsStr},
     fmt::{Debug, Display},
     fs::File,
     io::Read,
@@ -286,7 +286,7 @@ impl DqliteDir {
 
         let snapshots: Vec<_> = unsafe { snapshots.as_slice(n_snapshots) }
             .iter()
-            .map(|s| DqliteSnapshot::new(&dir, s))
+            .map(|s| DqliteSnapshot::load_internal(&cdir, s))
             .collect::<Result<_>>()?;
 
         let segments: Vec<_> = unsafe { segments.as_slice(n_segments) }
@@ -391,22 +391,22 @@ impl RaftServer {
 }
 
 impl DqliteSnapshot {
-    pub fn new(dir: &Path, snapshot: &uvSnapshotInfo) -> Result<Self> {
+    pub fn load(dir: impl AsRef<Path>, snapshot: &uvSnapshotInfo) -> Result<Self> {
+        let dir = CString::new(dir.as_ref().as_os_str().as_bytes())
+            .map_err(|e| anyhow!("failed to convert dir to C string: {e}"))?;
+        Self::load_internal(&dir, snapshot)
+    }
+
+    fn load_internal(dir: &CStr, snapshot: &uvSnapshotInfo) -> Result<Self> {
         let mut metadata = raft_snapshot::default();
         let mut err = RaftErrorStr::new();
-        let rc = unsafe {
-            uvSnapshotLoadMeta(
-                CStr::from_bytes_with_nul_unchecked(dir.as_os_str().as_bytes()).as_ptr(),
-                snapshot,
-                &mut metadata,
-                err.as_mut_ptr(),
-            )
-        };
+        let rc =
+            unsafe { uvSnapshotLoadMeta(dir.as_ptr(), snapshot, &mut metadata, err.as_mut_ptr()) };
         if rc != raft_result::OK {
             return Err(anyhow!("failed to load metadata: {err}"));
         }
 
-        let mut path = dir.join(snapshot.filename());
+        let mut path = PathBuf::from(OsStr::from_bytes(dir.to_bytes())).join(snapshot.filename());
         path.set_extension("");
         let file = File::open(path)?;
 
