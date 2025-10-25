@@ -660,7 +660,7 @@ mod tests {
                 }
                 let result = data.write_all(unsafe { header_buf.as_bytes() });
                 unsafe { raft_free(header_buf.base) };
-                result?;
+                result?; // Avoid leaking `header_buf` content.
             }
 
             {
