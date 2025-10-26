@@ -605,7 +605,7 @@ impl DqliteLogEntryContent {
                             let page_number = unsafe { *(*command).frames.page_numbers.offset(i) };
                             let page = unsafe { *(*command).frames.pages.offset(i) } as *const u8;
                             frames.push(DqliteFrame {
-                                page_number: page_number,
+                                page_number,
                                 data: unsafe { std::slice::from_raw_parts(page, page_size) }
                                     .to_vec(),
                             });
@@ -813,7 +813,7 @@ mod tests {
                     is_commit,
                     frames,
                 } => {
-                    assert!(frames.len() > 0);
+                    assert!(!frames.is_empty());
 
                     let page_size = frames[0].data.len();
                     assert!(frames.iter().all(|f| f.data.len() == page_size));
