@@ -635,25 +635,19 @@ impl DqliteSegment {
         // so that in case dqlite is running and decides to remove or
         // rename a segment file then we can still load the entries.
         let file = File::open(path)?;
+        let content = DynLazyCell::new(Box::new(move || Self::load_segment_file(file)));
         if segment.is_open {
-            Ok(Self::new_open(file, unsafe { segment.info.open.counter }))
+            let counter = unsafe { segment.info.open.counter };
+            Ok(Self::Open { counter, content })
         } else {
             let closed = unsafe { segment.info.closed };
-            Ok(Self::new_closed(
-                file,
-                closed.first_index..=closed.end_index,
-            ))
+            let indexes =
+                closed.first_index..=closed.end_index;
+            Ok(Self::Closed {
+                indexes,
+                content,
+            })
         }
-    }
-
-    pub fn new_open(file: File, counter: u64) -> Self {
-        let content = DynLazyCell::new(Box::new(move || Self::load_segment_file(file)));
-        Self::Open { counter, content }
-    }
-
-    pub fn new_closed(file: File, indexes: RangeInclusive<u64>) -> Self {
-        let content = DynLazyCell::new(Box::new(move || Self::load_segment_file(file)));
-        Self::Closed { indexes, content }
     }
 
     fn load_segment_file(mut file: File) -> Result<Vec<DqliteLogEntry>> {
@@ -759,7 +753,7 @@ mod tests {
                 if rc != raft_result::OK {
                     return Err(anyhow!("failed to encode command: {rc}"));
                 }
-                let data = unsafe { buf.as_bytes().to_vec() };
+                let data = unsafe { buf.as_bytes() }.to_vec();
                 unsafe { raft_free(buf.base) };
                 Ok(data)
             }
@@ -1180,14 +1174,20 @@ mod tests {
             },
         ];
 
-        let open_segment_path = dir.path().join("test");
-        DqliteSegmentBuilder::new()
-            .add_batch(&entries)
-            .write_to(File::create(&open_segment_path).as_mut().unwrap())
+        DqliteDirWriter::new(dir.path().to_path_buf(), 0, 0, 1)
+            .add_open_segment(DqliteSegmentBuilder::new().add_entries(&entries))
+            .write()
             .unwrap();
 
-        let open_segment = DqliteSegment::new_open(File::open(&open_segment_path).unwrap(), 0);
-        assert!(matches!(open_segment, DqliteSegment::Open { counter, .. } if counter == 0));
+        let state = DqliteDir::open(dir.path()).unwrap();
+        assert_eq!(state.term(), 0);
+        assert_eq!(state.voted_for(), 0);
+        assert_eq!(state.first_index(), 1);
+        assert_eq!(state.snapshots().len(), 0);
+        assert_eq!(state.segments().len(), 1);
+
+        let open_segment = state.segments().first().unwrap();
+        assert!(matches!(open_segment, DqliteSegment::Open { counter, .. } if *counter == 0));
         assert_eq!(open_segment.entries().unwrap(), entries);
     }
 
