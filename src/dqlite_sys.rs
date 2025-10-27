@@ -298,7 +298,7 @@ impl DqliteDir {
         })
     }
 
-    pub fn init(dir: PathBuf) -> DqliteDirCreator {
+    pub fn creator(dir: PathBuf) -> DqliteDirCreator {
         DqliteDirCreator {
             dir,
             term: 1,
@@ -651,7 +651,7 @@ mod tests {
     #[test]
     fn test_metadata_only() {
         let dir = tempfile::tempdir().unwrap();
-        DqliteDir::init(dir.path().to_path_buf()).create().unwrap();
+        DqliteDir::creator(dir.path().to_path_buf()).create().unwrap();
 
         let state = DqliteDir::open(dir.path()).unwrap();
         assert_eq!(state.term(), 1);
@@ -683,7 +683,7 @@ mod tests {
                 data: vec![2u8; 128],
             },
         ];
-        DqliteDir::init(dir.path().to_path_buf())
+        DqliteDir::creator(dir.path().to_path_buf())
             .with_term(3)
             .with_voted_for(1)
             .with_first_index(1000)
@@ -732,7 +732,7 @@ mod tests {
                 data: vec![2u8; 128],
             },
         ];
-        DqliteDir::init(dir.path().to_path_buf())
+        DqliteDir::creator(dir.path().to_path_buf())
             .with_term(3)
             .with_voted_for(1)
             .with_first_index(1)
