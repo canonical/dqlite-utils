@@ -371,13 +371,13 @@ impl RaftConfiguration {
         unsafe { configurationInit(&mut c) };
 
         for server in self.servers.iter() {
-            let address = CString::new(server.address.as_str()).unwrap().as_ptr();
+            let address = CString::new(server.address.as_str()).unwrap();
             let role = match server.role {
                 RaftRole::Standby => raft_role::RAFT_STANDBY,
                 RaftRole::Voter => raft_role::RAFT_VOTER,
                 RaftRole::Spare => raft_role::RAFT_SPARE,
             } as _;
-            let rc = unsafe { configurationAdd(&mut c, server.id, address, role) };
+            let rc = unsafe { configurationAdd(&mut c, server.id, address.as_ptr(), role) };
             if rc != raft_result::OK {
                 return Err(anyhow!("failed to add server to configuration"));
             }
