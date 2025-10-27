@@ -212,8 +212,6 @@ struct raft_snapshot {
 };
 void snapshotClose(struct raft_snapshot *s);
 
-void snapshotClose(struct raft_snapshot *s);
-
 void formatSnapshotMetaHeader(void *header, raft_index index,
                               const struct raft_buffer *content);
 
