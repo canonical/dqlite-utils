@@ -365,28 +365,19 @@ impl RaftConfiguration {
         }
         Ok(Self { servers })
     }
-}
 
-impl TryInto<raft_configuration> for &RaftConfiguration {
-    type Error = anyhow::Error;
-
-    fn try_into(self) -> Result<raft_configuration, Self::Error> {
+    fn to_raw(&self) -> Result<raft_configuration> {
         let mut c = raft_configuration::default();
         unsafe { configurationInit(&mut c) };
 
         for server in self.servers.iter() {
-            let rc = unsafe {
-                configurationAdd(
-                    &mut c,
-                    server.id,
-                    CString::new(server.address.as_str()).unwrap().as_ptr(),
-                    match server.role {
-                        RaftRole::Standby => raft_role::RAFT_STANDBY,
-                        RaftRole::Voter => raft_role::RAFT_VOTER,
-                        RaftRole::Spare => raft_role::RAFT_SPARE,
-                    } as _,
-                )
-            };
+            let address = CString::new(server.address.as_str()).unwrap().as_ptr();
+            let role = match server.role {
+                RaftRole::Standby => raft_role::RAFT_STANDBY,
+                RaftRole::Voter => raft_role::RAFT_VOTER,
+                RaftRole::Spare => raft_role::RAFT_SPARE,
+            } as _;
+            let rc = unsafe { configurationAdd(&mut c, server.id, address, role) };
             if rc != raft_result::OK {
                 return Err(anyhow!("failed to add server to configuration"));
             }
@@ -425,7 +416,7 @@ impl RaftServer {
     }
 }
 
-type LazyCell<T> = std::cell::LazyCell<T, Box<dyn std::ops::FnOnce() -> T>>;
+type DynLazyCell<T> = std::cell::LazyCell<T, Box<dyn std::ops::FnOnce() -> T>>;
 
 impl DqliteSnapshot {
     pub fn load(dir: impl AsRef<Path>, snapshot: &uvSnapshotInfo) -> Result<Self> {
@@ -463,11 +454,11 @@ impl DqliteSnapshot {
 pub enum DqliteSegment {
     Open {
         counter: u64,
-        content: LazyCell<Result<Vec<DqliteLogEntry>>>,
+        content: DynLazyCell<Result<Vec<DqliteLogEntry>>>,
     },
     Closed {
         indexes: RangeInclusive<u64>,
-        content: LazyCell<Result<Vec<DqliteLogEntry>>>,
+        content: DynLazyCell<Result<Vec<DqliteLogEntry>>>,
     },
 }
 
@@ -492,10 +483,14 @@ pub struct DqliteLogEntry {
 
 impl DqliteLogEntry {
     pub fn entry_type(&self) -> u16 {
+        use DqliteLogEntryContent as Dlec;
         match &self.content {
-            DqliteLogEntryContent::Barrier => raft_entry_type::RAFT_BARRIER as u16,
-            DqliteLogEntryContent::Change(_) => raft_entry_type::RAFT_CHANGE as u16,
-            _ => raft_entry_type::RAFT_COMMAND as u16,
+            Dlec::Barrier => raft_entry_type::RAFT_BARRIER as u16,
+            Dlec::Change(_) => raft_entry_type::RAFT_CHANGE as u16,
+            Dlec::CommandOpen { .. }
+            | Dlec::CommandFrames { .. }
+            | Dlec::CommandUndo { .. }
+            | Dlec::CommandCheckpoint { .. } => raft_entry_type::RAFT_COMMAND as u16,
         }
     }
 }
@@ -523,10 +518,12 @@ pub enum DqliteLogEntryContent {
 }
 
 impl DqliteLogEntryContent {
-    fn from(entry_type: u16, data: &[u8]) -> Result<Self> {
+    fn parse(entry_type: u16, data: &[u8]) -> Result<Self> {
         match entry_type as _ {
             raft_entry_type::RAFT_BARRIER => {
-                assert!(data.len() == 8 && data.iter().all(|b| *b == 0));
+                if data.len() != 8 || !data.iter().all(|b| *b == 0) {
+                    return Err(anyhow!("invalid barrier entry"));
+                }
                 Ok(Self::Barrier)
             }
             raft_entry_type::RAFT_CHANGE => {
@@ -546,7 +543,7 @@ impl DqliteLogEntryContent {
                 Ok(Self::Change(RaftConfiguration::new(&configuration)?))
             }
             raft_entry_type::RAFT_COMMAND => {
-                let mut type_: c_int = 0;
+                let mut ty: c_int = 0;
 
                 let mut command = RaftPtr::EMPTY;
                 let rv = unsafe {
@@ -555,7 +552,7 @@ impl DqliteLogEntryContent {
                             base: data.as_ptr() as *mut _,
                             len: data.len(),
                         },
-                        &mut type_,
+                        &mut ty,
                         command.as_mut_ref(),
                     )
                 };
@@ -563,7 +560,7 @@ impl DqliteLogEntryContent {
                     return Err(anyhow!("failed to decode command: {rv}"));
                 }
 
-                match type_ as _ {
+                match ty as _ {
                     raft_command_type::COMMAND_OPEN => {
                         let command = command.as_mut_ptr() as *mut bindings::command_open;
                         let filename = OsStr::from_bytes(
@@ -590,9 +587,7 @@ impl DqliteLogEntryContent {
                     }
                     raft_command_type::COMMAND_FRAMES => {
                         let command = command.as_mut_ptr() as *mut bindings::command_frames;
-                        assert!(unsafe { (*command).frames.n_pages > 0 });
-                        assert!(unsafe { (*command).__unused1__ == 0 });
-                        assert!(unsafe { (*command).__unused2__ == 0 });
+                        // TODO: add logging for weird cases like n_pages == 0 or unused fields not zero.
                         let filename = OsStr::from_bytes(
                             unsafe { CStr::from_ptr((*command).filename) }.to_bytes(),
                         );
@@ -619,10 +614,10 @@ impl DqliteLogEntryContent {
                             frames,
                         })
                     }
-                    _ => panic!("unknown command type: {type_}"),
+                    _ => Err(anyhow!("unknown command type: {ty}")),
                 }
             }
-            _ => panic!("unknown entry type: {entry_type}"),
+            _ => Err(anyhow!("unknown entry type: {entry_type}")),
         }
     }
 }
@@ -652,12 +647,12 @@ impl DqliteSegment {
     }
 
     pub fn new_open(file: File, counter: u64) -> Self {
-        let content = LazyCell::new(Box::new(move || Self::load_segment_file(file)));
+        let content = DynLazyCell::new(Box::new(move || Self::load_segment_file(file)));
         Self::Open { counter, content }
     }
 
     pub fn new_closed(file: File, indexes: RangeInclusive<u64>) -> Self {
-        let content = LazyCell::new(Box::new(move || Self::load_segment_file(file)));
+        let content = DynLazyCell::new(Box::new(move || Self::load_segment_file(file)));
         Self::Closed { indexes, content }
     }
 
@@ -718,7 +713,7 @@ impl DqliteSegment {
 
                 ret.push(DqliteLogEntry {
                     term: entry.term,
-                    content: DqliteLogEntryContent::from(entry.type_, unsafe {
+                    content: DqliteLogEntryContent::parse(entry.type_, unsafe {
                         entry.buf.as_bytes()
                     })?,
                 });
@@ -772,7 +767,7 @@ mod tests {
             let data: Vec<_> = match &entry.content {
                 DqliteLogEntryContent::Barrier => vec![0u8; 8],
                 DqliteLogEntryContent::Change(configuration) => {
-                    let configuration = configuration.try_into()?;
+                    let configuration = configuration.to_raw()?;
                     let mut buf = raft_buffer::default();
                     let rc = unsafe { configurationEncode(&configuration, &mut buf) };
                     if rc != raft_result::OK {
