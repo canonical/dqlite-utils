@@ -641,12 +641,8 @@ impl DqliteSegment {
             Ok(Self::Open { counter, content })
         } else {
             let closed = unsafe { segment.info.closed };
-            let indexes =
-                closed.first_index..=closed.end_index;
-            Ok(Self::Closed {
-                indexes,
-                content,
-            })
+            let indexes = closed.first_index..=closed.end_index;
+            Ok(Self::Closed { indexes, content })
         }
     }
 
@@ -740,10 +736,8 @@ mod tests {
         data: Vec<u8>,
     }
 
-    impl TryFrom<&DqliteLogEntry> for DqliteSegmentBuilderEntry {
-        type Error = anyhow::Error;
-
-        fn try_from(entry: &DqliteLogEntry) -> Result<Self> {
+    impl DqliteSegmentBuilderEntry {
+        fn new(entry: &DqliteLogEntry) -> Result<Self> {
             unsafe fn encode_command(
                 command_type: c_int,
                 command: *const c_void,
@@ -858,7 +852,7 @@ mod tests {
             self.0.push(
                 entries
                     .iter()
-                    .map(|e| e.try_into())
+                    .map(|e| DqliteSegmentBuilderEntry::new(e))
                     .collect::<Result<_>>()
                     .expect("cannot serialize log entry"),
             );
@@ -868,8 +862,9 @@ mod tests {
         /// Adds entries to the segment, using one batch each.
         fn add_entries(mut self, entries: &[DqliteLogEntry]) -> Self {
             for entry in entries {
-                self.0
-                    .push(vec![entry.try_into().expect("cannot serialize log entry")]);
+                self.0.push(vec![
+                    DqliteSegmentBuilderEntry::new(entry).expect("cannot serialize log entry"),
+                ]);
             }
             self
         }
