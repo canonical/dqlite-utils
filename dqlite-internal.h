@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #define UV__DISK_FORMAT 1
 #define UV__FILENAME_LEN 128
@@ -60,7 +61,7 @@ struct raft_buffer {
   size_t len; /* Length of the buffer. */
 };
 
-enum {
+enum raft_entry_type {
   RAFT_COMMAND = 1, /* Command for the application FSM. */
   RAFT_BARRIER,     /* Wait for all previous commands to be applied. */
   RAFT_CHANGE       /* Raft configuration change. */
@@ -73,6 +74,51 @@ struct raft_entry {
   struct raft_buffer buf; /* Entry data. */
   void *batch;            /* Batch that buf's memory points to, if any. */
 };
+
+enum raft_command_type {
+  COMMAND_OPEN = 1,
+  COMMAND_FRAMES,
+  COMMAND_UNDO,
+  COMMAND_CHECKPOINT
+};
+
+typedef const char *text_t;
+
+typedef struct frames {
+  uint32_t n_pages;
+  uint16_t page_size;
+  uint16_t __unused__;
+  uint64_t *page_numbers;
+  void **pages;
+} frames_t;
+
+struct command_frames {
+  text_t filename;
+  uint64_t tx_id;
+  uint32_t truncate;
+  uint8_t is_commit;
+  uint8_t __unused1__;
+  uint16_t __unused2__;
+  frames_t frames;
+};
+
+/* Deprecated commands */
+struct command_open {
+  text_t filename;
+};
+
+struct command_undo {
+  uint64_t tx_id;
+};
+
+struct command_checkpoint {
+  text_t filename;
+};
+
+raft_result command__encode(int type, const void *command,
+                            struct raft_buffer *buf);
+raft_result command__decode(const struct raft_buffer *buf, int *type,
+                            void **command);
 
 /* Information persisted in a single metadata file. */
 struct uvMetadata {
@@ -144,6 +190,8 @@ raft_result configurationAdd(struct raft_configuration *c, raft_id id,
                              const char *address, int role);
 raft_result configurationEncode(const struct raft_configuration *c,
                                 struct raft_buffer *buf);
+raft_result configurationDecode(const struct raft_buffer *buf,
+                                struct raft_configuration *c);
 void configurationClose(struct raft_configuration *c);
 
 struct raft_snapshot {
@@ -162,7 +210,6 @@ struct raft_snapshot {
   struct raft_buffer *bufs;
   unsigned n_bufs;
 };
-
 void snapshotClose(struct raft_snapshot *s);
 
 void formatSnapshotMetaHeader(void *header, raft_index index,

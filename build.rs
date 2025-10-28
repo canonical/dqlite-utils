@@ -48,6 +48,8 @@ fn main() {
         .new_type_alias("raft_result")
         .constified_enum_module("raft_result_code")
         .constified_enum_module("raft_role")
+        .constified_enum_module("raft_entry_type")
+        .constified_enum_module("raft_command_type")
         .parse_callbacks(Box::new(BindgenRules {
             ingore_macros: HashSet::new(),
         }))
