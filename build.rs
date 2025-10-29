@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::env;
 use std::ffi::OsString;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use bindgen::callbacks::{DeriveInfo, MacroParsingBehavior, ParseCallbacks};
 use git2::build::RepoBuilder;
@@ -65,7 +65,7 @@ fn main() {
 }
 
 // TODO: remove this once refactoring-for-utils branch gets merged.
-fn build_dqlite(out_dir: &PathBuf) {
+fn build_dqlite(out_dir: &Path) {
     let dqlite_dir = out_dir.join("dqlite");
     let dqlite_repo = "https://github.com/canonical/dqlite.git";
     let dqlite_branch = "refactoring-for-utils";
