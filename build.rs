@@ -34,14 +34,10 @@ fn main() {
 
     build_dqlite(&out_dir);
 
-    let dqlite = pkg_config::Config::new()
+    pkg_config::Config::new()
         .statik(true)
         .probe("dqlite")
         .expect("Failed to find libdqlite");
-
-    for lib_name in dqlite.libs {
-        println!("cargo:rustc-link-lib=static={lib_name}");
-    }
 
     let bindings = bindgen::Builder::default()
         .header("dqlite-internal.h")
