@@ -47,6 +47,9 @@ fn main() {
         .header("dqlite-internal.h")
         .new_type_alias("raft_result")
         .constified_enum_module("raft_result_code")
+        .constified_enum_module("raft_role")
+        .constified_enum_module("raft_entry_type")
+        .constified_enum_module("raft_command_type")
         .parse_callbacks(Box::new(BindgenRules {
             ingore_macros: HashSet::new(),
         }))
@@ -54,6 +57,8 @@ fn main() {
         .derive_default(true)
         .derive_debug(false)
         .derive_copy(true)
+        .no_copy("raft_configuration")
+        .no_copy("raft_snapshot")
         .no_copy("uvSegmentBuffer")
         .generate()
         .expect("Unable to generate bindings");
