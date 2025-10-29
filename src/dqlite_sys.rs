@@ -199,7 +199,7 @@ impl Display for RaftErrorStr {
 struct RaftPtr<T>(*mut T);
 
 impl<T> RaftPtr<T> {
-    const EMPTY: Self = Self(ptr::null_mut());
+    const NULL: Self = Self(ptr::null_mut());
 
     unsafe fn new(ptr: *mut T) -> Self {
         Self(ptr)
@@ -558,7 +558,7 @@ impl DqliteLogEntryContent {
             raft_entry_type::RAFT_COMMAND => {
                 let mut ty: c_int = 0;
 
-                let mut command = RaftPtr::EMPTY;
+                let mut command = RaftPtr::NULL;
                 let rv = unsafe {
                     command__decode(
                         &raft_buffer {
