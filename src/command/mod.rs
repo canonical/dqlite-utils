@@ -26,7 +26,7 @@ impl FromStr for Command {
     type Err = Error;
 
     fn from_str(raw: &str) -> Result<Self> {
-        let words = shell_words::split(&raw)?;
+        let words = shell_words::split(raw)?;
         let (command, args) = match words.split_first() {
             Some((command, args)) => (command, args),
             None => return Ok(Self::Noop),

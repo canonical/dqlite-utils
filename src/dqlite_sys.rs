@@ -283,8 +283,8 @@ impl DqliteDir {
             return Err(anyhow!("failed to list snapshots and segments: {err}"));
         }
 
-        assert!(n_snapshots == 0 || snapshots != ptr::null_mut());
-        assert!(n_segments == 0 || segments != ptr::null_mut());
+        assert!(n_snapshots == 0 || !snapshots.is_null());
+        assert!(n_segments == 0 || !segments.is_null());
 
         let snapshots = unsafe { RaftPtr::new(snapshots) };
         let segments = unsafe { RaftPtr::new(segments) };
@@ -296,7 +296,7 @@ impl DqliteDir {
 
         let segments: Vec<_> = unsafe { segments.as_slice(n_segments) }
             .iter()
-            .map(|s| DqliteSegment::open(&dir, s))
+            .map(|s| DqliteSegment::open(dir, s))
             .collect::<Result<_>>()?;
 
         let start_index = segments
@@ -751,7 +751,7 @@ impl DqliteSegment {
         let mut buf = Vec::new();
         file.read_to_end(&mut buf)?;
 
-        if buf.len() == 0 {
+        if buf.is_empty() {
             return Ok(Vec::new());
         } else if buf.len() < 8 {
             return Err(anyhow!("invalid segment file"));
@@ -810,7 +810,7 @@ impl DqliteSegment {
                 });
             }
         }
-        return Ok(ret);
+        Ok(ret)
     }
 }
 
@@ -1079,15 +1079,13 @@ impl DqliteDirCreator {
             index = last_index + 1;
         }
 
-        let mut index = 0;
-        for open_segment in self.open_segments.iter() {
+        for (index, open_segment) in self.open_segments.iter().enumerate() {
             path.push(format!("open-{index}"));
 
             let mut file = File::create(path.as_path())?;
             self.write_segment(&mut file, &open_segment.0)?;
 
             path.pop();
-            index += 1;
         }
 
         for snapshot in &self.snapshots {
