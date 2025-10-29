@@ -199,10 +199,12 @@ impl Display for RaftErrorStr {
 struct RaftPtr<T>(*mut T);
 
 impl<T> RaftPtr<T> {
-    const NULL: Self = Self(ptr::null_mut());
-
     unsafe fn new(ptr: *mut T) -> Self {
         Self(ptr)
+    }
+
+    fn null() -> Self {
+        Self(ptr::null_mut())
     }
 
     fn as_ptr(&self) -> *const T {
@@ -320,9 +322,9 @@ impl DqliteDir {
         })
     }
 
-    pub fn creator(dir: PathBuf) -> DqliteDirCreator {
+    pub fn creator(dir: impl Into<PathBuf>) -> DqliteDirCreator {
         DqliteDirCreator {
-            dir,
+            dir: dir.into(),
             term: 1,
             voted_for: 0,
             first_index: 1,
@@ -558,7 +560,7 @@ impl DqliteLogEntryContent {
             raft_entry_type::RAFT_COMMAND => {
                 let mut ty: c_int = 0;
 
-                let mut command = RaftPtr::NULL;
+                let mut command = RaftPtr::null();
                 let rv = unsafe {
                     command__decode(
                         &raft_buffer {
@@ -838,26 +840,22 @@ impl DqliteSegmentBuilder {
         }
         self
     }
-
-    fn entry_count(&self) -> usize {
-        self.0.iter().fold(0, |c, b| c + b.len())
-    }
 }
 
 pub struct DqliteSnapshotBuilder {
     term: u64,
     index: u64,
     timestamp: SystemTime,
-    configuration: RaftConfiguration,
+    configuration: Option<RaftConfiguration>,
 }
 
 impl DqliteSnapshotBuilder {
-    fn new(term: u64, index: u64, timestamp: SystemTime, configuration: RaftConfiguration) -> Self {
+    fn new(term: u64, index: u64, timestamp: SystemTime) -> Self {
         Self {
             term,
             index,
             timestamp,
-            configuration,
+            configuration: None,
         }
     }
 
@@ -873,6 +871,11 @@ impl DqliteSnapshotBuilder {
 
     pub fn with_timestamp(mut self, timestamp: SystemTime) -> Self {
         self.timestamp = timestamp;
+        self
+    }
+
+    pub fn with_configuration(mut self, configuration: RaftConfiguration) -> Self {
+        self.configuration = Some(configuration);
         self
     }
 }
@@ -925,28 +928,22 @@ impl DqliteDirCreator {
 
     fn with_snapshot(
         mut self,
-        configuration: RaftConfiguration,
         f: impl std::ops::FnOnce(DqliteSnapshotBuilder) -> DqliteSnapshotBuilder,
     ) -> Self {
         let mut index = self.first_index;
         for entry in self.closed_segments.iter().chain(self.open_segments.iter()) {
-            index += entry.entry_count() as u64;
+            index += entry.0.iter().fold(0, |c, b| c + b.len()) as u64;
         }
         let timestamp = SystemTime::now();
 
-        let snapshot = f(DqliteSnapshotBuilder::new(
-            self.term,
-            index,
-            timestamp,
-            configuration,
-        ));
+        let snapshot = f(DqliteSnapshotBuilder::new(self.term, index, timestamp));
         self.snapshots.push(snapshot);
         self
     }
 }
 
 impl DqliteDirCreator {
-    fn write_segment(file: &mut File, batches: &Vec<Vec<DqliteLogEntry>>) -> Result<()> {
+    fn write_segment(&self, file: &mut File, batches: &Vec<Vec<DqliteLogEntry>>) -> Result<()> {
         let mut buf = uvSegmentBuffer::default();
         unsafe { uvSegmentBufferInit(&mut buf, 4096) };
 
@@ -990,7 +987,7 @@ impl DqliteDirCreator {
     }
 
     // TODO: add method to add databases in the snapshot. For now the snapshot will be empty (data-wise).
-    fn write_snapshot(s: &DqliteSnapshotBuilder, folder: &Path) -> Result<()> {
+    fn write_snapshot(&self, s: &DqliteSnapshotBuilder, folder: &Path) -> Result<()> {
         let mut path = {
             let term = s.term;
             let index = s.index;
@@ -1017,7 +1014,8 @@ impl DqliteDirCreator {
             let mut config = raft_configuration::default();
             unsafe { configurationInit(&mut config) };
 
-            for server in &s.configuration.servers {
+            let configuration = s.configuration.as_ref().expect("cannot write snapshot without configuration");
+            for server in &configuration.servers {
                 let rc = unsafe {
                     configurationAdd(
                         &mut config,
@@ -1082,7 +1080,7 @@ impl DqliteDirCreator {
             path.push(format!("{index:0>16}-{last_index:0>16}"));
 
             let mut file = File::create(path.as_path())?;
-            Self::write_segment(&mut file, &closed_segment.0)?;
+            self.write_segment(&mut file, &closed_segment.0)?;
 
             path.pop();
             index = last_index + 1;
@@ -1093,14 +1091,14 @@ impl DqliteDirCreator {
             path.push(format!("open-{}", index));
 
             let mut file = File::create(path.as_path())?;
-            Self::write_segment(&mut file, &open_segment.0)?;
+            self.write_segment(&mut file, &open_segment.0)?;
 
             path.pop();
             index += 1;
         }
 
         for snapshot in &self.snapshots {
-            Self::write_snapshot(snapshot, self.dir.as_path())?;
+            self.write_snapshot(snapshot, self.dir.as_path())?;
         }
 
         Ok(())
@@ -1122,9 +1120,7 @@ mod tests {
     #[test]
     fn test_metadata_only() {
         let dir = tempfile::tempdir().unwrap();
-        DqliteDir::creator(dir.path().to_path_buf())
-            .create()
-            .unwrap();
+        DqliteDir::creator(dir.path()).create().unwrap();
 
         let state = DqliteDir::open(dir.path()).unwrap();
         assert_eq!(state.term(), 1);
@@ -1191,7 +1187,7 @@ mod tests {
             },
         ];
 
-        DqliteDir::creator(dir.path().to_path_buf())
+        DqliteDir::creator(dir.path())
             .with_open_segment(|s| s.add_entries(&entries))
             .create()
             .unwrap();
@@ -1233,7 +1229,7 @@ mod tests {
                 content: DqliteLogEntryContent::CommandUndo { tx_id: 1 },
             },
         ];
-        DqliteDir::creator(dir.path().to_path_buf())
+        DqliteDir::creator(dir.path())
             .with_term(3)
             .with_voted_for(1)
             .with_first_index(1000)
@@ -1287,7 +1283,7 @@ mod tests {
                 content: DqliteLogEntryContent::CommandUndo { tx_id: 1 },
             },
         ];
-        DqliteDir::creator(dir.path().to_path_buf())
+        DqliteDir::creator(dir.path())
             .with_term(3)
             .with_voted_for(1)
             .with_first_index(1)
@@ -1332,9 +1328,12 @@ mod tests {
                     .unwrap()
                     .as_millis() as u64,
             );
-        DqliteDir::creator(dir.path().to_path_buf())
-            .with_snapshot(configuration.clone(), |s| {
-                s.with_term(3).with_index(1).with_timestamp(timestamp)
+        DqliteDir::creator(dir.path())
+            .with_snapshot(|s| {
+                s.with_configuration(configuration.clone())
+                    .with_term(3)
+                    .with_index(1)
+                    .with_timestamp(timestamp)
             })
             .create()
             .unwrap();
