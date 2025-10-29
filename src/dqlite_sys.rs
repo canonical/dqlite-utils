@@ -68,25 +68,19 @@ mod bindings {
 
     impl Debug for raft_result {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(
-                f,
-                "{}",
-                unsafe { CStr::from_ptr(raft_strerror(*self)) }
-                    .to_str()
-                    .unwrap()
-            )
+            let msg = unsafe { CStr::from_ptr(raft_strerror(*self)) }
+                .to_str()
+                .unwrap();
+            write!(f, "{msg:?}")
         }
     }
 
     impl Display for raft_result {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(
-                f,
-                "{}",
-                unsafe { CStr::from_ptr(raft_strerror(*self)) }
-                    .to_str()
-                    .unwrap()
-            )
+            let msg = unsafe { CStr::from_ptr(raft_strerror(*self)) }
+                .to_str()
+                .unwrap();
+            write!(f, "{msg}")
         }
     }
 
@@ -263,7 +257,7 @@ impl DqliteDir {
             bindings::uvMetadataLoad(cdir.as_ptr(), &mut metadata as *mut _, err.as_mut_ptr())
         };
         if rc != raft_result::OK {
-            return Err(anyhow!("failed to load metadata: {}", err));
+            return Err(anyhow!("failed to load metadata: {err}"));
         }
         if metadata.version == 0 {
             return Err(anyhow!("not ad dqlite folder"));
@@ -286,7 +280,7 @@ impl DqliteDir {
             )
         };
         if rc != raft_result::OK {
-            return Err(anyhow!("failed to list snapshots and segments: {}", err));
+            return Err(anyhow!("failed to list snapshots and segments: {err}"));
         }
 
         assert!(n_snapshots == 0 || snapshots != ptr::null_mut());
@@ -431,7 +425,7 @@ impl RaftServer {
     }
 }
 
-type DynLazyCell<T> = std::cell::LazyCell<T, Box<dyn std::ops::FnOnce() -> T>>;
+type DynLazyCell<T> = std::cell::LazyCell<T, Box<dyn FnOnce() -> T>>;
 
 impl DqliteSnapshot {
     pub fn load(dir: impl AsRef<Path>, snapshot: &uvSnapshotInfo) -> Result<Self> {
@@ -908,7 +902,7 @@ impl DqliteDirCreator {
 
     pub fn with_closed_segment(
         mut self,
-        f: impl std::ops::FnOnce(DqliteSegmentBuilder) -> DqliteSegmentBuilder,
+        f: impl FnOnce(DqliteSegmentBuilder) -> DqliteSegmentBuilder,
     ) -> Self {
         let segment = f(DqliteSegmentBuilder::new());
         assert!(!segment.0.is_empty());
@@ -919,7 +913,7 @@ impl DqliteDirCreator {
 
     pub fn with_open_segment(
         mut self,
-        f: impl std::ops::FnOnce(DqliteSegmentBuilder) -> DqliteSegmentBuilder,
+        f: impl FnOnce(DqliteSegmentBuilder) -> DqliteSegmentBuilder,
     ) -> Self {
         let segment = f(DqliteSegmentBuilder::new());
         self.open_segments.push(segment);
@@ -928,7 +922,7 @@ impl DqliteDirCreator {
 
     fn with_snapshot(
         mut self,
-        f: impl std::ops::FnOnce(DqliteSnapshotBuilder) -> DqliteSnapshotBuilder,
+        f: impl FnOnce(DqliteSnapshotBuilder) -> DqliteSnapshotBuilder,
     ) -> Self {
         let mut index = self.first_index;
         for entry in self.closed_segments.iter().chain(self.open_segments.iter()) {
@@ -949,7 +943,7 @@ impl DqliteDirCreator {
 
         let rc = unsafe { uvSegmentBufferFormat(&mut buf) };
         if rc != raft_result::OK {
-            return Err(anyhow!("failed to format segment buffer: {}", rc));
+            return Err(anyhow!("failed to format segment buffer: {rc}"));
         }
 
         for batch in batches {
@@ -975,7 +969,7 @@ impl DqliteDirCreator {
                 uvSegmentBufferAppend(&mut buf, entries.as_ptr(), entries.len() as c_uint)
             };
             if rc != raft_result::OK {
-                return Err(anyhow!("failed to append to segment buffer: {}", rc));
+                return Err(anyhow!("failed to append to segment buffer: {rc}"));
             }
         }
 
@@ -1014,20 +1008,19 @@ impl DqliteDirCreator {
             let mut config = raft_configuration::default();
             unsafe { configurationInit(&mut config) };
 
-            let configuration = s.configuration.as_ref().expect("cannot write snapshot without configuration");
+            let configuration = s
+                .configuration
+                .as_ref()
+                .expect("cannot write snapshot without configuration");
             for server in &configuration.servers {
-                let rc = unsafe {
-                    configurationAdd(
-                        &mut config,
-                        server.id,
-                        CString::new(server.address.as_str()).unwrap().as_ptr(),
-                        match server.role {
-                            RaftRole::Standby => raft_role::RAFT_STANDBY,
-                            RaftRole::Voter => raft_role::RAFT_VOTER,
-                            RaftRole::Spare => raft_role::RAFT_SPARE,
-                        } as _,
-                    )
-                };
+                let id = server.id;
+                let address = CString::new(server.address.as_str()).unwrap();
+                let role = match server.role {
+                    RaftRole::Standby => raft_role::RAFT_STANDBY,
+                    RaftRole::Voter => raft_role::RAFT_VOTER,
+                    RaftRole::Spare => raft_role::RAFT_SPARE,
+                } as _;
+                let rc = unsafe { configurationAdd(&mut config, id, address.as_ptr(), role) };
                 if rc != raft_result::OK {
                     return Err(anyhow!("failed to add server to configuration"));
                 }
@@ -1070,7 +1063,7 @@ impl DqliteDirCreator {
             )
         };
         if rc != raft_result::OK {
-            return Err(anyhow!("failed to store metadata: {}", err));
+            return Err(anyhow!("failed to store metadata: {err}"));
         }
 
         let mut path = self.dir.clone();
@@ -1088,7 +1081,7 @@ impl DqliteDirCreator {
 
         let mut index = 0;
         for open_segment in self.open_segments.iter() {
-            path.push(format!("open-{}", index));
+            path.push(format!("open-{index}"));
 
             let mut file = File::create(path.as_path())?;
             self.write_segment(&mut file, &open_segment.0)?;
