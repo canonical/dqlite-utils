@@ -251,8 +251,7 @@ impl RaftConfiguration {
                 RaftRole::Voter => raft_role::RAFT_VOTER,
                 RaftRole::Spare => raft_role::RAFT_SPARE,
             } as _;
-            let rc =
-                unsafe { sys::configurationAdd(&mut c, server.id, address.as_ptr(), role) };
+            let rc = unsafe { sys::configurationAdd(&mut c, server.id, address.as_ptr(), role) };
             if rc != raft_result::OK {
                 return Err(anyhow!("failed to add server to configuration"));
             }
@@ -833,11 +832,7 @@ impl DqliteDirCreator {
                 })
                 .collect();
             let rc = unsafe {
-                sys::uvSegmentBufferAppend(
-                    &mut buf,
-                    entries.as_ptr(),
-                    entries.len() as c_uint,
-                )
+                sys::uvSegmentBufferAppend(&mut buf, entries.as_ptr(), entries.len() as c_uint)
             };
             if rc != raft_result::OK {
                 return Err(anyhow!("failed to append to segment buffer: {rc}"));
@@ -891,9 +886,7 @@ impl DqliteDirCreator {
                     RaftRole::Voter => raft_role::RAFT_VOTER,
                     RaftRole::Spare => raft_role::RAFT_SPARE,
                 } as _;
-                let rc = unsafe {
-                    sys::configurationAdd(&mut config, id, address.as_ptr(), role)
-                };
+                let rc = unsafe { sys::configurationAdd(&mut config, id, address.as_ptr(), role) };
                 if rc != raft_result::OK {
                     return Err(anyhow!("failed to add server to configuration"));
                 }
@@ -907,11 +900,7 @@ impl DqliteDirCreator {
 
             let mut header = [0u8; 32];
             unsafe {
-                sys::formatSnapshotMetaHeader(
-                    header.as_mut_ptr() as *mut _,
-                    s.index,
-                    &config_buf,
-                )
+                sys::formatSnapshotMetaHeader(header.as_mut_ptr() as *mut _, s.index, &config_buf)
             };
             let result = meta
                 .write_all(header.as_slice())
