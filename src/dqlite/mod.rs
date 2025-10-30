@@ -1,3 +1,5 @@
+mod sys;
+
 use std::{
     error::Error,
     ffi::{CStr, CString, OsStr, OsString, c_int, c_uint, c_void},
@@ -13,149 +15,12 @@ use std::{
 
 use anyhow::{Result, anyhow};
 
-use self::bindings::{
-    RAFT_ERRMSG_BUF_SIZE, command__decode, command__encode, command_checkpoint, command_frames,
-    command_open, command_undo, configurationAdd, configurationDecode, configurationEncode,
-    configurationInit, encodeSnapshotHeader, formatSnapshotMetaHeader, frames_t, raft_buffer,
-    raft_command_type, raft_configuration, raft_entry, raft_entry_type, raft_free, raft_result,
-    raft_role, raft_server, raft_snapshot, uv_buf_t, uvMetadata, uvSegmentBuffer,
-    uvSegmentBufferAppend, uvSegmentBufferFinalize, uvSegmentBufferFormat, uvSegmentBufferInit,
-    uvSegmentInfo, uvSnapshotInfo, uvSnapshotLoadMeta,
+use self::sys::{
+    RAFT_ERRMSG_BUF_SIZE, command_checkpoint, command_frames, command_open, command_undo, frames_t,
+    raft_buffer, raft_command_type, raft_configuration, raft_entry, raft_entry_type, raft_result,
+    raft_role, raft_server, raft_snapshot, uv_buf_t, uvMetadata, uvSegmentBuffer, uvSegmentInfo,
+    uvSnapshotInfo,
 };
-
-mod bindings {
-    #![allow(non_upper_case_globals)]
-    #![allow(non_camel_case_types)]
-    #![allow(non_snake_case)]
-    #![allow(unused)]
-
-    include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
-
-    use std::error::Error;
-    use std::ffi::{CStr, OsStr};
-    use std::fmt::{Debug, Display};
-    use std::os::unix::ffi::OsStrExt;
-
-    impl raft_result {
-        pub const OK: Self = Self(raft_result_code::RAFT_OK as _);
-        pub const NOMEM: Self = Self(raft_result_code::RAFT_NOMEM as _);
-        pub const BADID: Self = Self(raft_result_code::RAFT_BADID as _);
-        pub const DUPLICATEID: Self = Self(raft_result_code::RAFT_DUPLICATEID as _);
-        pub const DUPLICATEADDRESS: Self = Self(raft_result_code::RAFT_DUPLICATEADDRESS as _);
-        pub const BADROLE: Self = Self(raft_result_code::RAFT_BADROLE as _);
-        pub const MALFORMED: Self = Self(raft_result_code::RAFT_MALFORMED as _);
-        pub const NOTLEADER: Self = Self(raft_result_code::RAFT_NOTLEADER as _);
-        pub const LEADERSHIPLOST: Self = Self(raft_result_code::RAFT_LEADERSHIPLOST as _);
-        pub const SHUTDOWN: Self = Self(raft_result_code::RAFT_SHUTDOWN as _);
-        pub const CANTBOOTSTRAP: Self = Self(raft_result_code::RAFT_CANTBOOTSTRAP as _);
-        pub const CANTCHANGE: Self = Self(raft_result_code::RAFT_CANTCHANGE as _);
-        pub const CORRUPT: Self = Self(raft_result_code::RAFT_CORRUPT as _);
-        pub const CANCELED: Self = Self(raft_result_code::RAFT_CANCELED as _);
-        pub const NAMETOOLONG: Self = Self(raft_result_code::RAFT_NAMETOOLONG as _);
-        pub const TOOBIG: Self = Self(raft_result_code::RAFT_TOOBIG as _);
-        pub const NOCONNECTION: Self = Self(raft_result_code::RAFT_NOCONNECTION as _);
-        pub const BUSY: Self = Self(raft_result_code::RAFT_BUSY as _);
-        pub const IOERR: Self = Self(raft_result_code::RAFT_IOERR as _);
-        pub const NOTFOUND: Self = Self(raft_result_code::RAFT_NOTFOUND as _);
-        pub const INVALID: Self = Self(raft_result_code::RAFT_INVALID as _);
-        pub const UNAUTHORIZED: Self = Self(raft_result_code::RAFT_UNAUTHORIZED as _);
-        pub const NOSPACE: Self = Self(raft_result_code::RAFT_NOSPACE as _);
-        pub const TOOMANY: Self = Self(raft_result_code::RAFT_TOOMANY as _);
-        pub const ERROR: Self = Self(raft_result_code::RAFT_ERROR as _);
-    }
-
-    impl Error for raft_result {}
-
-    impl Debug for raft_result {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            let msg = unsafe { CStr::from_ptr(raft_strerror(*self)) }
-                .to_str()
-                .unwrap();
-            write!(f, "{msg:?}")
-        }
-    }
-
-    impl Display for raft_result {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            let msg = unsafe { CStr::from_ptr(raft_strerror(*self)) }
-                .to_str()
-                .unwrap();
-            write!(f, "{msg}")
-        }
-    }
-
-    impl raft_buffer {
-        pub unsafe fn as_bytes(&self) -> &[u8] {
-            unsafe { std::slice::from_raw_parts(self.base as *const u8, self.len) }
-        }
-    }
-
-    impl uv_buf_t {
-        pub unsafe fn as_bytes(&self) -> &[u8] {
-            unsafe { std::slice::from_raw_parts(self.base as *const _, self.len) }
-        }
-    }
-
-    impl uvSnapshotInfo {
-        pub fn filename(&self) -> &OsStr {
-            OsStr::from_bytes(unsafe { CStr::from_ptr(self.filename.as_ptr()).to_bytes() })
-        }
-    }
-
-    impl Debug for uvSnapshotInfo {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            f.debug_struct("uvSnapshotInfo")
-                .field("term", &self.term)
-                .field("index", &self.index)
-                .field("timestamp", &self.timestamp)
-                .field("filename", &self.filename())
-                .finish()
-        }
-    }
-
-    impl uvSegmentInfo {
-        pub fn filename(&self) -> &OsStr {
-            OsStr::from_bytes(unsafe { CStr::from_ptr(self.filename.as_ptr()).to_bytes() })
-        }
-    }
-
-    impl Debug for uvSegmentInfo {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            let mut debug = f.debug_struct("uvSegmentInfo");
-            debug
-                .field("is_open", &self.is_open)
-                .field("filename", &self.filename());
-
-            if !self.is_open {
-                debug
-                    .field("first_index", unsafe { &self.info.closed.first_index })
-                    .field("end_index", unsafe { &self.info.closed.end_index });
-            } else {
-                debug.field("counter", unsafe { &self.info.open.counter });
-            }
-
-            debug.finish()
-        }
-    }
-
-    impl Drop for uvSegmentBuffer {
-        fn drop(&mut self) {
-            unsafe { uvSegmentBufferClose(self) };
-        }
-    }
-
-    impl Drop for raft_configuration {
-        fn drop(&mut self) {
-            unsafe { configurationClose(self) };
-        }
-    }
-
-    impl Drop for raft_snapshot {
-        fn drop(&mut self) {
-            unsafe { snapshotClose(self) };
-        }
-    }
-}
 
 struct RaftErrorStr([u8; RAFT_ERRMSG_BUF_SIZE as usize]);
 
@@ -234,7 +99,7 @@ impl<T> RaftPtr<T> {
 
 impl<T> Drop for RaftPtr<T> {
     fn drop(&mut self) {
-        unsafe { raft_free(self.0 as *mut _) };
+        unsafe { sys::raft_free(self.0 as *mut _) };
     }
 }
 
@@ -254,7 +119,7 @@ impl DqliteDir {
 
         let mut metadata = uvMetadata::default();
         let rc = unsafe {
-            bindings::uvMetadataLoad(cdir.as_ptr(), &mut metadata as *mut _, err.as_mut_ptr())
+            sys::uvMetadataLoad(cdir.as_ptr(), &mut metadata as *mut _, err.as_mut_ptr())
         };
         if rc != raft_result::OK {
             return Err(anyhow!("failed to load metadata: {err}"));
@@ -270,7 +135,7 @@ impl DqliteDir {
         let mut n_segments = 0usize;
 
         let rc = unsafe {
-            bindings::UvList(
+            sys::UvList(
                 CString::new(dir.as_os_str().as_bytes()).unwrap().as_ptr(),
                 &mut snapshots,
                 &mut n_snapshots,
@@ -377,7 +242,7 @@ impl RaftConfiguration {
 
     fn to_raw(&self) -> Result<raft_configuration> {
         let mut c = raft_configuration::default();
-        unsafe { configurationInit(&mut c) };
+        unsafe { sys::configurationInit(&mut c) };
 
         for server in self.servers.iter() {
             let address = CString::new(server.address.as_str()).unwrap();
@@ -386,7 +251,7 @@ impl RaftConfiguration {
                 RaftRole::Voter => raft_role::RAFT_VOTER,
                 RaftRole::Spare => raft_role::RAFT_SPARE,
             } as _;
-            let rc = unsafe { configurationAdd(&mut c, server.id, address.as_ptr(), role) };
+            let rc = unsafe { sys::configurationAdd(&mut c, server.id, address.as_ptr(), role) };
             if rc != raft_result::OK {
                 return Err(anyhow!("failed to add server to configuration"));
             }
@@ -437,8 +302,9 @@ impl DqliteSnapshot {
     fn load_internal(dir: &CStr, snapshot: &uvSnapshotInfo) -> Result<Self> {
         let mut metadata = raft_snapshot::default();
         let mut err = RaftErrorStr::new();
-        let rc =
-            unsafe { uvSnapshotLoadMeta(dir.as_ptr(), snapshot, &mut metadata, err.as_mut_ptr()) };
+        let rc = unsafe {
+            sys::uvSnapshotLoadMeta(dir.as_ptr(), snapshot, &mut metadata, err.as_mut_ptr())
+        };
         if rc != raft_result::OK {
             return Err(anyhow!("failed to load metadata: {err}"));
         }
@@ -538,7 +404,7 @@ impl DqliteLogEntryContent {
             raft_entry_type::RAFT_CHANGE => {
                 let mut configuration = raft_configuration::default();
                 let rv = unsafe {
-                    configurationDecode(
+                    sys::configurationDecode(
                         &raft_buffer {
                             base: data.as_ptr() as *mut _,
                             len: data.len(),
@@ -556,7 +422,7 @@ impl DqliteLogEntryContent {
 
                 let mut command = RaftPtr::null();
                 let rv = unsafe {
-                    command__decode(
+                    sys::command__decode(
                         &raft_buffer {
                             base: data.as_ptr() as *mut _,
                             len: data.len(),
@@ -571,7 +437,7 @@ impl DqliteLogEntryContent {
 
                 match ty as _ {
                     raft_command_type::COMMAND_OPEN => {
-                        let command = command.as_mut_ptr() as *mut bindings::command_open;
+                        let command = command.as_mut_ptr() as *mut command_open;
                         let filename = OsStr::from_bytes(
                             unsafe { CStr::from_ptr((*command).filename) }.to_bytes(),
                         );
@@ -580,13 +446,13 @@ impl DqliteLogEntryContent {
                         })
                     }
                     raft_command_type::COMMAND_UNDO => {
-                        let command = command.as_mut_ptr() as *mut bindings::command_undo;
+                        let command = command.as_mut_ptr() as *mut command_undo;
                         Ok(DqliteLogEntryContent::CommandUndo {
                             tx_id: unsafe { (*command).tx_id },
                         })
                     }
                     raft_command_type::COMMAND_CHECKPOINT => {
-                        let command = command.as_mut_ptr() as *mut bindings::command_checkpoint;
+                        let command = command.as_mut_ptr() as *mut command_checkpoint;
                         let filename = OsStr::from_bytes(
                             unsafe { CStr::from_ptr((*command).filename) }.to_bytes(),
                         );
@@ -595,7 +461,7 @@ impl DqliteLogEntryContent {
                         })
                     }
                     raft_command_type::COMMAND_FRAMES => {
-                        let command = command.as_mut_ptr() as *mut bindings::command_frames;
+                        let command = command.as_mut_ptr() as *mut command_frames;
                         // TODO: add logging for weird cases like n_pages == 0 or unused fields not zero.
                         let filename = OsStr::from_bytes(
                             unsafe { CStr::from_ptr((*command).filename) }.to_bytes(),
@@ -633,12 +499,12 @@ impl DqliteLogEntryContent {
     fn encode(&self) -> Result<Vec<u8>> {
         unsafe fn encode_command(command_type: c_int, command: *const c_void) -> Result<Vec<u8>> {
             let mut buf = raft_buffer::default();
-            let rc = unsafe { command__encode(command_type, command, &mut buf) };
+            let rc = unsafe { sys::command__encode(command_type, command, &mut buf) };
             if rc != raft_result::OK {
                 return Err(anyhow!("failed to encode command: {rc}"));
             }
             let data = unsafe { buf.as_bytes() }.to_vec();
-            unsafe { raft_free(buf.base) };
+            unsafe { sys::raft_free(buf.base) };
             Ok(data)
         }
 
@@ -647,12 +513,12 @@ impl DqliteLogEntryContent {
             DqliteLogEntryContent::Change(configuration) => {
                 let configuration = configuration.to_raw()?;
                 let mut buf = raft_buffer::default();
-                let rc = unsafe { configurationEncode(&configuration, &mut buf) };
+                let rc = unsafe { sys::configurationEncode(&configuration, &mut buf) };
                 if rc != raft_result::OK {
                     return Err(anyhow!("failed to encode configuration: {rc}"));
                 }
                 let data = unsafe { buf.as_bytes().to_vec() };
-                unsafe { raft_free(buf.base) };
+                unsafe { sys::raft_free(buf.base) };
                 Ok(data)
             }
             DqliteLogEntryContent::CommandOpen { filename } => unsafe {
@@ -764,7 +630,7 @@ impl DqliteSegment {
             }
 
             return Err(anyhow!("invalid segment file"));
-        } else if format != bindings::UV__DISK_FORMAT as u64 {
+        } else if format != sys::UV__DISK_FORMAT as u64 {
             return Err(anyhow!("unsupported segment file format"));
         }
 
@@ -777,7 +643,7 @@ impl DqliteSegment {
             let mut n_entries = 0;
 
             let rc = unsafe {
-                bindings::uvLoadEntriesBatch(
+                sys::uvLoadEntriesBatch(
                     &raft_buffer {
                         base: buf.as_mut_ptr() as *mut _,
                         len: buf.len(),
@@ -939,9 +805,9 @@ impl DqliteDirCreator {
 impl DqliteDirCreator {
     fn write_segment(&self, file: &mut File, batches: &Vec<Vec<DqliteLogEntry>>) -> Result<()> {
         let mut buf = uvSegmentBuffer::default();
-        unsafe { uvSegmentBufferInit(&mut buf, 4096) };
+        unsafe { sys::uvSegmentBufferInit(&mut buf, 4096) };
 
-        let rc = unsafe { uvSegmentBufferFormat(&mut buf) };
+        let rc = unsafe { sys::uvSegmentBufferFormat(&mut buf) };
         if rc != raft_result::OK {
             return Err(anyhow!("failed to format segment buffer: {rc}"));
         }
@@ -966,7 +832,7 @@ impl DqliteDirCreator {
                 })
                 .collect();
             let rc = unsafe {
-                uvSegmentBufferAppend(&mut buf, entries.as_ptr(), entries.len() as c_uint)
+                sys::uvSegmentBufferAppend(&mut buf, entries.as_ptr(), entries.len() as c_uint)
             };
             if rc != raft_result::OK {
                 return Err(anyhow!("failed to append to segment buffer: {rc}"));
@@ -974,7 +840,7 @@ impl DqliteDirCreator {
         }
 
         let mut write_buffer = uv_buf_t::default();
-        unsafe { uvSegmentBufferFinalize(&mut buf, &mut write_buffer) };
+        unsafe { sys::uvSegmentBufferFinalize(&mut buf, &mut write_buffer) };
         file.write_all(unsafe { write_buffer.as_bytes() })?;
 
         Ok(())
@@ -992,12 +858,12 @@ impl DqliteDirCreator {
         {
             let mut data = File::create(&path)?;
             let mut header_buf = raft_buffer::default();
-            let rc = unsafe { encodeSnapshotHeader(0, &mut header_buf) };
+            let rc = unsafe { sys::encodeSnapshotHeader(0, &mut header_buf) };
             if rc != raft_result::OK {
                 return Err(anyhow!("failed to encode snapshot header"));
             }
             let result = data.write_all(unsafe { header_buf.as_bytes() });
-            unsafe { raft_free(header_buf.base) };
+            unsafe { sys::raft_free(header_buf.base) };
             result?; // Avoid leaking `header_buf` content.
         }
 
@@ -1006,7 +872,7 @@ impl DqliteDirCreator {
             let mut meta = File::create(path)?;
 
             let mut config = raft_configuration::default();
-            unsafe { configurationInit(&mut config) };
+            unsafe { sys::configurationInit(&mut config) };
 
             let configuration = s
                 .configuration
@@ -1020,26 +886,26 @@ impl DqliteDirCreator {
                     RaftRole::Voter => raft_role::RAFT_VOTER,
                     RaftRole::Spare => raft_role::RAFT_SPARE,
                 } as _;
-                let rc = unsafe { configurationAdd(&mut config, id, address.as_ptr(), role) };
+                let rc = unsafe { sys::configurationAdd(&mut config, id, address.as_ptr(), role) };
                 if rc != raft_result::OK {
                     return Err(anyhow!("failed to add server to configuration"));
                 }
             }
 
             let mut config_buf = raft_buffer::default();
-            let rc = unsafe { configurationEncode(&config, &mut config_buf) };
+            let rc = unsafe { sys::configurationEncode(&config, &mut config_buf) };
             if rc != raft_result::OK {
                 return Err(anyhow!("failed to encode configuration"));
             }
 
             let mut header = [0u8; 32];
             unsafe {
-                formatSnapshotMetaHeader(header.as_mut_ptr() as *mut _, s.index, &config_buf)
+                sys::formatSnapshotMetaHeader(header.as_mut_ptr() as *mut _, s.index, &config_buf)
             };
             let result = meta
                 .write_all(header.as_slice())
                 .and_then(|_| meta.write_all(unsafe { config_buf.as_bytes() }));
-            unsafe { raft_free(config_buf.base) };
+            unsafe { sys::raft_free(config_buf.base) };
             result?;
         }
 
@@ -1050,11 +916,11 @@ impl DqliteDirCreator {
         let mut err = RaftErrorStr::new();
 
         let rc = unsafe {
-            bindings::uvMetadataStore(
+            sys::uvMetadataStore(
                 CString::new(self.dir.as_os_str().as_bytes())
                     .unwrap()
                     .as_ptr(),
-                &bindings::uvMetadata {
+                &uvMetadata {
                     version: 1,
                     term: self.term,
                     voted_for: self.voted_for,
