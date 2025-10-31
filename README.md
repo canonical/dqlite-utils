@@ -36,3 +36,21 @@ dqlite-utils --dir /path/to/dqlite/data
 ```
 
 To use `dqlite-utils` non-interactively, pass commands via the `-c` flag.
+
+### Inspect the Raft Log
+
+The `log` command shows a `git log`-style history of all raft entries as a chronological list of commands applied to the dqlite state machine.
+
+```bash
+dqlite-utils
+> log
+┌ 300  FRAMES database: db1, pages: 3
+| 299  CONFIG
+| 298    CKPT
+...
+| 130  FRAMES
+└ 129 BARRIER ------------------------| term 2 starts
+┌ 128  FRAMES database: db3, pages: 1 | term 1 ends
+| 127  FRAMES database: db1, pages: 7
+| 126  FRAMES database: db2, pages: 2
+```
