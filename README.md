@@ -44,13 +44,37 @@ The `log` command shows a `git log`-style history of all raft entries as a chron
 ```bash
 dqlite-utils
 > log
-┌ 300  FRAMES database: db1, pages: 3
-| 299  CONFIG
-| 298    CKPT
-...
-| 130  FRAMES
-└ 129 BARRIER ------------------------| term 2 starts
-┌ 128  FRAMES database: db3, pages: 1 | term 1 ends
-| 127  FRAMES database: db1, pages: 7
-| 126  FRAMES database: db2, pages: 2
+┌ TERM 3
+| 300 FRAMES db1
+|	tx_id: 12345
+|	truncate: 0
+|	pages: 1, 2, 3
+|
+| 299 CONFIG
+|	servers:
+|	  1:
+|	    address: 10.0.0.1:9001
+|	    role: Voter
+|
+| 298 CHECKPOINT db1
+├ TERM 2
+| 297 FRAMES db2
+|	tx_id: 12340
+|	truncate: 0
+|	pages: 5, 6
+|
+| 298 BARRIER
+```
+
+Use the `--oneline` flag to show a condensed view without detailed information:
+
+```bash
+> log --oneline
+┌ TERM 3
+| 300 FRAMES db1
+| 299 CONFIG
+| 298 CHECKPOINT db1
+├ TERM 2
+| 130 FRAMES db2
+| 129 BARRIER
 ```
