@@ -13,8 +13,6 @@ use rustyline::Editor;
 use rustyline::error::ReadlineError;
 use rustyline::history::DefaultHistory;
 
-use crate::dqlite::DqliteDir;
-
 use self::args::Args;
 use self::command::Command;
 use self::dqlite::DqliteDir;

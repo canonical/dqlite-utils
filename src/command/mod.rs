@@ -223,7 +223,7 @@ impl Command {
             }
 
             let entries = segment.entries()?;
-            match log_entries(index, segment.entries()?) {
+            match log_entries(index, entries) {
                 Ok(()) => {}
                 Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => return Ok(()),
                 Err(e) => return Err(anyhow!("{}", e)),

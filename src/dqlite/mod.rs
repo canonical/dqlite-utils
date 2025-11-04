@@ -413,9 +413,9 @@ impl DqliteLogEntryContent {
     fn parse(entry_type: u16, data: &[u8]) -> Result<Self> {
         match entry_type as _ {
             raft_entry_type::RAFT_BARRIER => {
-                // if data.len() != 8 || !data.iter().all(|b| *b == 0) {
-                //     return Err(anyhow!("invalid barrier entry"));
-                // }
+                if data.len() != 8 {
+                    return Err(anyhow!("invalid barrier entry"));
+                }
                 Ok(Self::Barrier)
             }
             raft_entry_type::RAFT_CHANGE => {
