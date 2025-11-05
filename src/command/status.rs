@@ -1,8 +1,8 @@
 use anyhow::Result;
 use indoc::eprintdoc;
 
-use crate::dqlite::DqliteSegment;
 use crate::Context;
+use crate::dqlite::DqliteSegment;
 
 use super::UnrecognisedArgumentsError;
 
