@@ -107,6 +107,7 @@ impl<T> Drop for RaftPtr<T> {
 pub struct DqliteDir {
     snapshots: Vec<DqliteSnapshot>,
     segments: Vec<DqliteSegment>,
+    num_closed_segments: usize,
     term: u64,
     voted_for: u64,
     first_index: u64,
@@ -164,6 +165,12 @@ impl DqliteDir {
             .map(|s| DqliteSegment::open(dir, s))
             .collect::<Result<_>>()?;
 
+        let num_closed_segments = segments
+            .iter()
+            .rev()
+            .take_while(|s| matches!(s, DqliteSegment::Open { .. }))
+            .count();
+
         let start_index = segments
             .first()
             .and_then(|s| match &s {
@@ -175,6 +182,7 @@ impl DqliteDir {
         Ok(Self {
             snapshots,
             segments,
+            num_closed_segments,
             term: metadata.term,
             voted_for: metadata.voted_for,
             first_index: start_index,
@@ -199,6 +207,14 @@ impl DqliteDir {
 
     pub fn segments(&self) -> &[DqliteSegment] {
         &self.segments
+    }
+
+    pub fn closed_segments(&self) -> &[DqliteSegment] {
+        &self.segments[..self.num_closed_segments]
+    }
+
+    pub fn open_segments(&self) -> &[DqliteSegment] {
+        &self.segments[self.num_closed_segments..]
     }
 
     pub fn term(&self) -> u64 {
