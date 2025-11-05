@@ -15,7 +15,7 @@ use rustyline::history::DefaultHistory;
 
 use self::args::Args;
 use self::command::Command;
-use self::command::quit::Command as QuitCommand;
+use self::command::quit::QuitCommand;
 use self::dqlite::DqliteDir;
 
 pub type Error = anyhow::Error;
