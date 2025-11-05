@@ -165,11 +165,12 @@ impl DqliteDir {
             .map(|s| DqliteSegment::open(dir, s))
             .collect::<Result<_>>()?;
 
-        let num_closed_segments = segments
+        let num_open_segments = segments
             .iter()
             .rev()
             .take_while(|s| matches!(s, DqliteSegment::Open { .. }))
             .count();
+        let num_closed_segments = segments.len() - num_open_segments;
 
         let start_index = segments
             .first()
