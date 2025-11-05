@@ -1,18 +1,20 @@
+pub(crate) mod quit;
+
 mod status;
 
-use std::process;
 use std::str::FromStr;
 
 use anyhow::anyhow;
 
 use crate::{Context, Error, Result};
 
+use self::quit::Command as QuitCommand;
 use self::status::Command as StatusCommand;
 
 #[derive(Debug)]
 pub enum Command {
     Noop,
-    Quit,
+    Quit(QuitCommand),
     Status(StatusCommand),
 }
 
@@ -20,9 +22,7 @@ impl Command {
     pub fn run(&self, ctx: &mut Context) -> Result<()> {
         match self {
             Self::Noop => Ok(()),
-            Self::Quit => {
-                process::exit(0);
-            }
+            Self::Quit(cmd) => cmd.run(ctx),
             Self::Status(cmd) => cmd.run(ctx),
         }
     }
@@ -38,8 +38,7 @@ impl FromStr for Command {
             None => return Ok(Self::Noop),
         };
         match (command.as_str(), args) {
-            ("quit", []) => Ok(Self::Quit),
-            ("quit", tail) => Err(UnrecognisedArgumentsError(tail.to_vec()).into()),
+            ("quit", []) => Ok(Self::Quit(QuitCommand::try_from_args(args)?)),
             ("status", _) => Ok(Self::Status(StatusCommand::try_from_args(args)?)),
             (unknown, _) => Err(anyhow!("unknown command '{unknown}'")),
         }
