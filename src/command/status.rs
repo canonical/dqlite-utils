@@ -29,14 +29,11 @@ impl Command {
                 _ => unreachable!(),
             })
             .cloned();
-        let num_entries_in_open_segments: u64 = dqlite
+        let num_entries_in_open_segments = dqlite
             .open_segments()
             .iter()
-            .map(|segment| match segment {
-                DqliteSegment::Open { counter, .. } => counter,
-                _ => unreachable!(),
-            })
-            .sum();
+            .map(|segment| segment.entries().map(|entries| entries.len()))
+            .sum::<Result<usize>>()? as u64;
         let last_index = last_closed_index.unwrap_or(first_index) + num_entries_in_open_segments;
 
         let dir = ctx.dir.display();
