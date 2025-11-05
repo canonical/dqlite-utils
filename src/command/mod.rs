@@ -46,5 +46,5 @@ impl FromStr for Command {
 }
 
 #[derive(Debug, thiserror::Error)]
-#[error("unrecognised arguments: {_0:?}")]
-struct UnrecognisedArgumentsError(Vec<String>);
+#[error("unrecognized arguments: {_0:?}")]
+struct UnrecognizedArgumentsError(Vec<String>);
