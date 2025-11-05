@@ -14,7 +14,7 @@ impl Command {
         Ok(Self)
     }
 
-    pub(crate) fn run(&self, _ctx: &Context) -> Result<()> {
+    pub(crate) fn run(&self, _ctx: &Context) -> ! {
         process::exit(0);
     }
 }
