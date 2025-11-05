@@ -15,6 +15,7 @@ use rustyline::history::DefaultHistory;
 
 use self::args::Args;
 use self::command::Command;
+use self::dqlite::DqliteDir;
 
 pub type Error = anyhow::Error;
 pub type Result<T> = anyhow::Result<T>;
@@ -32,7 +33,7 @@ fn main() -> ExitCode {
 fn exec(args: Args) -> Result<()> {
     let Args { raw_commands, dir } = args;
 
-    let ctx = Context::new(dir);
+    let ctx = Context::new(dir)?;
     if !raw_commands.is_empty() {
         let commands: Vec<_> = raw_commands
             .into_iter()
@@ -164,10 +165,12 @@ fn stdin_commands() -> impl Iterator<Item = Command> {
 
 pub struct Context {
     pub dir: PathBuf,
+    pub dqlite: DqliteDir,
 }
 
 impl Context {
-    fn new(dir: PathBuf) -> Self {
-        Self { dir }
+    fn new(dir: PathBuf) -> Result<Self> {
+        let dqlite = DqliteDir::open(&dir)?;
+        Ok(Self { dir, dqlite })
     }
 }
