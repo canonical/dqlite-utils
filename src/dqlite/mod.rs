@@ -172,7 +172,7 @@ impl DqliteDir {
             .count();
         let num_closed_segments = segments.len() - num_open_segments;
 
-        let start_index = segments
+        let first_index = segments
             .first()
             .and_then(|s| match &s {
                 DqliteSegment::Closed { indexes, .. } => Some(*indexes.start()),
@@ -186,7 +186,7 @@ impl DqliteDir {
             num_closed_segments,
             term: metadata.term,
             voted_for: metadata.voted_for,
-            first_index: start_index,
+            first_index,
         })
     }
 
