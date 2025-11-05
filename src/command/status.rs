@@ -18,6 +18,7 @@ impl Command {
 
     pub(crate) fn run(&self, ctx: &Context) -> Result<()> {
         let dqlite = &ctx.dqlite;
+        let first_index = dqlite.first_index();
 
         let last_closed_index = dqlite
             .closed_segments()
@@ -35,7 +36,6 @@ impl Command {
                 _ => unreachable!(),
             })
             .sum();
-        let first_index = dqlite.first_index();
         let last_index = last_closed_index.unwrap_or(first_index) + num_entries_in_open_segments;
 
         let dir = ctx.dir.display();
