@@ -37,10 +37,10 @@ impl FromStr for Command {
             Some((command, args)) => (command, args),
             None => return Ok(Self::Noop),
         };
-        match (command.as_str(), args) {
-            ("quit", []) => Ok(Self::Quit(QuitCommand::try_from_args(args)?)),
-            ("status", _) => Ok(Self::Status(StatusCommand::try_from_args(args)?)),
-            (unknown, _) => Err(anyhow!("unknown command '{unknown}'")),
+        match command.as_str() {
+            "quit" => Ok(Self::Quit(QuitCommand::try_from_args(args)?)),
+            "status" => Ok(Self::Status(StatusCommand::try_from_args(args)?)),
+            unknown => Err(anyhow!("unknown command '{unknown}'")),
         }
     }
 }
