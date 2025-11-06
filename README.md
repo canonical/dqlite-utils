@@ -1,6 +1,6 @@
 # `dqlite-utils`
 
-A CLI for passive, read-only inspection and post-mortem debugging of dqlite nodes.
+A CLI for passive, read-only inspection and postmortem debugging of dqlite nodes.
 
 ## Overview
 
