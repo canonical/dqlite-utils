@@ -40,7 +40,7 @@ impl Drop for Pager {
 pub enum Command {
     Noop,
     Quit,
-    Log { oneline: bool },
+    Log { compact: bool },
 }
 
 impl Command {
@@ -55,11 +55,11 @@ impl Command {
             Self::Quit => {
                 process::exit(0);
             }
-            Self::Log { oneline } => self.log(*oneline, _ctx),
+            Self::Log { compact } => self.log(*compact, _ctx),
         }
     }
 
-    fn log(&self, oneline: bool, ctx: &mut Context) -> Result<()> {
+    fn log(&self, compact: bool, ctx: &mut Context) -> Result<()> {
         // Spawn a `less` process to page through the log output.
         let mut pager = Pager::new()?;
         let out = pager.pipe();
@@ -125,7 +125,7 @@ impl Command {
                                 .style(Command::ENTRY_TYPE_STYLE)),
                             snapshotted
                         )?;
-                        if !oneline {
+                        if !compact {
                             writeln!(out, "|\tservers:")?;
                             for server in &config.servers {
                                 writeln!(out, "|\t  {}:", server.id)?;
@@ -161,7 +161,7 @@ impl Command {
                             snapshotted
                         )?;
 
-                        if !oneline {
+                        if !compact {
                             writeln!(out, "|\ttx_id: {tx_id}",)?;
                             writeln!(out, "|\ttruncate: {truncate}")?;
                             // TODO add other fields like the type of the page or the header (with the database size)
@@ -186,7 +186,7 @@ impl Command {
                                 .style(Command::ENTRY_TYPE_STYLE)),
                             snapshotted
                         )?;
-                        if !oneline {
+                        if !compact {
                             writeln!(out, "|\ttx_id: {tx_id}",)?;
                         }
                     }
@@ -261,14 +261,14 @@ impl FromStr for Command {
         match (command.as_str(), args) {
             ("quit", []) => Ok(Self::Quit),
             ("log", args) => {
-                let oneline = match args {
+                let compact = match args {
                     [] => false,
-                    [flag] if flag == "--oneline" => true,
+                    [flag] if flag == "--compact" => true,
                     args => {
                         return Err(anyhow!("unrecognised arguments {args:?} for 'log' command"));
                     }
                 };
-                Ok(Self::Log { oneline })
+                Ok(Self::Log { compact })
             }
             (unknown, []) => Err(anyhow!("unknown command '{unknown}'")),
             (_, tail) => Err(anyhow!("unrecognised arguments {tail:?}")),
