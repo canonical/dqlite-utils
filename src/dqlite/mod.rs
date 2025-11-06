@@ -5,11 +5,12 @@ use std::{
     ffi::{CStr, CString, OsStr, OsString, c_int, c_uint, c_void},
     fmt::{Debug, Display},
     fs::File,
-    io::{Read, Write},
+    io::{Read, Seek, Write},
     ops::RangeInclusive,
     os::unix::ffi::OsStrExt,
     path::{Path, PathBuf},
     ptr,
+    sync::Mutex,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -340,24 +341,23 @@ impl DqliteSnapshot {
 pub enum DqliteSegment {
     Open {
         counter: u64,
-        content: DynLazyCell<Result<Vec<DqliteLogEntry>>>,
+        content: Vec<DqliteLogEntry>,
     },
     Closed {
         indexes: RangeInclusive<u64>,
-        content: DynLazyCell<Result<Vec<DqliteLogEntry>>>,
+        file: Mutex<File>,
     },
 }
 
 impl DqliteSegment {
-    pub fn entries(&self) -> Result<&[DqliteLogEntry]> {
-        let content = match self {
-            DqliteSegment::Open { content, .. } => content,
-            DqliteSegment::Closed { content, .. } => content,
-        };
-        Ok(content
-            .as_ref()
-            .map_err(|err| anyhow!("cannot load entries: {err}"))?
-            .as_slice())
+    pub fn entries(&self) -> Result<Vec<DqliteLogEntry>> {
+        match self {
+            DqliteSegment::Closed { file, .. } => {
+                let mut file = file.lock().unwrap();
+                Ok(Self::load_segment_file(&mut file)?)
+            }
+            DqliteSegment::Open { content, .. } => Ok(content.clone()),
+        }
     }
 }
 
@@ -612,20 +612,25 @@ impl DqliteSegment {
         // It is important to open the file here, as soon as possible,
         // so that in case dqlite is running and decides to remove or
         // rename a segment file then we can still load the entries.
-        let file = File::open(path)?;
-        let content = DynLazyCell::new(Box::new(move || Self::load_segment_file(file)));
+        let mut file = File::open(path)?;
         if segment.is_open {
+            let content = Self::load_segment_file(&mut file)?;
             let counter = unsafe { segment.info.open.counter };
             Ok(Self::Open { counter, content })
         } else {
             let closed = unsafe { segment.info.closed };
             let indexes = closed.first_index..=closed.end_index;
-            Ok(Self::Closed { indexes, content })
+            Ok(Self::Closed {
+                indexes,
+                file: Mutex::new(file),
+            })
         }
     }
 
-    fn load_segment_file(mut file: File) -> Result<Vec<DqliteLogEntry>> {
+    fn load_segment_file(file: &mut File) -> Result<Vec<DqliteLogEntry>> {
         let mut buf = Vec::new();
+
+        file.seek(std::io::SeekFrom::Start(0))?;
         file.read_to_end(&mut buf)?;
 
         if buf.is_empty() {
@@ -1075,7 +1080,7 @@ mod tests {
     #[test]
     fn test_single_closed_segment() {
         let dir = tempfile::tempdir().unwrap();
-        let entries = [
+        let entries = vec![
             DqliteLogEntry {
                 term: 1,
                 content: DqliteLogEntryContent::Barrier,
@@ -1129,7 +1134,7 @@ mod tests {
     #[test]
     fn test_single_open_segment() {
         let dir = tempfile::tempdir().unwrap();
-        let entries = [
+        let entries = vec![
             DqliteLogEntry {
                 term: 1,
                 content: DqliteLogEntryContent::Barrier,
