@@ -1,7 +1,7 @@
-use std::process::{self, Child};
-use std::io::{self, IsTerminal, Write};
 use anyhow::{Result, anyhow};
 use owo_colors::{OwoColorize, Stream, Style};
+use std::io::{self, IsTerminal, Write};
+use std::process::{self, Child};
 
 use crate::Context;
 use crate::dqlite::{DqliteLogEntry, DqliteLogEntryContent, DqliteSegment};
@@ -45,7 +45,7 @@ impl Drop for Pager {
 }
 
 #[derive(Debug)]
-pub (crate) struct Command {
+pub(crate) struct Command {
     compact: bool,
 }
 
@@ -55,7 +55,7 @@ impl Command {
     const ENTRY_TYPE_STYLE: Style = Style::new().cyan();
     const SNAPSHOT_TAG_STYLE: Style = Style::new().bright_magenta();
 
-    pub (crate) fn try_from_args(args: &[String]) -> Result<Self> {
+    pub(crate) fn try_from_args(args: &[String]) -> Result<Self> {
         let compact = match args {
             [] => false,
             [flag] if flag == "--compact" => true,
@@ -66,7 +66,7 @@ impl Command {
         Ok(Command { compact })
     }
 
-    pub (crate) fn run(&self, ctx: &mut Context) -> Result<()> {
+    pub(crate) fn run(&self, ctx: &mut Context) -> Result<()> {
         // Spawn a `less` process to page through the log output.
         let mut pager = Pager::new()?;
         let out = pager.pipe();
@@ -106,7 +106,8 @@ impl Command {
                 } else {
                     ""
                 };
-                let snapshotted = snapshotted.if_supports_color(Stream::Stdout, |t| t.style(Command::SNAPSHOT_TAG_STYLE));
+                let snapshotted = snapshotted
+                    .if_supports_color(Stream::Stdout, |t| t.style(Command::SNAPSHOT_TAG_STYLE));
 
                 write!(
                     out,
