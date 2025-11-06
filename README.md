@@ -66,10 +66,10 @@ dqlite-utils
 | 298 BARRIER
 ```
 
-Use the `--oneline` flag to show a condensed view without detailed information:
+Use the `--compact` flag to show a condensed view without detailed information:
 
 ```bash
-> log --oneline
+> log --compact
 ┌ TERM 3
 | 300 FRAMES db1
 | 299 CONFIG
