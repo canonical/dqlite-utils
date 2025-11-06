@@ -47,6 +47,7 @@ impl Command {
     const TERM_STYLE: Style = Style::new().underline().red();
     const INDEX_STYLE: Style = Style::new().yellow();
     const ENTRY_TYPE_STYLE: Style = Style::new().cyan();
+    const SNAPSHOT_TAG_STYLE: Style = Style::new().bright_magenta();
 
     pub fn run(&self, _ctx: &mut Context) -> Result<()> {
         match self {
@@ -93,6 +94,13 @@ impl Command {
                     }
                 });
 
+                let snapshotted = if ctx.dqlite.snapshots().iter().any(|s| s.index == index) {
+                    "[SNAPSHOTTED]"
+                } else {
+                    ""
+                };
+                let snapshotted = snapshotted.if_supports_color(Stream::Stdout, |t| t.style(Command::SNAPSHOT_TAG_STYLE));
+
                 write!(
                     out,
                     "| {} ",
@@ -103,17 +111,19 @@ impl Command {
                     Dlec::Barrier => {
                         writeln!(
                             out,
-                            "{}",
+                            "{} {}",
                             "BARRIER".if_supports_color(Stream::Stdout, |t| t
-                                .style(Command::ENTRY_TYPE_STYLE))
+                                .style(Command::ENTRY_TYPE_STYLE)),
+                            snapshotted
                         )?;
                     }
                     Dlec::Change(config) => {
                         writeln!(
                             out,
-                            "{}",
+                            "{} {}",
                             "CONFIG".if_supports_color(Stream::Stdout, |t| t
-                                .style(Command::ENTRY_TYPE_STYLE))
+                                .style(Command::ENTRY_TYPE_STYLE)),
+                            snapshotted
                         )?;
                         if verbose {
                             writeln!(out, "|\tservers:")?;
@@ -127,10 +137,11 @@ impl Command {
                     Dlec::CommandOpen { filename } => {
                         writeln!(
                             out,
-                            "{} {}",
+                            "{} {} {}",
                             "OPEN".if_supports_color(Stream::Stdout, |t| t
                                 .style(Command::ENTRY_TYPE_STYLE)),
-                            filename.display()
+                            filename.display(),
+                            snapshotted
                         )?;
                     }
                     Dlec::CommandFrames {
@@ -143,10 +154,11 @@ impl Command {
                         let action = if *is_commit { "COMMIT" } else { "FRAMES" };
                         writeln!(
                             out,
-                            "{} {}",
+                            "{} {} {}",
                             action.if_supports_color(Stream::Stdout, |t| t
                                 .style(Command::ENTRY_TYPE_STYLE)),
-                            filename.display()
+                            filename.display(),
+                            snapshotted
                         )?;
 
                         if verbose {
@@ -169,9 +181,10 @@ impl Command {
                     Dlec::CommandUndo { tx_id } => {
                         writeln!(
                             out,
-                            "{}",
+                            "{} {}",
                             "ROLLBACK".if_supports_color(Stream::Stdout, |t| t
-                                .style(Command::ENTRY_TYPE_STYLE))
+                                .style(Command::ENTRY_TYPE_STYLE)),
+                            snapshotted
                         )?;
                         if verbose {
                             writeln!(out, "|\ttx_id: {tx_id}",)?;
@@ -180,10 +193,11 @@ impl Command {
                     Dlec::CommandCheckpoint { filename } => {
                         writeln!(
                             out,
-                            "{} {}",
+                            "{} {} {}",
                             "CHECKPOINT".if_supports_color(Stream::Stdout, |t| t
                                 .style(Command::ENTRY_TYPE_STYLE)),
-                            filename.display()
+                            filename.display(),
+                            snapshotted
                         )?;
                     }
                 };
