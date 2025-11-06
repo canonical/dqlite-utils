@@ -31,7 +31,7 @@ cargo install --path .
 
 ## Usage
 
-This tool opens a shell over the content of a dqlite folder. It works on the current folder by default, but you can specify the path to the dqlite data directory like:
+This tool opens an interactive shell to inspect the contents of a dqlite folder. It works on the current folder by default, but you can specify the path to the dqlite data directory like:
 
 ```bash
 dqlite-utils --dir /path/to/dqlite/data
