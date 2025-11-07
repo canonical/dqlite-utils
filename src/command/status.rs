@@ -7,9 +7,9 @@ use crate::dqlite::DqliteSegment;
 use super::UnrecognisedArgumentsError;
 
 #[derive(Debug)]
-pub(crate) struct Command;
+pub(crate) struct StatusCommand;
 
-impl Command {
+impl StatusCommand {
     pub(crate) fn try_from_args(args: &[String]) -> Result<Self> {
         if !args.is_empty() {
             return Err(UnrecognisedArgumentsError(args.to_vec()).into());

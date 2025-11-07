@@ -7,7 +7,7 @@ use anyhow::anyhow;
 
 use crate::{Context, Error, Result};
 
-use self::status::Command as StatusCommand;
+use self::status::StatusCommand;
 
 #[derive(Debug)]
 pub enum Command {
