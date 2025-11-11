@@ -302,8 +302,6 @@ impl RaftServer {
     }
 }
 
-type DynLazyCell<T> = std::cell::LazyCell<T, Box<dyn FnOnce() -> T>>;
-
 impl DqliteSnapshot {
     pub fn load(dir: impl AsRef<Path>, snapshot: &uvSnapshotInfo) -> Result<Self> {
         let dir = CString::new(dir.as_ref().as_os_str().as_bytes())
@@ -353,7 +351,7 @@ impl DqliteSegment {
     pub fn entries(&self) -> Result<Vec<DqliteLogEntry>> {
         match self {
             DqliteSegment::Closed { file, .. } => {
-                let mut file = file.lock().unwrap();
+                let mut file = file.lock().map_err(|e| anyhow!("cannot acquire lock: {}", e))?;
                 Ok(Self::load_segment_file(&mut file)?)
             }
             DqliteSegment::Open { content, .. } => Ok(content.clone()),
