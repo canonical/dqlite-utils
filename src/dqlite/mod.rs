@@ -351,7 +351,9 @@ impl DqliteSegment {
     pub fn entries(&self) -> Result<Vec<DqliteLogEntry>> {
         match self {
             DqliteSegment::Closed { file, .. } => {
-                let mut file = file.lock().map_err(|e| anyhow!("cannot acquire lock: {}", e))?;
+                let mut file = file
+                    .lock()
+                    .map_err(|e| anyhow!("cannot acquire lock: {}", e))?;
                 Ok(Self::load_segment_file(&mut file)?)
             }
             DqliteSegment::Open { content, .. } => Ok(content.clone()),
