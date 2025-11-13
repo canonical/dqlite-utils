@@ -1050,7 +1050,7 @@ impl<'a> DqliteDirCreator<'a> {
             let main_size = self.page_size as u64 * main_pages.len() as u64;
 
             let wal_pages = content.wal();
-            let wal_size = if wal_pages.len() == 0 {
+            let wal_size = if wal_pages.is_empty() {
                 0
             } else {
                 WAL_HEADER_SIZE + (self.page_size + WAL_FRAME_HEADER_SIZE) * wal_pages.len() as u64
