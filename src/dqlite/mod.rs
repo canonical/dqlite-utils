@@ -920,7 +920,7 @@ pub struct DqliteDirCreator<'a> {
     term: u64,
     voted_for: u64,
     first_index: u64,
-    page_size: u32,
+    page_size: u64,
     closed_segments: Vec<DqliteSegmentBuilder>,
     open_segments: Vec<DqliteSegmentBuilder>,
     snapshots: Vec<DqliteSnapshotBuilder<'a>>,
@@ -942,7 +942,7 @@ impl<'a> DqliteDirCreator<'a> {
         self
     }
 
-    pub fn with_page_size(mut self, page_size: u32) -> Self {
+    pub fn with_page_size(mut self, page_size: u64) -> Self {
         self.page_size = page_size;
         self
     }
@@ -1042,14 +1042,19 @@ impl<'a> DqliteDirCreator<'a> {
         result?; // Avoid leaking `header_buf` content.
 
         for (name, content) in &s.databases {
-            const WAL_HEADER_SIZE: u32 = 24;
+            const WAL_HEADER_SIZE: u64 = 32;
+            const WAL_FRAME_HEADER_SIZE: u64 = 24;
 
             let c_name = CString::new(name.as_bytes()).unwrap();
             let main_pages = content.main();
             let main_size = self.page_size as u64 * main_pages.len() as u64;
 
             let wal_pages = content.wal();
-            let wal_size = (self.page_size + WAL_HEADER_SIZE) as u64 * wal_pages.len() as u64;
+            let wal_size = if wal_pages.len() == 0 {
+                0
+            } else {
+                WAL_HEADER_SIZE + (self.page_size + WAL_FRAME_HEADER_SIZE) * wal_pages.len() as u64
+            };
 
             let header = snapshotDatabase {
                 filename: c_name.as_ptr(),
@@ -1065,12 +1070,19 @@ impl<'a> DqliteDirCreator<'a> {
             data.write_all(&write_buf)?;
             for chunk in main_pages {
                 let chunk = chunk?;
-                assert!(chunk.len() as u32 == self.page_size);
+                assert!(chunk.len() as u64 == self.page_size);
                 data.write_all(&chunk)?;
             }
+
+            let mut is_header = true;
             for chunk in wal_pages {
                 let chunk = chunk?;
-                assert!(chunk.len() as u32 == self.page_size + WAL_HEADER_SIZE);
+                if is_header {
+                    is_header = false;
+                    assert!(chunk.len() as u64 == WAL_HEADER_SIZE);
+                } else {
+                    assert!(chunk.len() as u64 == self.page_size + WAL_FRAME_HEADER_SIZE);
+                }
                 data.write_all(&chunk)?;
             }
         }
@@ -1458,7 +1470,7 @@ mod tests {
     fn test_snapshots() {
         let dir = tempfile::tempdir().unwrap();
         let content_db1 = [[0u8; 4096]];
-        let content_db2 = ([[1u8; 4096]], [[2u8; 4120]]);
+        let content_db2 = ([[1u8; 4096]], [[0u8; 32].as_ref(), [2u8; 4120].as_ref()]);
 
         let configuration = RaftConfiguration {
             servers: vec![RaftServer {
@@ -1504,6 +1516,6 @@ mod tests {
 
         assert_eq!(databases[1].name, OsStr::new("db2"));
         assert_eq!(databases[1].main, content_db2.0.as_flattened());
-        assert_eq!(databases[1].wal, content_db2.1.as_flattened());
+        assert_eq!(databases[1].wal, content_db2.1.into_iter().flatten().cloned().collect::<Vec<u8>>());
     }
 }
