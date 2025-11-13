@@ -2,10 +2,10 @@ mod sys;
 
 use std::{
     borrow::Cow,
-    ffi::{CStr, CString, OsStr, OsString, c_int, c_uint, c_void},
+    ffi::{CStr, CString, OsStr, OsString, c_char, c_int, c_uint, c_void},
     fmt::Debug,
     fs::File,
-    io::{Read, Seek, Write},
+    io::{self, Read, Seek, Write},
     ops::RangeInclusive,
     os::unix::{ffi::OsStrExt, fs::FileExt},
     path::{Path, PathBuf},
@@ -17,13 +17,11 @@ use std::{
 use anyhow::{Result, anyhow};
 use lz4_flex::frame::FrameDecoder;
 
-use crate::dqlite::sys::{Decode, snapshotDatabase, snapshotHeader};
-
 use self::sys::{
-    RAFT_ERRMSG_BUF_SIZE, command_checkpoint, command_frames, command_open, command_undo, frames_t,
-    raft_buffer, raft_command_type, raft_configuration, raft_entry, raft_entry_type, raft_result,
-    raft_role, raft_server, raft_snapshot, uv_buf_t, uvMetadata, uvSegmentBuffer, uvSegmentInfo,
-    uvSnapshotInfo,
+    Decode, DecodeRef, RAFT_ERRMSG_BUF_SIZE, command_checkpoint, command_frames, command_open,
+    command_undo, frames_t, raft_buffer, raft_command_type, raft_configuration, raft_entry,
+    raft_entry_type, raft_result, raft_role, raft_server, raft_snapshot, snapshotDatabase,
+    snapshotHeader, uv_buf_t, uvMetadata, uvSegmentBuffer, uvSegmentInfo, uvSnapshotInfo,
 };
 
 #[derive(thiserror::Error)]
@@ -155,7 +153,7 @@ impl DqliteDir {
 
         let snapshots: Vec<_> = unsafe { snapshots.as_slice(n_snapshots) }
             .iter()
-            .map(|s| DqliteSnapshot::load_internal(&cdir, s))
+            .map(|s| DqliteSnapshot::open_internal(&cdir, s))
             .collect::<Result<_>>()?;
 
         let segments: Vec<_> = unsafe { segments.as_slice(n_segments) }
@@ -188,12 +186,13 @@ impl DqliteDir {
         })
     }
 
-    pub fn creator(dir: impl Into<PathBuf>) -> DqliteDirCreator {
+    pub fn creator<'a>(dir: impl Into<PathBuf>) -> DqliteDirCreator<'a> {
         DqliteDirCreator {
             dir: dir.into(),
             term: 1,
             voted_for: 0,
             first_index: 1,
+            page_size: 4096,
             closed_segments: Vec::new(),
             open_segments: Vec::new(),
             snapshots: Vec::new(),
@@ -235,14 +234,7 @@ pub struct DqliteSnapshot {
     pub index: u64,
     pub timestamp: SystemTime,
     pub configuration: RaftConfiguration,
-    content: DynLazyCell<Result<Vec<DqliteDatabase>>>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct DqliteDatabase {
-    pub name: OsString,
-    pub main: Vec<u8>,
-    pub wal: Vec<u8>,
+    content: Mutex<File>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -311,14 +303,69 @@ impl RaftServer {
     }
 }
 
-impl DqliteSnapshot {
-    pub fn load(dir: impl AsRef<Path>, snapshot: &uvSnapshotInfo) -> Result<Self> {
-        let dir = CString::new(dir.as_ref().as_os_str().as_bytes())
-            .map_err(|e| anyhow!("failed to convert dir to C string: {e}"))?;
-        Self::load_internal(&dir, snapshot)
+trait DqliteDatabaseDecoder {
+    fn decode_main(&mut self, name: &mut dyn Read) -> Result<()>;
+    fn decode_wal(&mut self, name: &mut dyn Read) -> Result<()>;
+    fn finalize(self) -> Result<()>;
+}
+
+trait DqliteSnapshotDecoder {
+    type Decoder<'a>: DqliteDatabaseDecoder + 'a
+    where
+        Self: 'a;
+    type Output;
+
+    fn create_decoder<'a>(&'a mut self, name: &OsStr) -> Result<Self::Decoder<'a>>;
+    fn finalize(self) -> Result<Self::Output>;
+}
+
+struct BufferedReader<R: Read> {
+    content: R,
+    buf: Vec<u8>,
+}
+
+impl<R: Read> BufferedReader<R> {
+    fn new(content: R) -> Self {
+        Self {
+            content,
+            buf: Vec::with_capacity(8192),
+        }
     }
 
-    fn load_internal(dir: &CStr, snapshot: &uvSnapshotInfo) -> Result<Self> {
+    fn decode<T: Decode + Default>(&mut self) -> Result<DecodeRef<'_, T>> {
+        Ok(T::decode(&mut self.content, &mut self.buf)?)
+    }
+
+    fn read_section(
+        &mut self,
+        size: usize,
+        f: impl FnOnce(&mut dyn Read) -> Result<()>,
+    ) -> Result<()> {
+        if self.buf.len() >= size {
+            let mut stream = &self.buf[..size];
+            f(&mut stream)?;
+            self.buf.drain(..size);
+            return Ok(());
+        }
+
+        let head = self.buf.as_slice();
+        let mut tail = (&mut self.content).take((size - self.buf.len()) as u64);
+        f(&mut head.chain(&mut tail))?;
+        self.buf.clear();
+        io::copy(&mut tail, &mut io::sink())?;
+
+        Ok(())
+    }
+}
+
+impl DqliteSnapshot {
+    pub fn open(dir: impl AsRef<Path>, snapshot: &uvSnapshotInfo) -> Result<Self> {
+        let dir = CString::new(dir.as_ref().as_os_str().as_bytes())
+            .map_err(|e| anyhow!("failed to convert dir to C string: {e}"))?;
+        Self::open_internal(&dir, snapshot)
+    }
+
+    fn open_internal(dir: &CStr, snapshot: &uvSnapshotInfo) -> Result<Self> {
         let mut metadata = raft_snapshot::default();
         let mut err = RaftErrorStr::new();
         let rc = unsafe {
@@ -332,8 +379,7 @@ impl DqliteSnapshot {
         path.set_extension("");
         let configuration = RaftConfiguration::new(&metadata.configuration)?;
         let timestamp = UNIX_EPOCH + Duration::from_millis(snapshot.timestamp);
-        let file = File::open(path)?;
-        let content = DynLazyCell::new(Box::new(move || Self::load_snapshot(file)));
+        let content = Mutex::new(File::open(path)?);
 
         Ok(Self {
             term: snapshot.term,
@@ -352,46 +398,55 @@ impl DqliteSnapshot {
         Ok(header == LZ4_MAGIC)
     }
 
-    fn load_snapshot(mut file: File) -> Result<Vec<DqliteDatabase>> {
-        if Self::is_compressed(&mut file)? {
-            let mut decoder = FrameDecoder::new(file);
-            Self::load_content(&mut decoder)
-        } else {
-            Self::load_content(&mut file)
-        }
-    }
-
-    fn load_content<T: Read>(file: &mut T) -> Result<Vec<DqliteDatabase>> {
+    fn read_content<C: Read, D: DqliteSnapshotDecoder>(
+        content: &mut C,
+        mut decoder: D,
+    ) -> Result<D::Output> {
         // Due to the lack of peek() I can't use BufReader here. I will use a `Vec` instead which requires a bit more copying.
         // TODO(marco6): refactor when `BufRead::peek` is stabilized.
-        let mut buf = Vec::with_capacity(8192);
-
-        let snapshot_header = snapshotHeader::decode(file, &mut buf)?;
-        let mut databases = Vec::with_capacity(snapshot_header.n as usize);
-
-        for _ in 0..snapshot_header.n {
-            let database = snapshotDatabase::decode(file, &mut buf)?;
-
-            let name = OsStr::from_bytes(unsafe { CStr::from_ptr(database.filename) }.to_bytes())
-                .to_owned();
-
-            let mut read_file = |size: usize| -> Result<Vec<u8>> {
-                if buf.len() >= size {
-                    return Ok(buf.drain(..size).collect());
-                }
-                let mut ret = Vec::with_capacity(size);
-                ret.extend_from_slice(&buf);
-                file.take((size - buf.len()) as u64).read_to_end(&mut ret)?;
-                Ok(ret)
-            };
-
-            let main = read_file(database.main_size as usize)?;
-            let wal = read_file(database.wal_size as usize)?;
-
-            databases.push(DqliteDatabase { name, main, wal });
+        let mut content = BufferedReader::new(content);
+        let snapshotHeader {
+            format,
+            n: n_databases,
+        } = *content.decode()?;
+        if format != sys::UV__DISK_FORMAT as u64 {
+            return Err(anyhow!("unsupported snapshot format: {format}"));
         }
 
-        Ok(databases)
+        for _ in 0..n_databases {
+            let (name, main_size, wal_size) = {
+                let database_header = content.decode::<snapshotDatabase>()?;
+                (
+                    OsStr::from_bytes(
+                        unsafe { CStr::from_ptr(database_header.filename) }.to_bytes(),
+                    )
+                    .to_owned(),
+                    database_header.main_size as usize,
+                    database_header.wal_size as usize,
+                )
+            };
+
+            let mut database_decoder = decoder.create_decoder(&name)?;
+            content.read_section(main_size, |data| database_decoder.decode_main(data))?;
+            content.read_section(wal_size, |data| database_decoder.decode_wal(data))?;
+            database_decoder.finalize()?;
+        }
+
+        Ok(decoder.finalize()?)
+    }
+
+    pub fn read<D: DqliteSnapshotDecoder>(&self, decoder: D) -> Result<D::Output> {
+        let mut content: std::sync::MutexGuard<'_, File> = self
+            .content
+            .lock()
+            .map_err(|e| anyhow!("cannot take lock: {e}"))?;
+        content.seek(std::io::SeekFrom::Start(0))?;
+        if Self::is_compressed(&mut content)? {
+            let mut content = FrameDecoder::new(&mut *content);
+            Self::read_content(&mut content, decoder)
+        } else {
+            Self::read_content(&mut *content, decoder)
+        }
     }
 }
 
@@ -779,19 +834,53 @@ impl DqliteSegmentBuilder {
     }
 }
 
-pub struct DqliteSnapshotBuilder {
+pub trait DqliteDatabaseContent<'a> {
+    fn main(&self) -> Box<dyn ExactSizeIterator<Item = Result<&'a [u8]>> + 'a>;
+
+    fn wal(&self) -> Box<dyn ExactSizeIterator<Item = Result<&'a [u8]>> + 'a> {
+        Box::new(std::iter::empty())
+    }
+}
+
+impl<'a, T: AsRef<[u8]> + 'a> DqliteDatabaseContent<'a> for &'a [T] {
+    fn main(&self) -> Box<dyn ExactSizeIterator<Item = Result<&'a [u8]>> + 'a> {
+        Box::new(self.iter().map(|page| Ok(page.as_ref())))
+    }
+}
+
+impl<'a, T1, I1, S1, T2, I2, S2> DqliteDatabaseContent<'a> for &'a (T1, T2)
+where
+    &'a T1: IntoIterator<Item = &'a S1, IntoIter = I1>,
+    I1: ExactSizeIterator<Item = &'a S1> + 'a,
+    S1: AsRef<[u8]> + 'a,
+    &'a T2: IntoIterator<Item = &'a S2, IntoIter = I2>,
+    I2: ExactSizeIterator<Item = &'a S2> + 'a,
+    S2: AsRef<[u8]> + 'a,
+{
+    fn main(&self) -> Box<dyn ExactSizeIterator<Item = Result<&'a [u8]>> + 'a> {
+        Box::new(self.0.into_iter().map(|page| Ok(page.as_ref())))
+    }
+
+    fn wal(&self) -> Box<dyn ExactSizeIterator<Item = Result<&'a [u8]>> + 'a> {
+        Box::new(self.1.into_iter().map(|page| Ok(page.as_ref())))
+    }
+}
+
+pub struct DqliteSnapshotBuilder<'a> {
     term: u64,
     index: u64,
     timestamp: SystemTime,
+    databases: Vec<(OsString, Box<dyn DqliteDatabaseContent<'a> + 'a>)>,
     configuration: Option<RaftConfiguration>,
 }
 
-impl DqliteSnapshotBuilder {
+impl<'a> DqliteSnapshotBuilder<'a> {
     fn new(term: u64, index: u64, timestamp: SystemTime) -> Self {
         Self {
             term,
             index,
             timestamp,
+            databases: Vec::new(),
             configuration: None,
         }
     }
@@ -815,19 +904,29 @@ impl DqliteSnapshotBuilder {
         self.configuration = Some(configuration);
         self
     }
+
+    pub fn add_database(
+        mut self,
+        name: OsString,
+        content: Box<dyn DqliteDatabaseContent<'a> + 'a>,
+    ) -> Self {
+        self.databases.push((name, content));
+        self
+    }
 }
 
-pub struct DqliteDirCreator {
+pub struct DqliteDirCreator<'a> {
     dir: PathBuf,
     term: u64,
     voted_for: u64,
     first_index: u64,
+    page_size: u32,
     closed_segments: Vec<DqliteSegmentBuilder>,
     open_segments: Vec<DqliteSegmentBuilder>,
-    snapshots: Vec<DqliteSnapshotBuilder>,
+    snapshots: Vec<DqliteSnapshotBuilder<'a>>,
 }
 
-impl DqliteDirCreator {
+impl<'a> DqliteDirCreator<'a> {
     pub fn with_term(mut self, term: u64) -> Self {
         self.term = term;
         self
@@ -840,6 +939,11 @@ impl DqliteDirCreator {
 
     pub fn with_first_index(mut self, first_index: u64) -> Self {
         self.first_index = first_index;
+        self
+    }
+
+    pub fn with_page_size(mut self, page_size: u32) -> Self {
+        self.page_size = page_size;
         self
     }
 
@@ -865,7 +969,7 @@ impl DqliteDirCreator {
 
     fn with_snapshot(
         mut self,
-        f: impl FnOnce(DqliteSnapshotBuilder) -> DqliteSnapshotBuilder,
+        f: impl FnOnce(DqliteSnapshotBuilder<'a>) -> DqliteSnapshotBuilder<'a>,
     ) -> Self {
         let mut index = self.first_index;
         for entry in self.closed_segments.iter().chain(self.open_segments.iter()) {
@@ -879,7 +983,7 @@ impl DqliteDirCreator {
     }
 }
 
-impl DqliteDirCreator {
+impl<'a> DqliteDirCreator<'a> {
     fn write_segment(&self, file: &mut File, batches: &Vec<Vec<DqliteLogEntry>>) -> Result<()> {
         let mut buf = uvSegmentBuffer::default();
         unsafe { sys::uvSegmentBufferInit(&mut buf, 4096) };
@@ -923,8 +1027,103 @@ impl DqliteDirCreator {
         Ok(())
     }
 
-    // TODO: add method to add databases in the snapshot. For now the snapshot will be empty (data-wise).
-    fn write_snapshot(&self, s: &DqliteSnapshotBuilder, folder: &Path) -> Result<()> {
+    fn write_snapshot_data(
+        &self,
+        s: &DqliteSnapshotBuilder<'a>,
+        mut data: impl Write,
+    ) -> Result<()> {
+        let mut write_buf = raft_buffer::default();
+        let rc = unsafe { sys::encodeSnapshotHeader(s.databases.len() as _, &mut write_buf) };
+        if rc != raft_result::OK {
+            return Err(anyhow!("failed to encode snapshot header"));
+        }
+        let result = data.write_all(unsafe { write_buf.as_bytes() });
+        unsafe { sys::raft_free(write_buf.base) };
+        result?; // Avoid leaking `header_buf` content.
+
+        for (name, content) in &s.databases {
+            const WAL_HEADER_SIZE: u32 = 24;
+
+            let c_name = CString::new(name.as_bytes()).unwrap();
+            let main_pages = content.main();
+            let main_size = self.page_size as u64 * main_pages.len() as u64;
+
+            let wal_pages = content.wal();
+            let wal_size = (self.page_size + WAL_HEADER_SIZE) as u64 * wal_pages.len() as u64;
+
+            let header = snapshotDatabase {
+                filename: c_name.as_ptr(),
+                main_size,
+                wal_size,
+            };
+
+            let header_size = unsafe { sys::snapshotDatabase__sizeof(&header) };
+            let mut write_buf = vec![0u8; header_size];
+            let mut cursor = write_buf.as_mut_ptr() as *mut c_char;
+            unsafe { sys::snapshotDatabase__encode(&header, &mut cursor) };
+
+            data.write_all(&write_buf)?;
+            for chunk in main_pages {
+                let chunk = chunk?;
+                assert!(chunk.len() as u32 == self.page_size);
+                data.write_all(&chunk)?;
+            }
+            for chunk in wal_pages {
+                let chunk = chunk?;
+                assert!(chunk.len() as u32 == self.page_size + WAL_HEADER_SIZE);
+                data.write_all(&chunk)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn write_snapshot_metadata(
+        &self,
+        s: &DqliteSnapshotBuilder<'a>,
+        mut meta: impl Write,
+    ) -> Result<()> {
+        let mut config = raft_configuration::default();
+        unsafe { sys::configurationInit(&mut config) };
+
+        let configuration = s
+            .configuration
+            .as_ref()
+            .expect("cannot write snapshot without configuration");
+        for server in &configuration.servers {
+            let id = server.id;
+            let address = CString::new(server.address.as_str()).unwrap();
+            let role = match server.role {
+                RaftRole::Standby => raft_role::RAFT_STANDBY,
+                RaftRole::Voter => raft_role::RAFT_VOTER,
+                RaftRole::Spare => raft_role::RAFT_SPARE,
+            } as _;
+            let rc = unsafe { sys::configurationAdd(&mut config, id, address.as_ptr(), role) };
+            if rc != raft_result::OK {
+                return Err(anyhow!("failed to add server to configuration"));
+            }
+        }
+
+        let mut config_buf = raft_buffer::default();
+        let rc = unsafe { sys::configurationEncode(&config, &mut config_buf) };
+        if rc != raft_result::OK {
+            return Err(anyhow!("failed to encode configuration"));
+        }
+
+        let mut header = [0u8; 32];
+        unsafe {
+            sys::formatSnapshotMetaHeader(header.as_mut_ptr() as *mut _, s.index, &config_buf)
+        };
+        let result = meta
+            .write_all(header.as_slice())
+            .and_then(|_| meta.write_all(unsafe { config_buf.as_bytes() }));
+        unsafe { sys::raft_free(config_buf.base) };
+        result?; // Avoid leaking `config_buf` content.
+
+        Ok(())
+    }
+
+    fn write_snapshot(&self, s: &DqliteSnapshotBuilder<'a>, folder: &Path) -> Result<()> {
         let mut path = {
             let term = s.term;
             let index = s.index;
@@ -932,64 +1131,16 @@ impl DqliteDirCreator {
             folder.join(format!("snapshot-{term}-{index}-{timestamp}"))
         };
 
-        {
-            let mut data = File::create(&path)?;
-            let mut header_buf = raft_buffer::default();
-            let rc = unsafe { sys::encodeSnapshotHeader(0, &mut header_buf) };
-            if rc != raft_result::OK {
-                return Err(anyhow!("failed to encode snapshot header"));
-            }
-            let result = data.write_all(unsafe { header_buf.as_bytes() });
-            unsafe { sys::raft_free(header_buf.base) };
-            result?; // Avoid leaking `header_buf` content.
-        }
+        // TODO: support compression
+        self.write_snapshot_data(s, File::create(&path)?)?;
 
-        {
-            path.set_extension("meta");
-            let mut meta = File::create(path)?;
-
-            let mut config = raft_configuration::default();
-            unsafe { sys::configurationInit(&mut config) };
-
-            let configuration = s
-                .configuration
-                .as_ref()
-                .expect("cannot write snapshot without configuration");
-            for server in &configuration.servers {
-                let id = server.id;
-                let address = CString::new(server.address.as_str()).unwrap();
-                let role = match server.role {
-                    RaftRole::Standby => raft_role::RAFT_STANDBY,
-                    RaftRole::Voter => raft_role::RAFT_VOTER,
-                    RaftRole::Spare => raft_role::RAFT_SPARE,
-                } as _;
-                let rc = unsafe { sys::configurationAdd(&mut config, id, address.as_ptr(), role) };
-                if rc != raft_result::OK {
-                    return Err(anyhow!("failed to add server to configuration"));
-                }
-            }
-
-            let mut config_buf = raft_buffer::default();
-            let rc = unsafe { sys::configurationEncode(&config, &mut config_buf) };
-            if rc != raft_result::OK {
-                return Err(anyhow!("failed to encode configuration"));
-            }
-
-            let mut header = [0u8; 32];
-            unsafe {
-                sys::formatSnapshotMetaHeader(header.as_mut_ptr() as *mut _, s.index, &config_buf)
-            };
-            let result = meta
-                .write_all(header.as_slice())
-                .and_then(|_| meta.write_all(unsafe { config_buf.as_bytes() }));
-            unsafe { sys::raft_free(config_buf.base) };
-            result?;
-        }
+        path.set_extension("meta");
+        self.write_snapshot_metadata(s, File::create(&path)?)?;
 
         Ok(())
     }
 
-    pub fn create(&self) -> Result<()> {
+    pub fn create(self) -> Result<()> {
         let mut err = RaftErrorStr::new();
 
         let rc = unsafe {
@@ -1041,6 +1192,8 @@ impl DqliteDirCreator {
 
 #[cfg(test)]
 mod tests {
+    use std::vec;
+
     use super::*;
 
     #[test]
@@ -1054,7 +1207,8 @@ mod tests {
     #[test]
     fn test_metadata_only() {
         let dir = tempfile::tempdir().unwrap();
-        DqliteDir::creator(dir.path()).create().unwrap();
+        let creator = DqliteDir::creator(dir.path());
+        creator.create().unwrap();
 
         let state = DqliteDir::open(dir.path()).unwrap();
         assert_eq!(state.term(), 1);
@@ -1245,9 +1399,67 @@ mod tests {
         drop(dir)
     }
 
+    struct TestDatabaseSnapshot {
+        name: OsString,
+        main: Vec<u8>,
+        wal: Vec<u8>,
+    }
+
+    impl DqliteDatabaseDecoder for &mut TestDatabaseSnapshot {
+        fn decode_main(&mut self, data: &mut dyn Read) -> Result<()> {
+            data.read_to_end(&mut self.main)?;
+            Ok(())
+        }
+
+        fn decode_wal(&mut self, data: &mut dyn Read) -> Result<()> {
+            data.read_to_end(&mut self.wal)?;
+            Ok(())
+        }
+
+        fn finalize(self) -> Result<()> {
+            Ok(())
+        }
+    }
+
+    struct TestSnapshotDecoder {
+        databases: Vec<TestDatabaseSnapshot>,
+    }
+
+    impl TestSnapshotDecoder {
+        fn new() -> Self {
+            Self {
+                databases: Vec::new(),
+            }
+        }
+    }
+
+    impl DqliteSnapshotDecoder for TestSnapshotDecoder {
+        type Decoder<'a>
+            = &'a mut TestDatabaseSnapshot
+        where
+            Self: 'a;
+        type Output = Vec<TestDatabaseSnapshot>;
+
+        fn create_decoder<'a>(&'a mut self, name: &OsStr) -> Result<Self::Decoder<'a>> {
+            self.databases.push(TestDatabaseSnapshot {
+                name: name.to_owned(),
+                main: Vec::new(),
+                wal: Vec::new(),
+            });
+            Ok(self.databases.last_mut().unwrap())
+        }
+
+        fn finalize(self) -> Result<Self::Output> {
+            Ok(self.databases)
+        }
+    }
+
     #[test]
     fn test_snapshots() {
         let dir = tempfile::tempdir().unwrap();
+        let content_db1 = [[0u8; 4096]];
+        let content_db2 = ([[1u8; 4096]], [[2u8; 4120]]);
+
         let configuration = RaftConfiguration {
             servers: vec![RaftServer {
                 id: 1,
@@ -1268,6 +1480,8 @@ mod tests {
                     .with_term(3)
                     .with_index(1)
                     .with_timestamp(timestamp)
+                    .add_database(OsStr::new("db1").to_os_string(), Box::new(&content_db1[..]))
+                    .add_database(OsStr::new("db2").to_os_string(), Box::new(&content_db2))
             })
             .create()
             .unwrap();
@@ -1280,5 +1494,16 @@ mod tests {
         assert_eq!(snapshots[0].index, 1);
         assert_eq!(snapshots[0].timestamp, timestamp);
         assert_eq!(snapshots[0].configuration, configuration);
+
+        let databases = snapshots[0].read(TestSnapshotDecoder::new()).unwrap();
+        assert_eq!(databases.len(), 2);
+
+        assert_eq!(databases[0].name, OsStr::new("db1"));
+        assert_eq!(databases[0].main, content_db1.as_flattened());
+        assert!(databases[0].wal.is_empty());
+
+        assert_eq!(databases[1].name, OsStr::new("db2"));
+        assert_eq!(databases[1].main, content_db2.0.as_flattened());
+        assert_eq!(databases[1].wal, content_db2.1.as_flattened());
     }
 }

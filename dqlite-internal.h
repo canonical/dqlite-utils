@@ -257,6 +257,9 @@ enum dqlite_result_code {
 typedef int dqlite_result;
 
 dqlite_result snapshotHeader__decode(struct cursor *cursor, struct snapshotHeader *p);
+
+size_t snapshotDatabase__sizeof(const struct snapshotDatabase *p);
 dqlite_result snapshotDatabase__decode(struct cursor *cursor, struct snapshotDatabase *p);
+void snapshotDatabase__encode(const struct snapshotDatabase *p, char **cursor);
 
 #endif /* DQLITE_INTERNAL_H */
