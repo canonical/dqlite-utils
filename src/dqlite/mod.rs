@@ -1516,6 +1516,14 @@ mod tests {
 
         assert_eq!(databases[1].name, OsStr::new("db2"));
         assert_eq!(databases[1].main, content_db2.0.as_flattened());
-        assert_eq!(databases[1].wal, content_db2.1.into_iter().flatten().cloned().collect::<Vec<u8>>());
+        assert_eq!(
+            databases[1].wal,
+            content_db2
+                .1
+                .into_iter()
+                .flatten()
+                .cloned()
+                .collect::<Vec<u8>>()
+        );
     }
 }

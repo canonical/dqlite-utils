@@ -168,7 +168,10 @@ impl<'a, T> Drop for DecodeRef<'a, T> {
 pub trait Decode {
     const try_decode: unsafe extern "C" fn(*mut cursor, *mut Self) -> dqlite_result;
 
-    fn decode<'a>(r: &mut impl std::io::Read, buf: &'a mut Vec<u8>) -> std::io::Result<DecodeRef<'a, Self>>
+    fn decode<'a>(
+        r: &mut impl std::io::Read,
+        buf: &'a mut Vec<u8>,
+    ) -> std::io::Result<DecodeRef<'a, Self>>
     where
         Self: Sized + Default,
     {
@@ -187,11 +190,7 @@ pub trait Decode {
             }
 
             let size = buf.len() - cursor.cap;
-            return Ok(DecodeRef {
-                buf,
-                value,
-                size,
-            });
+            return Ok(DecodeRef { buf, value, size });
         }
     }
 }
