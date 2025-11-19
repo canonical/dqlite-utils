@@ -17,13 +17,13 @@ pub enum Command {
 }
 
 impl Command {
-    pub fn run(&self, _ctx: &mut Context) -> Result<()> {
+    pub fn run(&self, ctx: &mut Context) -> Result<()> {
         match self {
             Self::Noop => Ok(()),
             Self::Quit => {
                 process::exit(0);
             }
-            Self::Log(cmd) => cmd.run(_ctx),
+            Self::Log(cmd) => cmd.run(ctx),
         }
     }
 }
