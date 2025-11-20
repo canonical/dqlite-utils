@@ -37,6 +37,18 @@ dqlite-utils --dir /path/to/dqlite/data
 
 To use `dqlite-utils` non-interactively, pass commands via the `-c` flag.
 
+### Inspect the Node Status
+
+The `status` command shows a brief summary the current state of the Raft state machine.
+
+```bash
+> status
+dir: .
+term: 1
+current_index: 20011
+first_index: 10242
+```
+
 ### Inspect the Raft Log
 
 The `log` command shows a `git log`-style history of all raft entries as a chronological list of commands applied to the dqlite state machine.
