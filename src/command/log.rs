@@ -1,28 +1,25 @@
-use anyhow::{Result, anyhow};
-use owo_colors::{OwoColorize, Stream, Style, Styled, SupportsColorsDisplay};
+use anyhow::Result;
+use indoc::writedoc;
+use owo_colors::{OwoColorize, Stream, Style};
+use std::fmt::Display;
 use std::io::{self, ErrorKind, IsTerminal, Write};
-use std::process::{self, Child};
+use std::process::{Child, Command, Stdio};
 
+use super::UnrecognisedArgumentsError;
 use crate::Context;
-use crate::dqlite::{DqliteLogEntry, DqliteLogEntryContent, DqliteSegment};
+use crate::dqlite::{DqliteLogEntry, DqliteLogEntryContent, DqliteSegment, RaftServer};
 
 trait TerminalStylize {
-    fn terminal_style<'a>(
-        &'a self,
-        style: Style,
-    ) -> SupportsColorsDisplay<'a, Self, Styled<&'a Self>, impl Fn(&'a Self) -> Styled<&'a Self>>;
+    fn terminal_style(&self, style: Style) -> impl Display;
 }
 
-impl<T: OwoColorize> TerminalStylize for T {
-    fn terminal_style<'a>(
-        &'a self,
-        style: Style,
-    ) -> SupportsColorsDisplay<'a, Self, Styled<&'a Self>, impl Fn(&'a Self) -> Styled<&'a Self>>
-    {
+impl<T: OwoColorize + Display> TerminalStylize for T {
+    fn terminal_style(&self, style: Style) -> impl Display {
         self.if_supports_color(Stream::Stdout, move |t| t.style(style))
     }
 }
 
+#[derive(Debug)]
 enum Pager {
     Stdout(io::StdoutLock<'static>),
     Less(Child),
@@ -35,9 +32,9 @@ impl Pager {
             return Ok(Pager::Stdout(stdout.lock()));
         }
 
-        let less = process::Command::new("less")
+        let less = Command::new("less")
             .arg("-R") // Allow raw control characters (for colors).
-            .stdin(process::Stdio::piped())
+            .stdin(Stdio::piped())
             .spawn()?;
         Ok(Pager::Less(less))
     }
@@ -71,130 +68,14 @@ impl Drop for Pager {
 }
 
 #[derive(Debug)]
-pub(crate) struct Command {
+pub(crate) struct LogCommand {
     compact: bool,
+    pager: Pager,
+    prev_term: Option<u64>,
 }
 
-struct TermWriter(Option<u64>);
-
-impl TermWriter {
-    fn new() -> Self {
-        TermWriter(None)
-    }
-
-    fn write(&mut self, pager: &mut Pager, term: u64) -> io::Result<()> {
-        let (term_changed, marker) = match self.0 {
-            Some(t) => (t != term, "├"),
-            None => (true, "┌"),
-        };
-        if term_changed {
-            let term_tag = "TERM".terminal_style(Command::TERM_STYLE);
-            let term = term.terminal_style(Command::TERM_STYLE);
-            writeln!(pager, "{marker} {term_tag} {term}")?;
-        }
-        self.0 = Some(term);
-
-        Ok(())
-    }
-}
-
-struct EntryWriter;
-
-impl EntryWriter {
-    fn new() -> Self {
-        EntryWriter
-    }
-
-    fn write_header(
-        &self,
-        pager: &mut Pager,
-        index: u64,
-        entry: &DqliteLogEntry,
-        tag: &str,
-    ) -> io::Result<()> {
-        use DqliteLogEntryContent as Dlec;
-
-        let index = index.terminal_style(Command::INDEX_STYLE);
-        let tag = tag.terminal_style(Command::TAG_STYLE);
-
-        match &entry.content {
-            Dlec::Barrier => {
-                let command = "BARRIER".terminal_style(Command::ENTRY_TYPE_STYLE);
-                writeln!(pager, "| {index} {command} {tag}")?;
-            }
-            Dlec::Change(..) => {
-                let command = "CONFIG".terminal_style(Command::ENTRY_TYPE_STYLE);
-                writeln!(pager, "| {index} {command} {tag}")?;
-            }
-            Dlec::CommandOpen { filename } => {
-                let command = "OPEN".terminal_style(Command::ENTRY_TYPE_STYLE);
-                writeln!(pager, "| {index} {command} {} {tag}", filename.display())?;
-            }
-            Dlec::CommandFrames {
-                filename,
-                is_commit,
-                ..
-            } => {
-                let command = if *is_commit { "COMMIT" } else { "FRAMES" };
-                let command = command.terminal_style(Command::ENTRY_TYPE_STYLE);
-                writeln!(pager, "| {index} {command} {} {tag}", filename.display())?;
-            }
-            Dlec::CommandUndo { .. } => {
-                let command = "ROLLBACK".terminal_style(Command::ENTRY_TYPE_STYLE);
-                writeln!(pager, "| {index} {command} {tag}")?;
-            }
-            Dlec::CommandCheckpoint { filename } => {
-                let command = "CHECKPOINT".terminal_style(Command::ENTRY_TYPE_STYLE);
-                writeln!(pager, "| {index} {command} {} {tag}", filename.display())?;
-            }
-        };
-
-        Ok(())
-    }
-
-    fn write_content(&self, pager: &mut Pager, content: &DqliteLogEntryContent) -> io::Result<()> {
-        use DqliteLogEntryContent as Dlec;
-
-        match content {
-            Dlec::Change(config) => {
-                writeln!(pager, "|    servers:")?;
-                for server in &config.servers {
-                    writeln!(pager, "|      {}:", server.id)?;
-                    writeln!(pager, "|        address: {}", server.address)?;
-                    writeln!(pager, "|        role: {:?}", server.role)?;
-                }
-            }
-            Dlec::CommandFrames {
-                tx_id,
-                frames,
-                truncate,
-                ..
-            } => {
-                writeln!(pager, "|    tx_id: {tx_id}")?;
-                writeln!(pager, "|    truncate: {truncate}")?;
-                // TODO add other fields like the type of the page or the header (with the database size)
-                // particularly the database size makes sense as 0 size means "database deleted"
-                let pages = frames
-                    .iter()
-                    .map(|f| f.page_number.to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ");
-
-                writeln!(pager, "|    pages: {pages}")?;
-                writeln!(pager, "|")?;
-            }
-            Dlec::CommandUndo { tx_id } => {
-                writeln!(pager, "|    tx_id: {tx_id}")?;
-            }
-            Dlec::Barrier | Dlec::CommandOpen { .. } | Dlec::CommandCheckpoint { .. } => {}
-        };
-
-        Ok(())
-    }
-}
-
-impl Command {
-    const TERM_STYLE: Style = Style::new().bold().red();
+impl LogCommand {
+    const TERM_STYLE: Style = Style::new().bold().green();
     const INDEX_STYLE: Style = Style::new().yellow();
     const ENTRY_TYPE_STYLE: Style = Style::new().cyan();
     const TAG_STYLE: Style = Style::new().bright_magenta();
@@ -204,36 +85,17 @@ impl Command {
             [] => false,
             [flag] if flag == "--compact" => true,
             args => {
-                return Err(anyhow!("unrecognised arguments {args:?} for 'log' command"));
+                return Err(UnrecognisedArgumentsError(args.to_vec()).into());
             }
         };
-        Ok(Command { compact })
+        Ok(LogCommand {
+            compact,
+            pager: Pager::new()?,
+            prev_term: None,
+        })
     }
 
-    pub(crate) fn run(&self, ctx: &mut Context) -> Result<()> {
-        // Spawn a `less` process to page through the log output.
-        let mut pager = Pager::new()?;
-
-        let mut term_writer = TermWriter::new();
-        let entry_writer = EntryWriter::new();
-
-        let mut log_entry = |(index, entry): (u64, &DqliteLogEntry)| -> io::Result<()> {
-            term_writer.write(&mut pager, entry.term)?;
-
-            let tag = if ctx.dqlite.snapshots().iter().any(|s| s.index == index) {
-                "[SNAPSHOTTED]"
-            } else {
-                ""
-            };
-            entry_writer.write_header(&mut pager, index, entry, tag)?;
-
-            if !self.compact {
-                entry_writer.write_content(&mut pager, &entry.content)?;
-            }
-
-            Ok(())
-        };
-
+    pub(crate) fn run(mut self, ctx: &mut Context) -> Result<()> {
         // In order to properly get the index of the last entry, we need to read
         // all open entries first.
         let open_segments = ctx.dqlite.open_segments();
@@ -245,10 +107,8 @@ impl Command {
                 DqliteSegment::Closed { indexes, .. } => *indexes.end(),
                 DqliteSegment::Open { .. } => unreachable!(),
             });
-
         for segment in open_segments {
-            let entries = segment.entries()?;
-            index += entries.len() as u64;
+            index += segment.entries()?.len() as u64;
         }
 
         for segment in ctx.dqlite.segments().iter().rev() {
@@ -257,21 +117,161 @@ impl Command {
             }
 
             let entries = segment.entries()?;
-            let last_index = index;
-            index -= entries.len() as u64;
-            let entries = entries
-                .iter()
-                .rev()
-                .enumerate()
-                .map(move |(i, entry)| (last_index - i as u64, entry));
-            for entry in entries {
-                match log_entry(entry) {
+            for (i, entry) in entries.iter().rev().enumerate() {
+                let entry_index = index - i as u64;
+                match self.write_entry(ctx, entry_index, entry) {
                     Ok(()) => {}
                     Err(e) if e.kind() == ErrorKind::BrokenPipe => return Ok(()),
                     Err(e) => return Err(e.into()),
                 }
             }
+            index -= entries.len() as u64;
         }
+
+        Ok(())
+    }
+
+    fn write_entry(&mut self, ctx: &Context, index: u64, entry: &DqliteLogEntry) -> io::Result<()> {
+        self.write_term(entry.term)?;
+
+        let snapshot_tag = if ctx.dqlite.snapshots().iter().any(|s| s.index == index) {
+            "[SNAPSHOT]"
+        } else {
+            ""
+        };
+        self.write_entry_header(index, entry, snapshot_tag)?;
+
+        if !self.compact {
+            self.write_entry_content(&entry.content)?;
+        }
+
+        Ok(())
+    }
+
+    fn write_term(&mut self, term: u64) -> io::Result<()> {
+        let term_changed = match self.prev_term {
+            Some(t) => t != term,
+            None => true,
+        };
+        let marker = if self.prev_term.is_none() {
+            "╭"
+        } else {
+            "├"
+        };
+        if term_changed {
+            let term_tag = "TERM".terminal_style(LogCommand::TERM_STYLE);
+            let term = term.terminal_style(LogCommand::TERM_STYLE);
+            writeln!(self.pager, "{marker} {term_tag} {term}")?;
+        }
+        self.prev_term = Some(term);
+
+        Ok(())
+    }
+
+    fn write_entry_header(
+        &mut self,
+        index: u64,
+        entry: &DqliteLogEntry,
+        tag: &str,
+    ) -> io::Result<()> {
+        use DqliteLogEntryContent as Dlec;
+
+        let index = index.terminal_style(LogCommand::INDEX_STYLE);
+        let tag = tag.terminal_style(LogCommand::TAG_STYLE);
+
+        match &entry.content {
+            Dlec::Barrier => {
+                let command = "BARRIER".terminal_style(LogCommand::ENTRY_TYPE_STYLE);
+                writeln!(self.pager, "│ {index} {command} {tag}")?;
+            }
+            Dlec::Change(..) => {
+                let command = "CONFIG".terminal_style(LogCommand::ENTRY_TYPE_STYLE);
+                writeln!(self.pager, "│ {index} {command} {tag}")?;
+            }
+            Dlec::CommandOpen { filename } => {
+                let command = "OPEN".terminal_style(LogCommand::ENTRY_TYPE_STYLE);
+                writeln!(
+                    self.pager,
+                    "│ {index} {command} {} {tag}",
+                    filename.display()
+                )?;
+            }
+            Dlec::CommandFrames {
+                filename,
+                is_commit,
+                ..
+            } => {
+                let command = if *is_commit { "COMMIT" } else { "FRAMES" };
+                let command = command.terminal_style(LogCommand::ENTRY_TYPE_STYLE);
+                writeln!(
+                    self.pager,
+                    "│ {index} {command} {} {tag}",
+                    filename.display()
+                )?;
+            }
+            Dlec::CommandUndo { .. } => {
+                let command = "ROLLBACK".terminal_style(LogCommand::ENTRY_TYPE_STYLE);
+                writeln!(self.pager, "│ {index} {command} {tag}")?;
+            }
+            Dlec::CommandCheckpoint { filename } => {
+                let command = "CHECKPOINT".terminal_style(LogCommand::ENTRY_TYPE_STYLE);
+                writeln!(
+                    self.pager,
+                    "│ {index} {command} {} {tag}",
+                    filename.display()
+                )?;
+            }
+        };
+
+        Ok(())
+    }
+
+    fn write_entry_content(&mut self, content: &DqliteLogEntryContent) -> io::Result<()> {
+        use DqliteLogEntryContent as Dlec;
+
+        match content {
+            Dlec::Change(config) => {
+                writeln!(self.pager, "│   servers:")?;
+                for server in &config.servers {
+                    let RaftServer {
+                        id, address, role, ..
+                    } = server;
+                    writedoc!(
+                        self.pager,
+                        "
+                            │     {id}:
+                            │       address: {address}
+                            │       role: {role:?}
+                        "
+                    )?;
+                }
+            }
+            Dlec::CommandFrames {
+                tx_id,
+                frames,
+                truncate,
+                ..
+            } => {
+                let pages = frames
+                    .iter()
+                    .map(|f| f.page_number.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+
+                writedoc!(
+                    self.pager,
+                    "
+                        │   tx_id: {tx_id}
+                        │   truncate: {truncate}
+                        │   pages: {pages}
+                    "
+                )?;
+            }
+            Dlec::CommandUndo { tx_id } => {
+                writeln!(self.pager, "│   tx_id: {tx_id}")?;
+            }
+            Dlec::Barrier | Dlec::CommandOpen { .. } | Dlec::CommandCheckpoint { .. } => {}
+        };
 
         Ok(())
     }

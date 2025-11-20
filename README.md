@@ -51,42 +51,39 @@ first_index: 10242
 
 ### Inspect the Raft Log
 
-The `log` command shows a `git log`-style history of all raft entries as a chronological list of commands applied to the dqlite state machine.
+To view the log, use the log command.
+You will see a list of all commands applied to the dqlite state machine, for example:
 
 ```bash
-dqlite-utils
 > log
-┌ TERM 3
-| 300 FRAMES db1
-|	tx_id: 12345
-|	truncate: 0
-|	pages: 1, 2, 3
-|
-| 299 CONFIG
-|	servers:
-|	  1:
-|	    address: 10.0.0.1:9001
-|	    role: Voter
-|
-| 298 CHECKPOINT db1
+╭ TERM 3
+│ 300 FRAMES db1
+│   tx_id: 12345
+│   truncate: 0
+│   pages: 1, 2, 3
+│ 299 CONFIG
+│   servers:
+│     1:
+│       address: 10.0.0.1:9001
+│       role: Voter
+│ 298 CHECKPOINT db1
 ├ TERM 2
-| 297 FRAMES db2
-|	tx_id: 12340
-|	truncate: 0
-|	pages: 5, 6
-|
-| 298 BARRIER
+│ 297 FRAMES db2
+│   tx_id: 12340
+│   truncate: 0
+│   pages: 5, 6
+│ 296 BARRIER
 ```
 
 Use the `--compact` flag to show a condensed view without detailed information:
 
 ```bash
 > log --compact
-┌ TERM 3
-| 300 FRAMES db1
-| 299 CONFIG
-| 298 CHECKPOINT db1
+╭ TERM 3
+│ 300 FRAMES db1
+│ 299 CONFIG
+│ 298 CHECKPOINT db1
 ├ TERM 2
-| 130 FRAMES db2
-| 129 BARRIER
+│ 297 FRAMES db2
+│ 296 BARRIER
 ```

@@ -17,7 +17,7 @@ impl StatusCommand {
         Ok(Self)
     }
 
-    pub(crate) fn run(&self, ctx: &Context) -> Result<()> {
+    pub(crate) fn run(self, ctx: &Context) -> Result<()> {
         let dqlite = &ctx.dqlite;
         let first_index = dqlite.first_index();
 

@@ -1,5 +1,5 @@
-mod status;
 mod log;
+mod status;
 
 use std::process;
 use std::str::FromStr;
@@ -8,8 +8,8 @@ use anyhow::anyhow;
 
 use crate::{Context, Error, Result};
 
+use self::log::LogCommand;
 use self::status::StatusCommand;
-use self::log::Command as LogCommand;
 
 #[derive(Debug)]
 pub enum Command {
@@ -20,7 +20,7 @@ pub enum Command {
 }
 
 impl Command {
-    pub fn run(&self, ctx: &mut Context) -> Result<()> {
+    pub fn run(self, ctx: &mut Context) -> Result<()> {
         match self {
             Self::Noop => Ok(()),
             Self::Quit => {
@@ -44,7 +44,13 @@ impl FromStr for Command {
         match command.as_str() {
             "status" => Ok(Self::Status(StatusCommand::try_from_args(args)?)),
             "log" => Ok(Self::Log(LogCommand::try_from_args(args)?)),
-            "quit" => if args.is_empty() { Ok(Self::Quit) } else { Err(UnrecognisedArgumentsError(args.to_vec()).into()) },
+            "quit" => {
+                if args.is_empty() {
+                    Ok(Self::Quit)
+                } else {
+                    Err(UnrecognisedArgumentsError(args.to_vec()).into())
+                }
+            }
             unknown => Err(anyhow!("unknown command '{unknown}'")),
         }
     }

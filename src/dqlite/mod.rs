@@ -1,9 +1,8 @@
 mod sys;
 
 use std::{
-    error::Error,
     ffi::{CStr, CString, OsStr, OsString, c_int, c_uint, c_void},
-    fmt::{Debug, Display},
+    fmt::Debug,
     fs::File,
     io::{Read, Write},
     ops::RangeInclusive,
