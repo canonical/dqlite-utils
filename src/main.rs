@@ -163,6 +163,7 @@ fn stdin_commands() -> impl Iterator<Item = Command> {
         })
 }
 
+#[derive(Debug)]
 pub struct Context {
     pub dir: PathBuf,
     pub dqlite: DqliteDir,

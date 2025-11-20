@@ -1,3 +1,5 @@
+mod status;
+
 use std::process;
 use std::str::FromStr;
 
@@ -5,19 +7,23 @@ use anyhow::anyhow;
 
 use crate::{Context, Error, Result};
 
+use self::status::StatusCommand;
+
 #[derive(Debug)]
 pub enum Command {
     Noop,
     Quit,
+    Status(StatusCommand),
 }
 
 impl Command {
-    pub fn run(&self, _ctx: &mut Context) -> Result<()> {
+    pub fn run(&self, ctx: &mut Context) -> Result<()> {
         match self {
             Self::Noop => Ok(()),
             Self::Quit => {
                 process::exit(0);
             }
+            Self::Status(cmd) => cmd.run(ctx),
         }
     }
 }
@@ -33,8 +39,13 @@ impl FromStr for Command {
         };
         match (command.as_str(), args) {
             ("quit", []) => Ok(Self::Quit),
-            (unknown, []) => Err(anyhow!("unknown command '{unknown}'")),
-            (_, tail) => Err(anyhow!("unrecognised arguments {tail:?}")),
+            ("quit", tail) => Err(UnrecognisedArgumentsError(tail.to_vec()).into()),
+            ("status", _) => Ok(Self::Status(StatusCommand::try_from_args(args)?)),
+            (unknown, _) => Err(anyhow!("unknown command '{unknown}'")),
         }
     }
 }
+
+#[derive(Debug, thiserror::Error)]
+#[error("unrecognised arguments: {_0:?}")]
+struct UnrecognisedArgumentsError(Vec<String>);
