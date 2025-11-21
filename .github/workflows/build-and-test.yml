@@ -10,13 +10,13 @@ jobs:
     name: Build and test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
       - uses: dtolnay/rust-toolchain@master
         with:
           # Must be kept in sync with Cargo.toml.
-          toolchain: '1.85'
+          toolchain: '1.91'
           components: clippy,rustfmt
       - name: Set up dependencies
         run: |

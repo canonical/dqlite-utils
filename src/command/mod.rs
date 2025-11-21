@@ -1,14 +1,14 @@
+mod log;
 pub(crate) mod quit;
-
 mod status;
 
-use std::process;
 use std::str::FromStr;
 
 use anyhow::anyhow;
 
 use crate::{Context, Error, Result};
 
+use self::log::LogCommand;
 use self::quit::QuitCommand;
 use self::status::StatusCommand;
 
@@ -17,14 +17,16 @@ pub enum Command {
     Noop,
     Quit(QuitCommand),
     Status(StatusCommand),
+    Log(LogCommand),
 }
 
 impl Command {
-    pub fn run(&self, ctx: &mut Context) -> Result<()> {
+    pub fn run(self, ctx: &mut Context) -> Result<()> {
         match self {
             Self::Noop => Ok(()),
             Self::Quit(cmd) => cmd.run(ctx),
             Self::Status(cmd) => cmd.run(ctx),
+            Self::Log(cmd) => cmd.run(ctx),
         }
     }
 }
@@ -39,8 +41,9 @@ impl FromStr for Command {
             None => return Ok(Self::Noop),
         };
         match command.as_str() {
-            "quit" => Ok(Self::Quit(QuitCommand::try_from_args(args)?)),
             "status" => Ok(Self::Status(StatusCommand::try_from_args(args)?)),
+            "log" => Ok(Self::Log(LogCommand::try_from_args(args)?)),
+            "quit" => Ok(Self::Quit(QuitCommand::try_from_args(args)?)),
             unknown => Err(anyhow!("unknown command '{unknown}'")),
         }
     }
