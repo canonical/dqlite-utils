@@ -1,9 +1,9 @@
 use anyhow::Result;
 use indoc::eprintdoc;
 
-use crate::{Context, dqlite::DqliteSegment};
+use crate::{dqlite::DqliteSegment, Context};
 
-use super::UnrecognisedArgumentsError;
+use super::UnrecognizedArgumentsError;
 
 #[derive(Debug)]
 pub(crate) struct Command;
@@ -11,7 +11,7 @@ pub(crate) struct Command;
 impl Command {
     pub(crate) fn try_from_args(args: &[String]) -> Result<Self> {
         if !args.is_empty() {
-            return Err(UnrecognisedArgumentsError(args.to_vec()).into());
+            return Err(UnrecognizedArgumentsError(args.to_vec()).into());
         }
         Ok(Self)
     }

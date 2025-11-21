@@ -1,6 +1,6 @@
 use std::process;
 
-use crate::command::UnrecognisedArgumentsError;
+use crate::command::UnrecognizedArgumentsError;
 use crate::{Context, Result};
 
 #[derive(Debug, Default)]
@@ -9,7 +9,7 @@ pub(crate) struct Command;
 impl Command {
     pub(crate) fn try_from_args(args: &[String]) -> Result<Self> {
         if !args.is_empty() {
-            return Err(UnrecognisedArgumentsError(args.to_vec()).into());
+            return Err(UnrecognizedArgumentsError(args.to_vec()).into());
         }
         Ok(Self)
     }
