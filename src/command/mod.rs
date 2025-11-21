@@ -1,3 +1,5 @@
+pub(crate) mod quit;
+
 mod status;
 
 use std::process;
@@ -7,12 +9,13 @@ use anyhow::anyhow;
 
 use crate::{Context, Error, Result};
 
+use self::quit::QuitCommand;
 use self::status::StatusCommand;
 
 #[derive(Debug)]
 pub enum Command {
     Noop,
-    Quit,
+    Quit(QuitCommand),
     Status(StatusCommand),
 }
 
@@ -20,9 +23,7 @@ impl Command {
     pub fn run(&self, ctx: &mut Context) -> Result<()> {
         match self {
             Self::Noop => Ok(()),
-            Self::Quit => {
-                process::exit(0);
-            }
+            Self::Quit(cmd) => cmd.run(ctx),
             Self::Status(cmd) => cmd.run(ctx),
         }
     }
@@ -37,15 +38,14 @@ impl FromStr for Command {
             Some((command, args)) => (command, args),
             None => return Ok(Self::Noop),
         };
-        match (command.as_str(), args) {
-            ("quit", []) => Ok(Self::Quit),
-            ("quit", tail) => Err(UnrecognisedArgumentsError(tail.to_vec()).into()),
-            ("status", _) => Ok(Self::Status(StatusCommand::try_from_args(args)?)),
-            (unknown, _) => Err(anyhow!("unknown command '{unknown}'")),
+        match command.as_str() {
+            "quit" => Ok(Self::Quit(QuitCommand::try_from_args(args)?)),
+            "status" => Ok(Self::Status(StatusCommand::try_from_args(args)?)),
+            unknown => Err(anyhow!("unknown command '{unknown}'")),
         }
     }
 }
 
 #[derive(Debug, thiserror::Error)]
-#[error("unrecognised arguments: {_0:?}")]
-struct UnrecognisedArgumentsError(Vec<String>);
+#[error("unrecognized arguments: {_0:?}")]
+struct UnrecognizedArgumentsError(Vec<String>);
