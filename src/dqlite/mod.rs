@@ -1,9 +1,9 @@
 mod sys;
 
 use std::{
-    error::Error,
+    borrow::Cow,
     ffi::{CStr, CString, OsStr, OsString, c_int, c_uint, c_void},
-    fmt::{Debug, Display},
+    fmt::Debug,
     fs::File,
     io::{Read, Seek, Write},
     ops::RangeInclusive,
@@ -348,15 +348,15 @@ pub enum DqliteSegment {
 }
 
 impl DqliteSegment {
-    pub fn entries(&self) -> Result<Vec<DqliteLogEntry>> {
+    pub fn entries(&self) -> Result<Cow<'_, Vec<DqliteLogEntry>>> {
         match self {
             DqliteSegment::Closed { file, .. } => {
                 let mut file = file
                     .lock()
                     .map_err(|e| anyhow!("cannot acquire lock: {}", e))?;
-                Ok(Self::load_segment_file(&mut file)?)
+                Ok(Cow::Owned(Self::load_segment_file(&mut file)?))
             }
-            DqliteSegment::Open { content, .. } => Ok(content.clone()),
+            DqliteSegment::Open { content, .. } => Ok(Cow::Borrowed(content)),
         }
     }
 }
@@ -1074,7 +1074,7 @@ mod tests {
 
         let open_segment = state.segments().first().unwrap();
         assert!(matches!(open_segment, DqliteSegment::Open { counter, .. } if *counter == 0));
-        assert_eq!(open_segment.entries().unwrap(), entries);
+        assert_eq!(open_segment.entries().unwrap().as_slice(), entries);
     }
 
     #[test]
@@ -1126,7 +1126,7 @@ mod tests {
             panic!("expected closed segment");
         }
 
-        assert_eq!(entries.as_slice(), segment.entries().unwrap());
+        assert_eq!(segment.entries().unwrap().as_slice(), entries);
 
         drop(dir)
     }
@@ -1179,7 +1179,7 @@ mod tests {
             panic!("expected open segment");
         }
 
-        assert_eq!(entries.as_slice(), segment.entries().unwrap());
+        assert_eq!(segment.entries().unwrap().as_slice(), entries);
 
         drop(dir)
     }
