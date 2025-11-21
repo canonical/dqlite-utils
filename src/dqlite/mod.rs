@@ -1080,7 +1080,7 @@ mod tests {
     #[test]
     fn test_single_closed_segment() {
         let dir = tempfile::tempdir().unwrap();
-        let entries = vec![
+        let entries = [
             DqliteLogEntry {
                 term: 1,
                 content: DqliteLogEntryContent::Barrier,
@@ -1126,7 +1126,7 @@ mod tests {
             panic!("expected closed segment");
         }
 
-        assert_eq!(entries, segment.entries().unwrap());
+        assert_eq!(entries.as_slice(), segment.entries().unwrap());
 
         drop(dir)
     }
@@ -1134,7 +1134,7 @@ mod tests {
     #[test]
     fn test_single_open_segment() {
         let dir = tempfile::tempdir().unwrap();
-        let entries = vec![
+        let entries = [
             DqliteLogEntry {
                 term: 1,
                 content: DqliteLogEntryContent::Barrier,
@@ -1179,7 +1179,7 @@ mod tests {
             panic!("expected open segment");
         }
 
-        assert_eq!(entries, segment.entries().unwrap());
+        assert_eq!(entries.as_slice(), segment.entries().unwrap());
 
         drop(dir)
     }
