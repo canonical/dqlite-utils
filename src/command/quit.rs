@@ -4,9 +4,9 @@ use crate::command::UnrecognizedArgumentsError;
 use crate::{Context, Result};
 
 #[derive(Debug, Default)]
-pub(crate) struct Command;
+pub(crate) struct QuitCommand;
 
-impl Command {
+impl QuitCommand {
     pub(crate) fn try_from_args(args: &[String]) -> Result<Self> {
         if !args.is_empty() {
             return Err(UnrecognizedArgumentsError(args.to_vec()).into());

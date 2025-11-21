@@ -9,7 +9,7 @@ use anyhow::anyhow;
 
 use crate::{Context, Error, Result};
 
-use self::quit::Command as QuitCommand;
+use self::quit::QuitCommand;
 use self::status::StatusCommand;
 
 #[derive(Debug)]

@@ -15,7 +15,7 @@ use rustyline::history::DefaultHistory;
 
 use self::args::Args;
 use self::command::Command;
-use self::command::quit::Command as QuitCommand;
+use self::command::quit::QuitCommand;
 use self::dqlite::DqliteDir;
 
 pub type Error = anyhow::Error;
@@ -133,7 +133,7 @@ impl Iterator for InteractiveCommandReader {
                                     .style(Self::ERROR_STYLE))
                         )
                     }
-                    Some(ReadlineError::Eof) => return Some(Command::Quit(QuitCommand::default())),
+                    Some(ReadlineError::Eof) => return Some(Command::Quit(QuitCommand)),
                     _ => eprintln!(
                         "{}",
                         err.if_supports_color(Stream::Stderr, |text| text.style(Self::ERROR_STYLE))
