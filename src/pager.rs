@@ -30,14 +30,22 @@ impl Write for Pager {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         match self {
             Self::Stdout(stdout) => stdout.write(buf),
-            Self::Less(child) => child.stdin.as_ref().unwrap().write(buf),
+            Self::Less(child) => child
+                .stdin
+                .as_ref()
+                .expect("cannot use child's stdin: already taken")
+                .write(buf),
         }
     }
 
     fn flush(&mut self) -> io::Result<()> {
         match self {
             Self::Stdout(stdout) => stdout.flush(),
-            Self::Less(child) => child.stdin.as_ref().unwrap().flush(),
+            Self::Less(child) => child
+                .stdin
+                .as_ref()
+                .expect("cannot use child's stdin: already taken")
+                .flush(),
         }
     }
 }
