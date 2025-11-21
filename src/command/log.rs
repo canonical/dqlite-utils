@@ -9,6 +9,7 @@ use super::UnrecognisedArgumentsError;
 use crate::Context;
 use crate::dqlite::{DqliteLogEntry, DqliteLogEntryContent, DqliteSegment, RaftServer};
 
+/// Helper to reduce boilerplate when applying styles.
 trait TerminalStylize {
     fn terminal_style(&self, style: Style) -> impl Display;
 }

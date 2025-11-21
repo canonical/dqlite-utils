@@ -51,7 +51,7 @@ first_index: 10242
 
 ### Inspect the Raft Log
 
-To view the log, use the log command.
+To view the log, use the `log` command.
 You will see a list of all commands applied to the dqlite state machine, for example:
 
 ```bash
