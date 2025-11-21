@@ -5,7 +5,7 @@ use std::fmt::Display;
 use std::io::{self, ErrorKind, IsTerminal, Write};
 use std::process::{Child, Command, Stdio};
 
-use super::UnrecognisedArgumentsError;
+use super::UnrecognizedArgumentsError;
 use crate::Context;
 use crate::dqlite::{DqliteLogEntry, DqliteLogEntryContent, DqliteSegment, RaftServer};
 
@@ -86,7 +86,7 @@ impl LogCommand {
             [] => false,
             [flag] if flag == "--compact" => true,
             args => {
-                return Err(UnrecognisedArgumentsError(args.to_vec()).into());
+                return Err(UnrecognizedArgumentsError(args.to_vec()).into());
             }
         };
         Ok(LogCommand {

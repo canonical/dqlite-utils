@@ -4,7 +4,7 @@ use indoc::eprintdoc;
 use crate::Context;
 use crate::dqlite::DqliteSegment;
 
-use super::UnrecognisedArgumentsError;
+use super::UnrecognizedArgumentsError;
 
 #[derive(Debug)]
 pub(crate) struct StatusCommand;
@@ -12,7 +12,7 @@ pub(crate) struct StatusCommand;
 impl StatusCommand {
     pub(crate) fn try_from_args(args: &[String]) -> Result<Self> {
         if !args.is_empty() {
-            return Err(UnrecognisedArgumentsError(args.to_vec()).into());
+            return Err(UnrecognizedArgumentsError(args.to_vec()).into());
         }
         Ok(Self)
     }
