@@ -1,14 +1,15 @@
 use anyhow::Result;
 use indoc::eprintdoc;
 
-use crate::{dqlite::DqliteSegment, Context};
+use crate::Context;
+use crate::dqlite::DqliteSegment;
 
 use super::UnrecognizedArgumentsError;
 
 #[derive(Debug)]
-pub(crate) struct Command;
+pub(crate) struct StatusCommand;
 
-impl Command {
+impl StatusCommand {
     pub(crate) fn try_from_args(args: &[String]) -> Result<Self> {
         if !args.is_empty() {
             return Err(UnrecognizedArgumentsError(args.to_vec()).into());
@@ -28,14 +29,11 @@ impl Command {
                 _ => unreachable!(),
             })
             .cloned();
-        let num_entries_in_open_segments: u64 = dqlite
+        let num_entries_in_open_segments = dqlite
             .open_segments()
             .iter()
-            .map(|segment| match segment {
-                DqliteSegment::Open { counter, .. } => counter,
-                _ => unreachable!(),
-            })
-            .sum();
+            .map(|segment| segment.entries().map(|entries| entries.len()))
+            .sum::<Result<usize>>()? as u64;
         let last_index = last_closed_index.unwrap_or(first_index) + num_entries_in_open_segments;
 
         let dir = ctx.dir.display();

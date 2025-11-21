@@ -22,6 +22,8 @@ use self::sys::{
     uvSnapshotInfo,
 };
 
+#[derive(thiserror::Error)]
+#[error("{}", self.as_str())]
 struct RaftErrorStr([u8; RAFT_ERRMSG_BUF_SIZE as usize]);
 
 impl RaftErrorStr {
@@ -41,15 +43,7 @@ impl RaftErrorStr {
     }
 }
 
-impl Error for RaftErrorStr {}
-
 impl Debug for RaftErrorStr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self.as_str())
-    }
-}
-
-impl Display for RaftErrorStr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self.as_str())
     }

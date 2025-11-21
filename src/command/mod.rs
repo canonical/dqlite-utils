@@ -2,6 +2,7 @@ pub(crate) mod quit;
 
 mod status;
 
+use std::process;
 use std::str::FromStr;
 
 use anyhow::anyhow;
@@ -9,7 +10,7 @@ use anyhow::anyhow;
 use crate::{Context, Error, Result};
 
 use self::quit::Command as QuitCommand;
-use self::status::Command as StatusCommand;
+use self::status::StatusCommand;
 
 #[derive(Debug)]
 pub enum Command {
