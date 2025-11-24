@@ -1,9 +1,8 @@
 mod sys;
 
 use std::{
-    error::Error,
     ffi::{CStr, CString, OsStr, OsString, c_int, c_uint, c_void},
-    fmt::{Debug, Display},
+    fmt::Debug,
     fs::File,
     io::{Read, Write},
     ops::RangeInclusive,
@@ -407,7 +406,7 @@ impl DqliteLogEntryContent {
     fn parse(entry_type: u16, data: &[u8]) -> Result<Self> {
         match entry_type as _ {
             raft_entry_type::RAFT_BARRIER => {
-                if data.len() != 8 || !data.iter().all(|b| *b == 0) {
+                if data.len() != 8 {
                     return Err(anyhow!("invalid barrier entry"));
                 }
                 Ok(Self::Barrier)
@@ -601,9 +600,9 @@ impl DqliteLogEntryContent {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct DqliteFrame {
-    page_number: u64,
-    data: Vec<u8>,
+pub struct DqliteFrame {
+    pub page_number: u64,
+    pub data: Vec<u8>,
 }
 
 impl DqliteSegment {
