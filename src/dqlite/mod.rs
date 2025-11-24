@@ -303,13 +303,13 @@ impl RaftServer {
     }
 }
 
-trait DqliteDatabaseDecoder {
+pub trait DqliteDatabaseDecoder {
     fn decode_main(&mut self, name: &mut dyn Read) -> Result<()>;
     fn decode_wal(&mut self, name: &mut dyn Read) -> Result<()>;
     fn finalize(self) -> Result<()>;
 }
 
-trait DqliteSnapshotDecoder {
+pub trait DqliteSnapshotDecoder {
     type Decoder<'a>: DqliteDatabaseDecoder + 'a
     where
         Self: 'a;
