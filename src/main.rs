@@ -1,7 +1,7 @@
 mod args;
 mod command;
 mod dqlite;
-mod pager;
+mod helpers;
 
 use std::io::{self, IsTerminal};
 use std::path::PathBuf;
