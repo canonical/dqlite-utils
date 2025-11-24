@@ -2,12 +2,12 @@ use anyhow::Result;
 use indoc::writedoc;
 use owo_colors::{OwoColorize, Stream, Style};
 use std::fmt::Display;
-use std::io::{self, ErrorKind, IsTerminal, Write};
-use std::process::{Child, Command, Stdio};
+use std::io::{self, ErrorKind, Write};
 
 use super::UnrecognizedArgumentsError;
 use crate::Context;
 use crate::dqlite::{DqliteLogEntry, DqliteLogEntryContent, DqliteSegment, RaftServer};
+use crate::utils::Pager;
 
 /// Helper to reduce boilerplate when applying styles.
 trait TerminalStylize {
@@ -17,54 +17,6 @@ trait TerminalStylize {
 impl<T: OwoColorize + Display> TerminalStylize for T {
     fn terminal_style(&self, style: Style) -> impl Display {
         self.if_supports_color(Stream::Stdout, move |t| t.style(style))
-    }
-}
-
-#[derive(Debug)]
-enum Pager {
-    Stdout(io::StdoutLock<'static>),
-    Less(Child),
-}
-
-impl Pager {
-    fn new() -> Result<Pager> {
-        let stdout = io::stdout();
-        if !stdout.is_terminal() {
-            return Ok(Pager::Stdout(stdout.lock()));
-        }
-
-        let less = Command::new("less")
-            .arg("-R") // Allow raw control characters (for colors).
-            .stdin(Stdio::piped())
-            .spawn()?;
-        Ok(Pager::Less(less))
-    }
-}
-
-impl Write for Pager {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        match self {
-            Pager::Stdout(stdout) => stdout.write(buf),
-            Pager::Less(child) => child.stdin.as_ref().unwrap().write(buf),
-        }
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        match self {
-            Pager::Stdout(stdout) => stdout.flush(),
-            Pager::Less(child) => child.stdin.as_ref().unwrap().flush(),
-        }
-    }
-}
-
-impl Drop for Pager {
-    fn drop(&mut self) {
-        match self {
-            Pager::Stdout(_) => {}
-            Pager::Less(child) => {
-                let _ = child.wait();
-            }
-        }
     }
 }
 

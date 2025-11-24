@@ -1,6 +1,7 @@
 mod args;
 mod command;
 mod dqlite;
+mod utils;
 
 use std::io::{self, IsTerminal};
 use std::path::PathBuf;
