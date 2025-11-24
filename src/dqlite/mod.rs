@@ -353,7 +353,7 @@ impl DqliteSegment {
             DqliteSegment::Closed { file, .. } => {
                 let mut file = file
                     .lock()
-                    .map_err(|e| anyhow!("cannot acquire lock: {}", e))?;
+                    .map_err(|e| anyhow!("cannot acquire lock on segment file: {e}"))?;
                 Ok(Cow::Owned(Self::load_segment_file(&mut file)?))
             }
             DqliteSegment::Open { content, .. } => Ok(Cow::Borrowed(content)),
