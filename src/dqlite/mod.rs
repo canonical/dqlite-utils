@@ -1057,7 +1057,8 @@ impl<'a> DqliteDirCreator<'a> {
             let wal_size = if wal_pages.len() == 0 {
                 0
             } else {
-                Self::WAL_HEADER_SIZE + (self.page_size + Self::WAL_FRAME_HEADER_SIZE) * (wal_pages.len() - 1) as u64
+                Self::WAL_HEADER_SIZE
+                    + (self.page_size + Self::WAL_FRAME_HEADER_SIZE) * (wal_pages.len() - 1) as u64
             };
 
             let header = snapshotDatabase {
@@ -1106,7 +1107,8 @@ impl<'a> DqliteDirCreator<'a> {
             let wal_size = if wal_pages.len() == 0 {
                 0
             } else {
-                Self::WAL_HEADER_SIZE + (self.page_size + Self::WAL_FRAME_HEADER_SIZE) * (wal_pages.len() - 1) as u64
+                Self::WAL_HEADER_SIZE
+                    + (self.page_size + Self::WAL_FRAME_HEADER_SIZE) * (wal_pages.len() - 1) as u64
             };
 
             let header = snapshotDatabase {
