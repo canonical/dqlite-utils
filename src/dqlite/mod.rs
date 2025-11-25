@@ -616,7 +616,7 @@ impl DqliteSegment {
         // It is important to open the file here, as soon as possible,
         // so that in case dqlite is running and decides to remove or
         // rename a segment file then we can still load the entries.
-        let mut file = File::open(path)
+        let mut file = File::open(&path)
             .with_context(|| anyhow!("cannot open segment file {}", path.display()))?;
         if segment.is_open {
             let content = Self::load_segment_file(&mut file).context("cannot load segment file")?;
