@@ -14,7 +14,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use anyhow::{Result, anyhow};
+use anyhow::{Context, Result, anyhow};
 
 use self::sys::{
     RAFT_ERRMSG_BUF_SIZE, command_checkpoint, command_frames, command_open, command_undo, frames_t,
@@ -34,9 +34,9 @@ impl RaftErrorStr {
 
     fn as_str(&self) -> &str {
         CStr::from_bytes_until_nul(self.0.as_slice())
-            .expect("display malformet error message")
+            .expect("cannot display malformed error message: unexpected NUL")
             .to_str()
-            .expect("cannot display malformet error message")
+            .expect("cannot display malformed error message: malformed UTF-8")
     }
 
     fn as_mut_ptr<T>(&mut self) -> *mut T {
@@ -118,10 +118,10 @@ impl DqliteDir {
             sys::uvMetadataLoad(cdir.as_ptr(), &mut metadata as *mut _, err.as_mut_ptr())
         };
         if rc != raft_result::OK {
-            return Err(anyhow!("failed to load metadata: {err}"));
+            return Err(anyhow!("cannot load metadata: {err}"));
         }
         if metadata.version == 0 {
-            return Err(anyhow!("not ad dqlite folder"));
+            return Err(anyhow!("cannot find dqlite metadata in {}", dir.display()));
         }
 
         let mut snapshots = ptr::null_mut();
@@ -141,7 +141,7 @@ impl DqliteDir {
             )
         };
         if rc != raft_result::OK {
-            return Err(anyhow!("failed to list snapshots and segments: {err}"));
+            return Err(anyhow!("cannot list snapshots and segments: {err}"));
         }
 
         assert!(n_snapshots == 0 || !snapshots.is_null());
@@ -265,7 +265,7 @@ impl RaftConfiguration {
             } as _;
             let rc = unsafe { sys::configurationAdd(&mut c, server.id, address.as_ptr(), role) };
             if rc != raft_result::OK {
-                return Err(anyhow!("failed to add server to configuration"));
+                return Err(anyhow!("cannot add server to configuration"));
             }
         }
         Ok(c)
@@ -292,7 +292,7 @@ impl RaftServer {
             raft_role::RAFT_STANDBY => RaftRole::Standby,
             raft_role::RAFT_VOTER => RaftRole::Voter,
             raft_role::RAFT_SPARE => RaftRole::Spare,
-            _ => return Err(anyhow!("invalid role")),
+            _ => return Err(anyhow!("cannot convert raft role")),
         };
         Ok(Self {
             id: server.id,
@@ -305,7 +305,7 @@ impl RaftServer {
 impl DqliteSnapshot {
     pub fn load(dir: impl AsRef<Path>, snapshot: &uvSnapshotInfo) -> Result<Self> {
         let dir = CString::new(dir.as_ref().as_os_str().as_bytes())
-            .map_err(|e| anyhow!("failed to convert dir to C string: {e}"))?;
+            .map_err(|e| anyhow!("cannot convert dir to C string: {e}"))?;
         Self::load_internal(&dir, snapshot)
     }
 
@@ -316,7 +316,7 @@ impl DqliteSnapshot {
             sys::uvSnapshotLoadMeta(dir.as_ptr(), snapshot, &mut metadata, err.as_mut_ptr())
         };
         if rc != raft_result::OK {
-            return Err(anyhow!("failed to load metadata: {err}"));
+            return Err(anyhow!("cannot load metadata: {err}"));
         }
 
         let mut path = PathBuf::from(OsStr::from_bytes(dir.to_bytes())).join(snapshot.filename());
@@ -409,7 +409,10 @@ impl DqliteLogEntryContent {
         match entry_type as _ {
             raft_entry_type::RAFT_BARRIER => {
                 if data.len() != 8 {
-                    return Err(anyhow!("invalid barrier entry"));
+                    return Err(anyhow!(
+                        "cannot parse barrier entry: got length {}",
+                        data.len()
+                    ));
                 }
                 Ok(Self::Barrier)
             }
@@ -425,7 +428,7 @@ impl DqliteLogEntryContent {
                     )
                 };
                 if rv != raft_result::OK {
-                    return Err(anyhow!("failed to decode change entry: {rv}"));
+                    return Err(anyhow!("cannot decode change entry: error {rv}"));
                 }
                 Ok(Self::Change(RaftConfiguration::new(&configuration)?))
             }
@@ -444,7 +447,7 @@ impl DqliteLogEntryContent {
                     )
                 };
                 if rv != raft_result::OK {
-                    return Err(anyhow!("failed to decode command: {rv}"));
+                    return Err(anyhow!("cannot decode command: {rv}"));
                 }
 
                 match ty as _ {
@@ -501,10 +504,10 @@ impl DqliteLogEntryContent {
                             frames,
                         })
                     }
-                    _ => Err(anyhow!("unknown command type: {ty}")),
+                    _ => Err(anyhow!("cannot parse command: unknown type {ty}")),
                 }
             }
-            _ => Err(anyhow!("unknown entry type: {entry_type}")),
+            _ => Err(anyhow!("cannot parse entry: unknown type {entry_type}")),
         }
     }
 
@@ -513,7 +516,7 @@ impl DqliteLogEntryContent {
             let mut buf = raft_buffer::default();
             let rc = unsafe { sys::command__encode(command_type, command, &mut buf) };
             if rc != raft_result::OK {
-                return Err(anyhow!("failed to encode command: {rc}"));
+                return Err(anyhow!("cannot encode command: {rc}"));
             }
             let data = unsafe { buf.as_bytes() }.to_vec();
             unsafe { sys::raft_free(buf.base) };
@@ -527,7 +530,7 @@ impl DqliteLogEntryContent {
                 let mut buf = raft_buffer::default();
                 let rc = unsafe { sys::configurationEncode(&configuration, &mut buf) };
                 if rc != raft_result::OK {
-                    return Err(anyhow!("failed to encode configuration: {rc}"));
+                    return Err(anyhow!("cannot encode configuration: {rc}"));
                 }
                 let data = unsafe { buf.as_bytes().to_vec() };
                 unsafe { sys::raft_free(buf.base) };
@@ -613,9 +616,10 @@ impl DqliteSegment {
         // It is important to open the file here, as soon as possible,
         // so that in case dqlite is running and decides to remove or
         // rename a segment file then we can still load the entries.
-        let mut file = File::open(path)?;
+        let mut file = File::open(path)
+            .with_context(|| anyhow!("cannot open segment file {}", path.display()))?;
         if segment.is_open {
-            let content = Self::load_segment_file(&mut file)?;
+            let content = Self::load_segment_file(&mut file).context("cannot load segment file")?;
             let counter = unsafe { segment.info.open.counter };
             Ok(Self::Open { counter, content })
         } else {
@@ -636,19 +640,20 @@ impl DqliteSegment {
 
         if buf.is_empty() {
             return Ok(Vec::new());
-        } else if buf.len() < 8 {
-            return Err(anyhow!("invalid segment file"));
+        }
+        if buf.len() < 8 {
+            return Err(anyhow!("invalid length: {}", buf.len()));
         }
 
         let format = u64::from_le_bytes(buf[0..8].try_into().unwrap());
         if format == 0 {
-            if buf.iter().all(|b| *b == 0) {
-                return Ok(Vec::new());
+            if buf.iter().any(|b| *b != 0) {
+                return Err(anyhow!("expected all data to be 0"));
             }
-
-            return Err(anyhow!("invalid segment file"));
-        } else if format != sys::UV__DISK_FORMAT as u64 {
-            return Err(anyhow!("unsupported segment file format"));
+            return Ok(Vec::new());
+        }
+        if format != sys::UV__DISK_FORMAT as u64 {
+            return Err(anyhow!("unsupported format: {format}"));
         }
 
         let mut ret = Vec::new();
@@ -675,11 +680,10 @@ impl DqliteSegment {
             if rc == raft_result::CORRUPT {
                 if buf[offset..].iter().all(|b| *b == 0) {
                     break;
-                } else {
-                    return Err(anyhow!("corrupt segment file"));
                 }
+                return Err(anyhow!("corrupt"));
             } else if rc != raft_result::OK {
-                return Err(anyhow!("failed to load segment file: {err}"));
+                return Err(err.into());
             }
 
             for i in 0..n_entries {
@@ -689,7 +693,8 @@ impl DqliteSegment {
                     term: entry.term,
                     content: DqliteLogEntryContent::parse(entry.type_, unsafe {
                         entry.buf.as_bytes()
-                    })?,
+                    })
+                    .with_context(|| anyhow!("cannot parse entry {i}"))?,
                 });
             }
         }
@@ -826,7 +831,7 @@ impl DqliteDirCreator {
 
         let rc = unsafe { sys::uvSegmentBufferFormat(&mut buf) };
         if rc != raft_result::OK {
-            return Err(anyhow!("failed to format segment buffer: {rc}"));
+            return Err(anyhow!("cannot format segment buffer: {rc}"));
         }
 
         for batch in batches {
@@ -852,7 +857,7 @@ impl DqliteDirCreator {
                 sys::uvSegmentBufferAppend(&mut buf, entries.as_ptr(), entries.len() as c_uint)
             };
             if rc != raft_result::OK {
-                return Err(anyhow!("failed to append to segment buffer: {rc}"));
+                return Err(anyhow!("cannot append to segment buffer: {rc}"));
             }
         }
 
@@ -877,7 +882,7 @@ impl DqliteDirCreator {
             let mut header_buf = raft_buffer::default();
             let rc = unsafe { sys::encodeSnapshotHeader(0, &mut header_buf) };
             if rc != raft_result::OK {
-                return Err(anyhow!("failed to encode snapshot header"));
+                return Err(anyhow!("cannot encode snapshot header"));
             }
             let result = data.write_all(unsafe { header_buf.as_bytes() });
             unsafe { sys::raft_free(header_buf.base) };
@@ -905,14 +910,14 @@ impl DqliteDirCreator {
                 } as _;
                 let rc = unsafe { sys::configurationAdd(&mut config, id, address.as_ptr(), role) };
                 if rc != raft_result::OK {
-                    return Err(anyhow!("failed to add server to configuration"));
+                    return Err(anyhow!("cannot add server to configuration"));
                 }
             }
 
             let mut config_buf = raft_buffer::default();
             let rc = unsafe { sys::configurationEncode(&config, &mut config_buf) };
             if rc != raft_result::OK {
-                return Err(anyhow!("failed to encode configuration"));
+                return Err(anyhow!("cannot encode configuration"));
             }
 
             let mut header = [0u8; 32];
@@ -946,7 +951,7 @@ impl DqliteDirCreator {
             )
         };
         if rc != raft_result::OK {
-            return Err(anyhow!("failed to store metadata: {err}"));
+            return Err(anyhow!("cannot store metadata: {err}"));
         }
 
         let mut path = self.dir.clone();
