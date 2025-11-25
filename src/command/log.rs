@@ -1,24 +1,12 @@
 use anyhow::Result;
 use indoc::writedoc;
-use owo_colors::{OwoColorize, Stream, Style};
-use std::fmt::Display;
+use owo_colors::Style;
 use std::io::{self, ErrorKind, Write};
 
 use super::UnrecognizedArgumentsError;
 use crate::Context;
 use crate::dqlite::{DqliteLogEntry, DqliteLogEntryContent, DqliteSegment, RaftServer};
-use crate::utils::Pager;
-
-/// Helper to reduce boilerplate when applying styles.
-trait TerminalStylize {
-    fn terminal_style(&self, style: Style) -> impl Display;
-}
-
-impl<T: OwoColorize + Display> TerminalStylize for T {
-    fn terminal_style(&self, style: Style) -> impl Display {
-        self.if_supports_color(Stream::Stdout, move |t| t.style(style))
-    }
-}
+use crate::utils::{Pager, TerminalStylizeExt};
 
 #[derive(Debug)]
 pub(crate) struct LogCommand {
