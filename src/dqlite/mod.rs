@@ -15,7 +15,7 @@ use std::{
 };
 
 use anyhow::{Result, anyhow};
-use lz4_flex::frame::FrameDecoder;
+use lz4_flex::frame::{BlockMode, FrameDecoder, FrameEncoder, FrameInfo};
 
 use self::sys::{
     Decode, DecodeRef, RAFT_ERRMSG_BUF_SIZE, command_checkpoint, command_frames, command_open,
@@ -870,7 +870,8 @@ pub struct DqliteSnapshotBuilder<'a> {
     term: u64,
     index: u64,
     timestamp: SystemTime,
-    databases: Vec<(OsString, Box<dyn DqliteDatabaseContent<'a> + 'a>)>,
+    compressed: bool,
+    databases: Vec<(CString, Box<dyn DqliteDatabaseContent<'a> + 'a>)>,
     configuration: Option<RaftConfiguration>,
 }
 
@@ -880,6 +881,7 @@ impl<'a> DqliteSnapshotBuilder<'a> {
             term,
             index,
             timestamp,
+            compressed: true,
             databases: Vec::new(),
             configuration: None,
         }
@@ -905,9 +907,15 @@ impl<'a> DqliteSnapshotBuilder<'a> {
         self
     }
 
+    pub fn with_compression(mut self, compressed: bool) -> Self {
+        // Currently compression is always enabled.
+        self.compressed = compressed;
+        self
+    }
+
     pub fn add_database(
         mut self,
-        name: OsString,
+        name: CString,
         content: Box<dyn DqliteDatabaseContent<'a> + 'a>,
     ) -> Self {
         self.databases.push((name, content));
@@ -984,6 +992,9 @@ impl<'a> DqliteDirCreator<'a> {
 }
 
 impl<'a> DqliteDirCreator<'a> {
+    const WAL_HEADER_SIZE: u64 = 32;
+    const WAL_FRAME_HEADER_SIZE: u64 = 24;
+
     fn write_segment(&self, file: &mut File, batches: &Vec<Vec<DqliteLogEntry>>) -> Result<()> {
         let mut buf = uvSegmentBuffer::default();
         unsafe { sys::uvSegmentBufferInit(&mut buf, 4096) };
@@ -1027,6 +1038,52 @@ impl<'a> DqliteDirCreator<'a> {
         Ok(())
     }
 
+    fn write_compressed_snapshot_data(
+        &self,
+        s: &DqliteSnapshotBuilder<'a>,
+        data: impl Write,
+    ) -> Result<()> {
+        // Unfortunately dqlite requires the full content type to be stored
+        // in the header of a single compressed frame.
+        // This means that it is necessary to loop twice over the data:
+        // first to compute the total size, then to actually write it.
+        let mut size = 16u64; // The header
+
+        for (name, content) in &s.databases {
+            let main_pages = content.main();
+            let main_size = self.page_size * main_pages.len() as u64;
+
+            let wal_pages = content.wal();
+            let wal_size = if wal_pages.len() == 0 {
+                0
+            } else {
+                Self::WAL_HEADER_SIZE + (self.page_size + Self::WAL_FRAME_HEADER_SIZE) * (wal_pages.len() - 1) as u64
+            };
+
+            let header = snapshotDatabase {
+                filename: name.as_ptr(),
+                main_size,
+                wal_size,
+            };
+
+            let header_size = unsafe { sys::snapshotDatabase__sizeof(&header) } as u64;
+
+            size += header_size;
+            size += main_size;
+            size += wal_size;
+        }
+
+        let frame_info = FrameInfo::new()
+            .content_checksum(true)
+            .content_size(Some(size))
+            .block_mode(BlockMode::Linked);
+        let mut encoder = FrameEncoder::with_frame_info(frame_info, data);
+        self.write_snapshot_data(s, &mut encoder)?;
+        encoder.finish()?;
+
+        Ok(())
+    }
+
     fn write_snapshot_data(
         &self,
         s: &DqliteSnapshotBuilder<'a>,
@@ -1042,10 +1099,6 @@ impl<'a> DqliteDirCreator<'a> {
         result?; // Avoid leaking `header_buf` content.
 
         for (name, content) in &s.databases {
-            const WAL_HEADER_SIZE: u64 = 32;
-            const WAL_FRAME_HEADER_SIZE: u64 = 24;
-
-            let c_name = CString::new(name.as_bytes()).unwrap();
             let main_pages = content.main();
             let main_size = self.page_size as u64 * main_pages.len() as u64;
 
@@ -1053,11 +1106,11 @@ impl<'a> DqliteDirCreator<'a> {
             let wal_size = if wal_pages.len() == 0 {
                 0
             } else {
-                WAL_HEADER_SIZE + (self.page_size + WAL_FRAME_HEADER_SIZE) * wal_pages.len() as u64
+                Self::WAL_HEADER_SIZE + (self.page_size + Self::WAL_FRAME_HEADER_SIZE) * (wal_pages.len() - 1) as u64
             };
 
             let header = snapshotDatabase {
-                filename: c_name.as_ptr(),
+                filename: name.as_ptr(),
                 main_size,
                 wal_size,
             };
@@ -1079,9 +1132,9 @@ impl<'a> DqliteDirCreator<'a> {
                 let chunk = chunk?;
                 if is_header {
                     is_header = false;
-                    assert!(chunk.len() as u64 == WAL_HEADER_SIZE);
+                    assert!(chunk.len() as u64 == Self::WAL_HEADER_SIZE);
                 } else {
-                    assert!(chunk.len() as u64 == self.page_size + WAL_FRAME_HEADER_SIZE);
+                    assert!(chunk.len() as u64 == self.page_size + Self::WAL_FRAME_HEADER_SIZE);
                 }
                 data.write_all(&chunk)?;
             }
@@ -1143,8 +1196,12 @@ impl<'a> DqliteDirCreator<'a> {
             folder.join(format!("snapshot-{term}-{index}-{timestamp}"))
         };
 
-        // TODO: support compression
-        self.write_snapshot_data(s, File::create(&path)?)?;
+        let file = File::create(&path)?;
+        if s.compressed {
+            self.write_compressed_snapshot_data(s, file)?;
+        } else {
+            self.write_snapshot_data(s, file)?;
+        }
 
         path.set_extension("meta");
         self.write_snapshot_metadata(s, File::create(&path)?)?;
@@ -1466,8 +1523,7 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_snapshots() {
+    fn test_snapshots(compressed: bool) {
         let dir = tempfile::tempdir().unwrap();
         let content_db1 = [[0u8; 4096]];
         let content_db2 = ([[1u8; 4096]], [[0u8; 32].as_ref(), [2u8; 4120].as_ref()]);
@@ -1492,8 +1548,9 @@ mod tests {
                     .with_term(3)
                     .with_index(1)
                     .with_timestamp(timestamp)
-                    .add_database(OsStr::new("db1").to_os_string(), Box::new(&content_db1[..]))
-                    .add_database(OsStr::new("db2").to_os_string(), Box::new(&content_db2))
+                    .with_compression(compressed)
+                    .add_database(CString::new("db1").unwrap(), Box::new(&content_db1[..]))
+                    .add_database(CString::new("db2").unwrap(), Box::new(&content_db2))
             })
             .create()
             .unwrap();
@@ -1525,5 +1582,15 @@ mod tests {
                 .cloned()
                 .collect::<Vec<u8>>()
         );
+    }
+
+    #[test]
+    fn test_snapshots_uncompressed() {
+        test_snapshots(false);
+    }
+
+    #[test]
+    fn test_snapshots_compressed() {
+        test_snapshots(true);
     }
 }
