@@ -34,7 +34,7 @@ fn main() {
     let lib = pkg_config::Config::new()
         .statik(true)
         .atleast_version("1.18.4")
-        // Override idiotic decision from pkg_config maintainer to silently ignore the user will and
+        // Override decision from pkg_config maintainer to silently ignore the user will and
         // link dynamically when the library is found in /usr.
         .cargo_metadata(false)
         .probe("dqlite")
