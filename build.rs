@@ -1,11 +1,8 @@
 use std::collections::HashSet;
 use std::env;
-use std::ffi::OsString;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use bindgen::callbacks::{DeriveInfo, MacroParsingBehavior, ParseCallbacks};
-use git2::build::RepoBuilder;
-use git2::{FetchOptions, Repository};
 
 #[derive(Debug)]
 struct BindgenRules {
@@ -32,12 +29,33 @@ impl ParseCallbacks for BindgenRules {
 fn main() {
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
 
-    build_dqlite(&out_dir);
+    println!("rustc-link-lib=static=dqlite");
 
-    pkg_config::Config::new()
+    let lib = pkg_config::Config::new()
         .statik(true)
+        .atleast_version("1.18.4")
+        // Override decision from pkg_config maintainer to silently ignore the user will and
+        // link dynamically when the library is found in /usr.
+        .cargo_metadata(false)
         .probe("dqlite")
         .expect("Failed to find libdqlite");
+
+    // This does not handle all use cases, but handles the dqlite one.
+    for include_path in lib.include_paths {
+        println!("cargo:include={}", include_path.display());
+    }
+
+    for path in lib.link_paths {
+        println!("cargo:rustc-link-search=native={}", path.display());
+    }
+
+    for lib in lib.libs {
+        if lib == "dqlite" {
+            println!("cargo:rustc-link-lib=static={}", lib);
+            continue;
+        }
+        println!("cargo:rustc-link-lib={}", lib);
+    }
 
     let bindings = bindgen::Builder::default()
         .header("dqlite-internal.h")
@@ -62,77 +80,4 @@ fn main() {
     bindings
         .write_to_file(out_dir.join("bindings.rs"))
         .expect("Couldn't write bindings!");
-}
-
-// TODO: remove this once refactoring-for-utils branch gets merged.
-fn build_dqlite(out_dir: &Path) {
-    let dqlite_dir = out_dir.join("dqlite");
-    let dqlite_repo = "https://github.com/canonical/dqlite.git";
-    let dqlite_branch = "refactoring-for-utils";
-
-    let mut autotools = autotools::Config::new(&dqlite_dir);
-
-    let commit_id = if !dqlite_dir.exists() {
-        let mut options = FetchOptions::new();
-        options.depth(1);
-
-        let repo = RepoBuilder::new()
-            .branch(dqlite_branch)
-            .fetch_options(options)
-            .clone(dqlite_repo, &dqlite_dir)
-            .expect("internal error: cannot clone dqlite repository");
-
-        autotools.reconf("-iv");
-
-        repo.head().unwrap().peel_to_commit().unwrap().id()
-    } else {
-        let repo =
-            Repository::open(&dqlite_dir).expect("internal error: cannot open dqlite repository");
-
-        let mut remote = repo.find_remote("origin").unwrap();
-
-        let mut options = FetchOptions::new();
-        options.depth(1);
-
-        let fetch_ref = format!("refs/heads/{dqlite_branch}:refs/heads/{dqlite_branch}");
-
-        remote
-            .fetch(&[&fetch_ref], Some(&mut options), None)
-            .expect("Git fetch failed");
-
-        let target = repo
-            .find_reference(&format!("refs/heads/{dqlite_branch}"))
-            .expect("internal error: cannot find head")
-            .target()
-            .expect("internal error: cannot find target for head");
-
-        let commit = repo
-            .find_commit(target)
-            .expect("internal error: cancannot find commit");
-
-        repo.checkout_tree(
-            commit.as_object(),
-            Some(git2::build::CheckoutBuilder::new().force()),
-        )
-        .expect("internal error: cannot checkout commit");
-
-        target
-    };
-    println!("cargo:rerun-if-changed={}", commit_id);
-
-    autotools.disable("shared", None).fast_build(true).build();
-
-    let pkg_config_path = out_dir.join("lib/pkgconfig");
-    let pkg_config_path = match env::var_os("PKG_CONFIG_PATH") {
-        Some(mut path) => {
-            path.push(":");
-            path.push(pkg_config_path);
-            path
-        }
-        None => OsString::from(pkg_config_path),
-    };
-
-    unsafe {
-        env::set_var("PKG_CONFIG_PATH", pkg_config_path);
-    }
 }

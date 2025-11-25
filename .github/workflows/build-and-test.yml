@@ -20,9 +20,10 @@ jobs:
           components: clippy,rustfmt
       - name: Set up dependencies
         run: |
+            sudo add-apt-repository ppa:dqlite/dev -y
             sudo apt update
             sudo apt install -y libsqlite3-dev liblz4-dev libuv1-dev \
-                              linux-libc-dev lcov
+                              linux-libc-dev lcov libdqlite1.18-unstable-dev # TODO: remove -unstable when stable is available
       
       - uses: ./.github/actions/cargo-lint
       - name: Run tests
