@@ -82,8 +82,7 @@ pub(crate) struct HelpEntry<K> {
 pub(crate) struct Arg {
     optional: bool,
 }
-// NOTE: short name to avoid clash with `std::option::Option`.
-pub(crate) struct Opt;
+pub(crate) struct Flag;
 // NOTE: short name to avoid clash with `crate::Command` type.
 pub(crate) struct Cmd;
 
@@ -109,10 +108,10 @@ pub(crate) struct Cmd;
         });
     }
 
-    pub(crate) fn add_option(&mut self, name: &'static str, summary: &'static str) {
-        self.options.push(HelpEntry {
+    pub(crate) fn add_flag(&mut self, name: &'static str, summary: &'static str) {
+        self.flags.push(HelpEntry {
             name,
-            kind: Opt,
+            kind: Flag,
             summary,
         });
     }
@@ -136,7 +135,7 @@ pub(crate) struct Help {
     args: Vec<HelpEntry<Arg>>,
 
     #[builder(default, via_mutators)]
-    options: Vec<HelpEntry<Opt>>,
+    flags: Vec<HelpEntry<Flag>>,
 
     #[builder(default, via_mutators)]
     commands: Vec<HelpEntry<Cmd>>,
@@ -160,11 +159,11 @@ impl Help {
             summary: _,
             skip_usage: _,
             args,
-            options,
+            flags,
             commands,
         } = self;
         Self::handle_section(&mut w, "Arguments", args)?;
-        Self::handle_section(&mut w, "Options", options)?;
+        Self::handle_section(&mut w, "Options", flags)?;
         Self::handle_section(&mut w, "Commands", commands)?;
 
         Ok(())
@@ -174,7 +173,7 @@ impl Help {
         let Self {
             name,
             args,
-            options,
+            flags,
             commands,
             ..
         } = self;
@@ -187,8 +186,9 @@ impl Help {
         }
 
         write!(w, "  {name}")?;
-        for option in options {
-            write!(w, " [{}]", option.name)?;
+        for flag in flags {
+            let name = flag.name.terminal_style(Self::USAGE_PARAM_STYLE);
+            write!(w, " [{name}]")?;
         }
         for arg in args {
             let name = arg.name.terminal_style(Self::USAGE_PARAM_STYLE);
@@ -267,21 +267,21 @@ mod tests {
             .expect(SUMMARY)
             .test(Help::builder().name(NAME).summary(SUMMARY).build());
 
-        const OPTION_1: &str = "--option-1";
-        const OPTION_2: &str = "--option-2";
-        const OPTION_1_HELP: &str = "__OPTION_1_HELP__";
-        const OPTION_2_HELP: &str = "__OPTION_2_HELP__";
-        Test::new("options")
-            .expect(OPTION_1)
-            .expect(OPTION_2)
-            .expect(OPTION_1_HELP)
-            .expect(OPTION_2_HELP)
+        const FLAG_1: &str = "--flag-1";
+        const FLAG_2: &str = "--flag-2";
+        const FLAG_1_HELP: &str = "__FLAG_1_HELP__";
+        const FLAG_2_HELP: &str = "__FLAG_2_HELP__";
+        Test::new("flags")
+            .expect(FLAG_1)
+            .expect(FLAG_2)
+            .expect(FLAG_1_HELP)
+            .expect(FLAG_2_HELP)
             .test(
                 Help::builder()
                     .name(NAME)
                     .summary(SUMMARY)
-                    .add_option(OPTION_1, OPTION_1_HELP)
-                    .add_option(OPTION_2, OPTION_2_HELP)
+                    .add_flag(FLAG_1, FLAG_1_HELP)
+                    .add_flag(FLAG_2, FLAG_2_HELP)
                     .build(),
             );
 

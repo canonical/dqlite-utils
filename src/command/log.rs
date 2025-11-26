@@ -31,7 +31,7 @@ impl LogCommand {
         Help::builder()
             .name("log")
             .summary(Self::SUMMARY)
-            .add_option("--compact", "output compactly")
+            .add_flag("--compact", "output compactly")
             .build()
     }
 
