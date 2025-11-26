@@ -130,9 +130,6 @@ pub(crate) struct Help {
     summary: &'static str,
 
     #[builder(setter(strip_bool))]
-    skip_summary: bool,
-
-    #[builder(setter(strip_bool))]
     skip_usage: bool,
 
     #[builder(default, via_mutators)]
@@ -161,7 +158,6 @@ impl Help {
         let Self {
             name: _,
             summary: _,
-            skip_summary: _,
             skip_usage: _,
             args,
             options,
