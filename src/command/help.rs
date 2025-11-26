@@ -236,6 +236,7 @@ impl Help {
 
 #[cfg(test)]
 mod tests {
+    use std::borrow::Cow;
     use std::io::Cursor;
 
     use googletest::expect_that;
@@ -253,6 +254,104 @@ mod tests {
         };
         for command_kind in CommandKind::iter() {
             expect_that!(help_output, contains_substring(command_kind.name()));
+        }
+    }
+
+    #[googletest::test]
+    fn test_help_output() {
+        const NAME: &str = "__HELP_NAME__";
+        const SUMMARY: &str = "__HELP_NAME__";
+
+        Test::new("basic info")
+            .expect(NAME)
+            .expect(SUMMARY)
+            .test(Help::builder().name(NAME).summary(SUMMARY).build());
+
+        const OPTION_1: &str = "--option-1";
+        const OPTION_2: &str = "--option-2";
+        const OPTION_1_HELP: &str = "__OPTION_1_HELP__";
+        const OPTION_2_HELP: &str = "__OPTION_2_HELP__";
+        Test::new("options")
+            .expect(OPTION_1)
+            .expect(OPTION_2)
+            .expect(OPTION_1_HELP)
+            .expect(OPTION_2_HELP)
+            .test(
+                Help::builder()
+                    .name(NAME)
+                    .summary(SUMMARY)
+                    .add_option(OPTION_1, OPTION_1_HELP)
+                    .add_option(OPTION_2, OPTION_2_HELP)
+                    .build(),
+            );
+
+        const ARG_1: &str = "__ARG_1__";
+        const ARG_2: &str = "__ARG_2__";
+        const ARG_1_HELP: &str = "__ARG_1_HELP__";
+        const ARG_2_HELP: &str = "__ARG_2_HELP__";
+        Test::new("args")
+            .expect(ARG_1)
+            .expect(ARG_2)
+            .expect(format!("[{ARG_2}]"))
+            .expect(ARG_1_HELP)
+            .expect(ARG_2_HELP)
+            .test(
+                Help::builder()
+                    .name(NAME)
+                    .summary(SUMMARY)
+                    .add_arg(ARG_1, ARG_1_HELP)
+                    .add_optional_arg(ARG_2, ARG_2_HELP)
+                    .build(),
+            );
+
+        const COMMAND_1: &str = "__COMMAND_1__";
+        const COMMAND_2: &str = "__COMMAND_2__";
+        const COMMAND_1_HELP: &str = "__COMMAND_1_HELP__";
+        const COMMAND_2_HELP: &str = "__COMMAND_2_HELP__";
+        Test::new("commands")
+            .expect(COMMAND_1)
+            .expect(COMMAND_2)
+            .expect(COMMAND_1_HELP)
+            .expect(COMMAND_2_HELP)
+            .test(
+                Help::builder()
+                    .name(NAME)
+                    .summary(SUMMARY)
+                    .add_command(COMMAND_1, COMMAND_1_HELP)
+                    .add_command(COMMAND_2, COMMAND_2_HELP)
+                    .build(),
+            );
+
+        // Test helpers.
+        struct Test<'a> {
+            name: &'static str,
+            expected: Vec<Cow<'a, str>>,
+        }
+
+        impl<'a> Test<'a> {
+            fn new(name: &'static str) -> Self {
+                let expected = Vec::new();
+                Self { name, expected }
+            }
+
+            fn expect(mut self, expected: impl Into<Cow<'a, str>>) -> Self {
+                self.expected.push(expected.into());
+                self
+            }
+
+            fn test(self, help: Help) {
+                let Self { name, expected } = self;
+                eprintln!("Test summary: {name}");
+
+                let written_help = {
+                    let mut written_help = Cursor::new(Vec::new());
+                    help.write_to(&mut written_help).unwrap();
+                    String::from_utf8_lossy(&written_help.into_inner()).into_owned()
+                };
+                for expected in expected {
+                    expect_that!(written_help, contains_substring(expected));
+                }
+            }
         }
     }
 }
