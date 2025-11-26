@@ -99,7 +99,7 @@ impl CommandKind {
 impl FromStr for CommandKind {
     type Err = Error;
 
-    fn from_str(raw: &str) -> std::prelude::v1::Result<Self, Self::Err> {
+    fn from_str(raw: &str) -> Result<Self> {
         match raw {
             "log" => Ok(Self::Log),
             "quit" => Ok(Self::Quit),
