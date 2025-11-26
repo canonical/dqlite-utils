@@ -1,5 +1,8 @@
+use std::fmt::Display;
 use std::io::{self, IsTerminal, StdoutLock, Write};
 use std::process::{Child, Command, Stdio};
+
+use owo_colors::{OwoColorize, Stream, Style};
 
 use crate::Result;
 
@@ -58,5 +61,16 @@ impl Drop for Pager {
                 let _ = child.wait();
             }
         }
+    }
+}
+
+/// Reduce boilerplates when applying styles.
+pub(crate) trait TerminalStylizeExt {
+    fn terminal_style(&self, style: Style) -> impl Display;
+}
+
+impl<T: OwoColorize + Display> TerminalStylizeExt for T {
+    fn terminal_style(&self, style: owo_colors::Style) -> impl Display {
+        self.if_supports_color(Stream::Stdout, move |t| t.style(style))
     }
 }
