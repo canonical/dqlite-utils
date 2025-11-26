@@ -65,7 +65,7 @@ impl HelpCommand {
                 .summary("an observability tool for inspecting the on-disk state of a dqlite node")
                 .skip_usage();
             for command in CommandKind::iter() {
-                help = help.add_subcommand(command.name(), command.summary());
+                help = help.add_command(command.name(), command.summary());
             }
             help.build()
         };
@@ -82,8 +82,10 @@ pub(crate) struct HelpEntry<K> {
 pub(crate) struct Arg {
     optional: bool,
 }
+// NOTE: short name to avoid clash with `std::option::Option`.
 pub(crate) struct Opt;
-pub(crate) struct Subcommand;
+// NOTE: short name to avoid clash with `crate::Command` type.
+pub(crate) struct Cmd;
 
 #[derive(TypedBuilder)]
 #[builder(mutators(
@@ -115,10 +117,10 @@ pub(crate) struct Subcommand;
         });
     }
 
-    pub(crate) fn add_subcommand(&mut self, name: &'static str, summary: &'static str) {
-        self.subcommands.push(HelpEntry {
+    pub(crate) fn add_command(&mut self, name: &'static str, summary: &'static str) {
+        self.commands.push(HelpEntry {
             name,
-            kind: Subcommand,
+            kind: Cmd,
             summary,
         });
     }
@@ -140,7 +142,7 @@ pub(crate) struct Help {
     options: Vec<HelpEntry<Opt>>,
 
     #[builder(default, via_mutators)]
-    subcommands: Vec<HelpEntry<Subcommand>>,
+    commands: Vec<HelpEntry<Cmd>>,
 }
 
 impl Help {
@@ -163,11 +165,11 @@ impl Help {
             skip_usage: _,
             args,
             options,
-            subcommands,
+            commands,
         } = self;
         Self::handle_section(&mut w, "Arguments", args)?;
         Self::handle_section(&mut w, "Options", options)?;
-        Self::handle_section(&mut w, "Commands", subcommands)?;
+        Self::handle_section(&mut w, "Commands", commands)?;
 
         Ok(())
     }
@@ -177,13 +179,13 @@ impl Help {
             name,
             args,
             options,
-            subcommands,
+            commands,
             ..
         } = self;
         writeln!(w, "\n{}", "Usage".terminal_style(Self::HEADING_STYLE))?;
         let name = name.terminal_style(Self::PARAM_STYLE);
 
-        if !subcommands.is_empty() {
+        if !commands.is_empty() {
             writeln!(w, "  {name} <command>")?;
             return Ok(());
         }
