@@ -1,12 +1,15 @@
+use std::io::{self, ErrorKind, Write};
+
 use anyhow::Result;
 use indoc::writedoc;
 use owo_colors::Style;
-use std::io::{self, ErrorKind, Write};
 
-use super::UnrecognizedArgumentsError;
 use crate::Context;
+use crate::command::help::Help;
 use crate::dqlite::{DqliteLogEntry, DqliteLogEntryContent, DqliteSegment, RaftServer};
 use crate::utils::{Pager, TerminalStylizeExt};
+
+use super::UnrecognizedArgumentsError;
 
 #[derive(Debug)]
 pub(crate) struct LogCommand {
@@ -20,6 +23,17 @@ impl LogCommand {
     const INDEX_STYLE: Style = Style::new().yellow();
     const ENTRY_TYPE_STYLE: Style = Style::new().cyan();
     const TAG_STYLE: Style = Style::new().bright_magenta();
+
+    pub(crate) const SUMMARY: &'static str =
+        "Show a list of all commands applied to the dqlite state machine";
+
+    pub(crate) fn help() -> Help {
+        Help::builder()
+            .name("log")
+            .summary(Self::SUMMARY)
+            .add_option("--compact", "output compactly")
+            .build()
+    }
 
     pub(crate) fn try_from_args(args: &[String]) -> Result<Self> {
         let compact = match args {

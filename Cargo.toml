@@ -13,7 +13,9 @@ indoc = "2.0.7"
 owo-colors = { version = "4.2.3", features = ["supports-colors"] }
 rustyline = "17.0.2"
 shell-words = "1.1.0"
+strum = { version = "0.27.2", features = ["derive"] }
 thiserror = "2.0.17"
+typed-builder = "0.23.2"
 
 [[bin]]
 name = "dqlite-utils"
@@ -24,4 +26,5 @@ bindgen = "0.72.1"
 pkg-config = "0.3.32"
 
 [dev-dependencies]
+googletest = "0.14.2"
 tempfile = "3.23.0"
