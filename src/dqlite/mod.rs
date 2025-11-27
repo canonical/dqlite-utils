@@ -304,18 +304,17 @@ impl RaftServer {
 }
 
 pub trait DqliteDatabaseDecoder {
-    fn decode_main(&mut self, name: &mut dyn Read) -> Result<()>;
-    fn decode_wal(&mut self, name: &mut dyn Read) -> Result<()>;
+    fn decode_main(&mut self, read: &mut dyn Read) -> Result<()>;
+    fn decode_wal(&mut self, read: &mut dyn Read) -> Result<()>;
     fn finalize(self) -> Result<()>;
 }
 
 pub trait DqliteSnapshotDecoder {
-    type Decoder<'a>: DqliteDatabaseDecoder + 'a
-    where
-        Self: 'a;
+    type Decoder<'a>: DqliteDatabaseDecoder
+        where Self: 'a;
     type Output;
 
-    fn create_decoder<'a>(&'a mut self, name: &OsStr) -> Result<Self::Decoder<'a>>;
+    fn create_decoder<'a>(&'a mut self, name: &'a OsStr) -> Result<Self::Decoder<'a>>;
     fn finalize(self) -> Result<Self::Output>;
 }
 
@@ -336,10 +335,12 @@ impl<R: Read> BufferedReader<R> {
         Ok(T::decode(&mut self.content, &mut self.buf)?)
     }
 
-    fn read_section(
-        &mut self,
+    fn read_section<'a>(
+        &'a mut self,
         size: usize,
-        f: impl FnOnce(&mut dyn Read) -> Result<()>,
+        // FIXME what is the lifetime of the Read here? 'static is not correct.
+        // It should live as much as the read_section.
+        f: impl FnOnce(&mut dyn Read) -> Result<()> + 'a,
     ) -> Result<()> {
         if self.buf.len() >= size {
             let mut stream = &self.buf[..size];
@@ -1513,13 +1514,10 @@ mod tests {
     }
 
     impl DqliteSnapshotDecoder for TestSnapshotDecoder {
-        type Decoder<'a>
-            = &'a mut TestDatabaseSnapshot
-        where
-            Self: 'a;
+        type Decoder<'a> = &'a mut TestDatabaseSnapshot;
         type Output = Vec<TestDatabaseSnapshot>;
 
-        fn create_decoder<'a>(&'a mut self, name: &OsStr) -> Result<Self::Decoder<'a>> {
+        fn create_decoder<'a>(&'a mut self, name: &'a OsStr) -> Result<Self::Decoder<'a>> {
             self.databases.push(TestDatabaseSnapshot {
                 name: name.to_owned(),
                 main: Vec::new(),
