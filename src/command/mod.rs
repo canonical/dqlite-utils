@@ -1,11 +1,13 @@
 mod help;
 mod log;
+mod open;
 pub(crate) mod quit;
 mod snapshot;
 mod sql;
 mod status;
 
 pub(crate) use self::help::Help;
+pub(crate) use self::open::{OpenShell, OpenState};
 pub(crate) use self::snapshot::SnapshotShell;
 
 use std::str::FromStr;
@@ -13,6 +15,7 @@ use std::str::FromStr;
 use anyhow::Error;
 use strum::EnumIter;
 
+use crate::command::open::{OpenCommand, OpenShellCommand, OpenShellCommandKind};
 use crate::prompt::Prompt;
 use crate::{Context, Result, Shell, ShellKind};
 
@@ -29,6 +32,7 @@ pub enum Command {
     Help(HelpCommand),
     Root(RootCommand),
     Snapshot(SnapshotShellCommand),
+    Open(OpenShellCommand),
     Sql(SqlCommand),
 }
 
@@ -58,6 +62,9 @@ impl FromStr for Command {
                 CommandKind::Snapshot(kind) => {
                     Self::Snapshot(SnapshotShellCommand::try_from_input(kind, args)?)
                 }
+                CommandKind::Open(kind) => {
+                    Self::Open(OpenShellCommand::try_from_input(kind, args)?)
+                }
                 CommandKind::Sql => unreachable!(), // No SQL command starts with a `.`
             };
             return Ok(ret);
@@ -73,6 +80,7 @@ impl Command {
             Self::Noop => CommandKind::Noop,
             Self::Root(cmd) => CommandKind::Root(cmd.kind()),
             Self::Snapshot(cmd) => CommandKind::Snapshot(cmd.kind()),
+            Self::Open(cmd) => CommandKind::Open(cmd.kind()),
             Self::Sql(_) => CommandKind::Sql,
         }
     }
@@ -85,8 +93,9 @@ impl Command {
             (cmd @ Self::Root(_), _) => Err(CommandUnavailable::new(&cmd, &ctx.shell).into()),
             (Self::Snapshot(cmd), Shell::Snapshot(_)) => cmd.run(ctx),
             (cmd @ Self::Snapshot(_), _) => Err(CommandUnavailable::new(&cmd, &ctx.shell).into()),
-            (Self::Sql(cmd), Shell::Snapshot(_)) => cmd.run(ctx),
-            (cmd @ Self::Sql(_), _) => Err(CommandUnavailable::new(&cmd, &ctx.shell).into()),
+            (Self::Open(cmd), Shell::Open(_)) => cmd.run(ctx),
+            (cmd @ Self::Open(_), _) => Err(CommandUnavailable::new(&cmd, &ctx.shell).into()),
+            (Self::Sql(cmd), _) => cmd.run(ctx),
         }
     }
 }
@@ -112,6 +121,7 @@ pub enum RootCommand {
     Log(LogCommand),
     Quit(QuitCommand),
     Snapshot(SnapshotCommand),
+    Open(OpenCommand),
     Status(StatusCommand),
 }
 
@@ -121,6 +131,7 @@ impl RootCommand {
             RootCommandKind::Log => Ok(Self::Log(LogCommand::try_from_args(args)?)),
             RootCommandKind::Quit => Ok(Self::Quit(QuitCommand::try_from_args(args)?)),
             RootCommandKind::Snapshot => Ok(Self::Snapshot(SnapshotCommand::try_from_args(args)?)),
+            RootCommandKind::Open => Ok(Self::Open(OpenCommand::try_from_args(args)?)),
             RootCommandKind::Status => Ok(Self::Status(StatusCommand::try_from_args(args)?)),
         }
     }
@@ -129,6 +140,7 @@ impl RootCommand {
         match self {
             Self::Log(_) => RootCommandKind::Log,
             Self::Quit(_) => RootCommandKind::Quit,
+            Self::Open(_) => RootCommandKind::Open,
             Self::Snapshot(_) => RootCommandKind::Snapshot,
             Self::Status(_) => RootCommandKind::Status,
         }
@@ -140,6 +152,7 @@ impl RootCommand {
             Self::Status(cmd) => cmd.run(ctx),
             Self::Log(cmd) => cmd.run(ctx),
             Self::Snapshot(cmd) => cmd.run(ctx),
+            Self::Open(cmd) => cmd.run(ctx),
         }
     }
 }
@@ -150,6 +163,7 @@ pub(crate) enum CommandKind {
     Help,
     Root(RootCommandKind),
     Snapshot(SnapshotShellCommandKind),
+    Open(OpenShellCommandKind),
     Sql,
 }
 
@@ -170,8 +184,17 @@ impl FromStr for CommandKind {
             Err(err) if err.is::<UnknownCommand>() => {}
             Err(err) => return Err(err),
         }
-        let snapshot_command = SnapshotShellCommandKind::from_str(raw)?;
-        Ok(Self::Snapshot(snapshot_command))
+        match SnapshotShellCommandKind::from_str(raw) {
+            Ok(cmd) => return Ok(Self::Snapshot(cmd)),
+            Err(err) if err.is::<UnknownCommand>() => {}
+            Err(err) => return Err(err),
+        }
+        match OpenShellCommandKind::from_str(raw) {
+            Ok(cmd) => return Ok(Self::Open(cmd)),
+            Err(err) if err.is::<UnknownCommand>() => {}
+            Err(err) => return Err(err),
+        }
+        Err(UnknownCommand.into())
     }
 }
 
@@ -182,6 +205,7 @@ impl CommandKind {
             Self::Noop => "no-op",
             Self::Root(kind) => kind.name(),
             Self::Snapshot(kind) => kind.name(),
+            Self::Open(kind) => kind.name(),
             Self::Sql => "<sql>",
         }
     }
@@ -192,6 +216,7 @@ impl CommandKind {
             Self::Noop => None,
             Self::Root(kind) => Some(kind.help()),
             Self::Snapshot(kind) => Some(kind.help()),
+            Self::Open(kind) => Some(kind.help()),
             Self::Sql => None,
         }
     }
@@ -206,6 +231,7 @@ pub(crate) enum RootCommandKind {
     Log,
     Quit,
     Snapshot,
+    Open,
     Status,
 }
 
@@ -216,6 +242,7 @@ impl RootCommandKind {
             Self::Quit => QuitCommand::help(),
             Self::Status => StatusCommand::help(),
             Self::Snapshot => SnapshotCommand::help(),
+            Self::Open => OpenCommand::help(),
         }
     }
 
@@ -225,6 +252,7 @@ impl RootCommandKind {
             Self::Quit => ".quit",
             Self::Status => ".status",
             Self::Snapshot => ".snapshot",
+            Self::Open => ".open",
         }
     }
 }
@@ -238,6 +266,7 @@ impl FromStr for RootCommandKind {
             ".quit" => Ok(Self::Quit),
             ".status" => Ok(Self::Status),
             ".snapshot" => Ok(Self::Snapshot),
+            ".open" => Ok(Self::Open),
             _ => Err(UnknownCommand.into()),
         }
     }
@@ -267,6 +296,7 @@ impl RootShell {
             .add_command(QuitCommand::help())
             .add_command(SnapshotCommand::help())
             .add_command(StatusCommand::help())
+            .add_command(OpenCommand::help())
             .build()
             .expect("internal error: help invalid")
     }

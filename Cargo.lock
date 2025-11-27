@@ -287,6 +287,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bindgen",
+ "bitflags",
  "clap",
  "fallible-iterator",
  "googletest",
@@ -694,8 +695,7 @@ dependencies = [
 [[package]]
 name = "libsqlite3-sys"
 version = "0.36.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "95b4103cffefa72eb8428cb6b47d6627161e51c2739fc5e3b734584157bc642a"
+source = "git+https://github.com/rusqlite/rusqlite?rev=890be7bab5a8cef767b2c373ae14b19959c4f3de#890be7bab5a8cef767b2c373ae14b19959c4f3de"
 dependencies = [
  "cc",
  "pkg-config",
@@ -1002,20 +1002,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7a2d987857b319362043e95f5353c0535c1f58eec5336fdfcf626430af7def58"
 
 [[package]]
-name = "rsqlite-vfs"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a8a1f2315036ef6b1fbacd1972e8ee7688030b0a2121edfc2a6550febd41574d"
-dependencies = [
- "hashbrown",
- "thiserror",
-]
-
-[[package]]
 name = "rusqlite"
 version = "0.38.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f1c93dd1c9683b438c392c492109cb702b8090b2bfc8fed6f6e4eb4523f17af3"
+source = "git+https://github.com/rusqlite/rusqlite?rev=890be7bab5a8cef767b2c373ae14b19959c4f3de#890be7bab5a8cef767b2c373ae14b19959c4f3de"
 dependencies = [
  "bitflags",
  "chrono",
@@ -1148,13 +1137,14 @@ checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
 
 [[package]]
 name = "sqlite-wasm-rs"
-version = "0.5.2"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2f4206ed3a67690b9c29b77d728f6acc3ce78f16bf846d83c94f76400320181b"
+checksum = "05e98301bf8b0540c7de45ecd760539b9c62f5772aed172f08efba597c11cd5d"
 dependencies = [
  "cc",
+ "hashbrown",
  "js-sys",
- "rsqlite-vfs",
+ "thiserror",
  "wasm-bindgen",
 ]
 

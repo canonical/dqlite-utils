@@ -17,8 +17,9 @@ use libsqlite3_sys::{
     self as sqlite3, sqlite3_file, sqlite3_filename, sqlite3_int64, sqlite3_io_methods, sqlite3_vfs,
 };
 use rand::RngCore;
+use rusqlite::Connection;
 
-use super::{Result, SqliteCode, SqliteError, ToCodeResultExt, WriteOutputResultExt};
+use super::{Result, SqliteError, ToCodeResultExt, WriteOutputResultExt};
 
 /// Flags passed to [`Vfs::open`].
 pub struct OpenFlags {
@@ -83,9 +84,24 @@ impl OpenFlags {
         (self.bits & sqlite3::SQLITE_OPEN_CREATE) != 0
     }
 
+    /// Sets whether the file should be created if it doesn't exist.
+    pub fn set_create(&mut self, create: bool) {
+        if create {
+            self.bits |= sqlite3::SQLITE_OPEN_CREATE;
+        } else {
+            self.bits &= !sqlite3::SQLITE_OPEN_CREATE;
+        }
+    }
+
     /// Returns whether the file is opened in read-only mode.
     pub fn read_only(&self) -> bool {
         (self.bits & sqlite3::SQLITE_OPEN_READONLY) != 0
+    }
+
+    /// Sets whether the file is opened in read-only mode.
+    pub fn set_read_only(&mut self) {
+        self.bits |= sqlite3::SQLITE_OPEN_READONLY;
+        self.bits &= !sqlite3::SQLITE_OPEN_READWRITE;
     }
 
     /// Returns whether the file is opened in read-write mode.
@@ -93,9 +109,23 @@ impl OpenFlags {
         (self.bits & sqlite3::SQLITE_OPEN_READWRITE) != 0
     }
 
+    pub fn set_read_write(&mut self) {
+        self.bits &= !sqlite3::SQLITE_OPEN_READONLY;
+        self.bits |= sqlite3::SQLITE_OPEN_READWRITE;
+    }
+
     /// Returns whether the file should be deleted when closed.
     pub fn delete_on_close(&self) -> bool {
         (self.bits & sqlite3::SQLITE_OPEN_DELETEONCLOSE) != 0
+    }
+
+    /// Sets whether the file should be deleted when closed.
+    pub fn set_delete_on_close(&mut self, delete: bool) {
+        if delete {
+            self.bits |= sqlite3::SQLITE_OPEN_DELETEONCLOSE;
+        } else {
+            self.bits &= !sqlite3::SQLITE_OPEN_DELETEONCLOSE;
+        }
     }
 
     /// Returns whether the file should be opened exclusively.
@@ -103,10 +133,28 @@ impl OpenFlags {
         (self.bits & sqlite3::SQLITE_OPEN_EXCLUSIVE) != 0
     }
 
+    /// Sets whether the file should be opened exclusively.
+    pub fn set_exclusive(&mut self, exclusive: bool) {
+        if exclusive {
+            self.bits |= sqlite3::SQLITE_OPEN_EXCLUSIVE;
+        } else {
+            self.bits &= !sqlite3::SQLITE_OPEN_EXCLUSIVE;
+        }
+    }
+
     /// Returns whether the autoproxy locking style should be used.
     #[allow(unused)]
     pub fn autoproxy(&self) -> bool {
         (self.bits & sqlite3::SQLITE_OPEN_AUTOPROXY) != 0
+    }
+
+    /// Sets whether the autoproxy locking style should be used.
+    pub fn set_autoproxy(&mut self, autoproxy: bool) {
+        if autoproxy {
+            self.bits |= sqlite3::SQLITE_OPEN_AUTOPROXY;
+        } else {
+            self.bits &= !sqlite3::SQLITE_OPEN_AUTOPROXY;
+        }
     }
 }
 
@@ -143,7 +191,7 @@ pub trait Vfs: Sync {
     /// Writes the full pathname of a file to the output buffer.
     fn write_full_path(&self, name: VfsPath<'_>, out: &mut [u8]) -> Result<usize>;
     /// Returns the last error code.
-    fn last_error(&self) -> SqliteCode;
+    fn last_error(&self) -> i32;
 
     /// Fills a buffer with random bytes.
     fn fill_random_bytes(&self, out: &mut [u8]) -> Result<()> {
@@ -322,12 +370,12 @@ pub trait VfsFile {
         Ok(())
     }
 
-    // /// Sets the parent connection.
-    // ///
-    // /// See [SQLITE_FCNTL_PDB](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlpdb)
-    // fn set_parent_connection<'a>(&'a mut self, conn: Connection<'a>) {
-    //     let _ = conn;
-    // }
+    /// Sets the parent connection.
+    ///
+    /// See [SQLITE_FCNTL_PDB](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlpdb)
+    fn set_parent_connection(&mut self, conn: Connection) {
+        let _ = conn;
+    }
 
     /// Begins an atomic-write sequence.
     ///
@@ -782,6 +830,12 @@ pub enum AtomicWrite {
 
 /// RAII guard that unregisters a VFS on drop.
 pub struct VfsRegistrationGuard<V>(Arc<VfsStorage<V>>);
+
+impl<T> VfsRegistrationGuard<T> {
+    pub fn vfs(&self) -> &T {
+        &self.0.vfs
+    }
+}
 
 impl<V> Drop for VfsRegistrationGuard<V> {
     fn drop(&mut self) {
@@ -1319,7 +1373,7 @@ unsafe extern "C" fn x_get_last_error<T: Vfs>(
     _: *mut c_char,
 ) -> i32 {
     let storage = unsafe { VfsStorage::<T>::from_raw(vfs) };
-    storage.vfs.last_error().into_rc()
+    storage.vfs.last_error()
 }
 
 unsafe extern "C" fn x_close<T: Vfs>(file: *mut sqlite3_file) -> c_int {
@@ -1461,32 +1515,41 @@ unsafe extern "C" fn x_file_control<T: Vfs>(
             } else {
                 None
             };
+
             match file.pragma(name, arg) {
-                Ok(Some(result_msg)) => {
-                    unsafe {
-                        args[0] = sqlite3::sqlite3_mprintf(
-                            c"%*s".as_ptr() as *const c_char,
-                            result_msg.len(),
-                            result_msg.as_bytes(),
-                        );
-                    }
+                Ok(result) => {
+                    // Fun stuff: when a custom PRAGMA returns no result, but still succeeds,
+                    // SQLite uses the result as both the result of the PRAGMA *and* the column name.
+                    // So, if NULL, SQLite will return a column with no name and a `NULL` value,
+                    // and yet the column count will be 1. This makes an assertion fail from rusqlite
+                    // which expects the column name to be non-null as SQLite documentation states:
+                    //
+                    //   If sqlite3_malloc() fails during the processing of either routine (for
+                    //   example during a conversion from UTF-8 to UTF-16) then a NULL pointer is returned.
+                    //
+                    // Admittedly, the above does not explicitly say that the column name cannot be NULL,
+                    // but it is still unexpected IMHO.
+                    // Now, clearly this is a SQLite quirk/bug, but to work around it, we can just return
+                    // the pragma name as the result.
+                    let result_string = result.as_deref().or(arg).unwrap_or(name);
+                    args[0] = unsafe {
+                        sqlite3::sqlite3_mprintf(
+                            c"%.*s".as_ptr() as *const c_char,
+                            result_string.len(),
+                            result_string.as_bytes(),
+                        )
+                    };
                     sqlite3::SQLITE_OK
                 }
-                Ok(None) => sqlite3::SQLITE_OK,
-                Err(PragmaError {
-                    code,
-                    message: None,
-                }) => code.into_rc(),
-                Err(PragmaError {
-                    code,
-                    message: Some(err_msg),
-                }) => {
-                    unsafe {
-                        args[0] = sqlite3::sqlite3_mprintf(
-                            c"%*s".as_ptr() as *const c_char,
-                            err_msg.len(),
-                            err_msg.as_bytes(),
-                        );
+                Err(PragmaError { code, message }) => {
+                    if let Some(result) = message {
+                        args[0] = unsafe {
+                            sqlite3::sqlite3_mprintf(
+                                c"%.*s".as_ptr() as *const c_char,
+                                result.len(),
+                                result.as_bytes(),
+                            )
+                        };
                     }
                     code.into_rc()
                 }
@@ -1521,14 +1584,12 @@ unsafe extern "C" fn x_file_control<T: Vfs>(
         }
         sqlite3::SQLITE_FCNTL_COMMIT_PHASETWO => file.commit_phase_two().to_code_result().into_rc(),
         sqlite3::SQLITE_FCNTL_PDB => {
-            // TODO: this is blocked on rusqlite as a non-owning connection still changes the connection (it unregisters all hooks on drop)
-            // See https://github.com/rusqlite/rusqlite/issues/1784
             // TODO: we should wrap the rusqlite::Connection in a newtype that includes a lifetime so that implementations cannot leak it.
             // Something like NonOwningConnection<'conn>
 
-            // let pdb = unsafe { arg.cast::<*mut sqlite3>().read() };
-            // let connection = unsafe { rusqlite::Connection::from_handle(pdb) }.unwrap();
-            // file.set_parent_connection(connection);
+            let pdb = unsafe { arg.cast::<*mut sqlite3::sqlite3>().read() };
+            let conn = unsafe { rusqlite::Connection::from_handle(pdb) }.unwrap();
+            file.set_parent_connection(conn);
             sqlite3::SQLITE_OK
         }
         sqlite3::SQLITE_FCNTL_BEGIN_ATOMIC_WRITE => file.begin_atomic().to_code_result().into_rc(),
@@ -1759,6 +1820,8 @@ mod tests {
 
     use libsqlite3_sys as sqlite3;
 
+    use crate::rusqlite_ext::SqliteCode;
+
     use super::*;
 
     struct DummyVfs;
@@ -1794,8 +1857,8 @@ mod tests {
             unimplemented!()
         }
 
-        fn last_error(&self) -> SqliteCode {
-            SqliteCode::OK
+        fn last_error(&self) -> i32 {
+            0
         }
 
         fn exists(&self, _name: VfsPath<'_>) -> Result<bool> {

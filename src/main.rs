@@ -6,6 +6,8 @@ mod prompt;
 mod rusqlite_ext;
 mod utils;
 
+use std::cell::{RefCell, RefMut};
+use std::fmt::Display;
 use std::io::{self, IsTerminal};
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -15,6 +17,8 @@ use clap::Parser;
 use owo_colors::Style;
 use rusqlite::Connection;
 use rustyline::error::ReadlineError;
+
+use crate::command::{OpenShell, OpenState};
 
 use self::args::Args;
 use self::command::{Command, Help, RootShell, SnapshotShell};
@@ -133,8 +137,9 @@ fn stdin_commands() -> impl Iterator<Item = Command> {
 
 #[derive(Debug, Default)]
 pub struct Context {
-    pub dqlite: Option<DqliteDir>,
+    dqlite: Option<DqliteDir>,
     pub shell: Shell,
+    open_state: RefCell<OpenState>,
 }
 
 impl Context {
@@ -151,6 +156,10 @@ impl Context {
     fn dqlite(&self) -> Result<&DqliteDir> {
         Ok(self.dqlite.as_ref().ok_or(NoOpenDqliteDir)?)
     }
+
+    fn open_state(&self) -> RefMut<'_, OpenState> {
+        self.open_state.borrow_mut()
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -161,6 +170,7 @@ struct NoOpenDqliteDir;
 pub enum Shell {
     Root(RootShell),
     Snapshot(SnapshotShell),
+    Open(OpenShell),
 }
 
 impl Shell {
@@ -168,6 +178,7 @@ impl Shell {
         match self {
             Self::Root(_) => ShellKind::Root,
             Self::Snapshot(_) => ShellKind::Snapshot,
+            Self::Open(_) => ShellKind::Open,
         }
     }
 
@@ -175,6 +186,7 @@ impl Shell {
         match self {
             Self::Root(shell) => shell.prompt(),
             Self::Snapshot(shell) => shell.prompt(),
+            Self::Open(shell) => shell.prompt(),
         }
     }
 
@@ -192,10 +204,18 @@ impl Shell {
         }
     }
 
+    fn open(&self) -> Option<&OpenShell> {
+        match self {
+            Self::Open(shell) => Some(shell),
+            _ => None,
+        }
+    }
+
     fn connection(&self) -> Option<&Connection> {
         match self {
             Self::Root(_) => None,
             Self::Snapshot(shell) => Some(shell.connection()),
+            Self::Open(shell) => Some(shell.connection()),
         }
     }
 }
@@ -211,6 +231,7 @@ enum ShellKind {
     #[default]
     Root,
     Snapshot,
+    Open,
 }
 
 impl ShellKind {
@@ -218,6 +239,7 @@ impl ShellKind {
         match self {
             Self::Root => "root",
             Self::Snapshot => "snapshot",
+            Self::Open => "open",
         }
     }
 
@@ -225,6 +247,7 @@ impl ShellKind {
         match self {
             Self::Root => RootShell::help(),
             Self::Snapshot => SnapshotShell::help(),
+            Self::Open => OpenShell::help(),
         }
     }
 }
