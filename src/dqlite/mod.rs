@@ -5,7 +5,7 @@ use std::{
     ffi::{CStr, CString, OsStr, OsString, c_char, c_int, c_uint, c_void},
     fmt::Debug,
     fs::File,
-    io::{self, Read, Seek, Write},
+    io::{self, Read, Seek, SeekFrom, Write},
     ops::RangeInclusive,
     os::unix::{ffi::OsStrExt, fs::FileExt},
     path::{Path, PathBuf},
@@ -23,6 +23,9 @@ use self::sys::{
     raft_entry_type, raft_result, raft_role, raft_server, raft_snapshot, snapshotDatabase,
     snapshotHeader, uv_buf_t, uvMetadata, uvSegmentBuffer, uvSegmentInfo, uvSnapshotInfo,
 };
+
+const WAL_HEADER_SIZE: u64 = 32;
+const WAL_FRAME_HEADER_SIZE: u64 = 24;
 
 #[derive(thiserror::Error)]
 #[error("{}", self.as_str())]
@@ -311,14 +314,15 @@ pub trait DqliteDatabaseDecoder {
 
 pub trait DqliteSnapshotDecoder {
     type Decoder<'a>: DqliteDatabaseDecoder
-        where Self: 'a;
+    where
+        Self: 'a;
     type Output;
 
     fn create_decoder<'a>(&'a mut self, name: &'a OsStr) -> Result<Self::Decoder<'a>>;
     fn finalize(self) -> Result<Self::Output>;
 }
 
-struct BufferedReader<R: Read> {
+struct BufferedReader<R> {
     content: R,
     buf: Vec<u8>,
 }
@@ -335,15 +339,12 @@ impl<R: Read> BufferedReader<R> {
         Ok(T::decode(&mut self.content, &mut self.buf)?)
     }
 
-    fn read_section<'a>(
-        &'a mut self,
+    fn read_section(
+        &mut self,
         size: usize,
-        // FIXME what is the lifetime of the Read here? 'static is not correct.
-        // It should live as much as the read_section.
-        f: impl FnOnce(&mut dyn Read) -> Result<()> + 'a,
+        f: impl FnOnce(&mut dyn Read) -> Result<()>,
     ) -> Result<()> {
-        if self.buf.len() >= size {
-            let mut stream = &self.buf[..size];
+        if let Some(mut stream) = self.buf.get(..size) {
             f(&mut stream)?;
             self.buf.drain(..size);
             return Ok(());
@@ -362,7 +363,7 @@ impl<R: Read> BufferedReader<R> {
 impl DqliteSnapshot {
     pub fn open(dir: impl AsRef<Path>, snapshot: &uvSnapshotInfo) -> Result<Self> {
         let dir = CString::new(dir.as_ref().as_os_str().as_bytes())
-            .map_err(|e| anyhow!("failed to convert dir to C string: {e}"))?;
+            .map_err(|err| anyhow!("cannot convert dir to C string: {err}"))?;
         Self::open_internal(&dir, snapshot)
     }
 
@@ -403,8 +404,8 @@ impl DqliteSnapshot {
         content: &mut C,
         mut decoder: D,
     ) -> Result<D::Output> {
-        // Due to the lack of peek() I can't use BufReader here. I will use a `Vec` instead which requires a bit more copying.
-        // TODO(marco6): refactor when `BufRead::peek` is stabilized.
+        // As `BufReader::peek` is currently unstable, a `Vec` is used to provide the same functionality.
+        // See https://github.com/rust-lang/rust/issues/128405
         let mut content = BufferedReader::new(content);
         let snapshotHeader {
             format,
@@ -415,16 +416,17 @@ impl DqliteSnapshot {
         }
 
         for _ in 0..n_databases {
-            let (name, main_size, wal_size) = {
+            let name;
+            let main_size;
+            let wal_size;
+            {
                 let database_header = content.decode::<snapshotDatabase>()?;
-                (
-                    OsStr::from_bytes(
+                name = OsStr::from_bytes(
                         unsafe { CStr::from_ptr(database_header.filename) }.to_bytes(),
                     )
-                    .to_owned(),
-                    database_header.main_size as usize,
-                    database_header.wal_size as usize,
-                )
+                    .to_owned();
+                main_size = database_header.main_size as usize;
+                wal_size = database_header.wal_size as usize;
             };
 
             let mut database_decoder = decoder.create_decoder(&name)?;
@@ -437,14 +439,14 @@ impl DqliteSnapshot {
     }
 
     pub fn read<D: DqliteSnapshotDecoder>(&self, decoder: D) -> Result<D::Output> {
-        let mut content: std::sync::MutexGuard<'_, File> = self
+        let mut content = self
             .content
             .lock()
             .map_err(|e| anyhow!("cannot take lock: {e}"))?;
-        content.seek(std::io::SeekFrom::Start(0))?;
+        content.seek(SeekFrom::Start(0))?;
         if Self::is_compressed(&mut content)? {
-            let mut content = FrameDecoder::new(&mut *content);
-            Self::read_content(&mut content, decoder)
+            let mut frame_decoder = FrameDecoder::new(&mut *content);
+            Self::read_content(&mut frame_decoder, decoder)
         } else {
             Self::read_content(&mut *content, decoder)
         }
@@ -843,14 +845,16 @@ impl DqliteSegmentBuilder {
 pub trait DqliteDatabaseContent<'a> {
     fn main(&self) -> Box<dyn ExactSizeIterator<Item = Result<&'a [u8]>> + 'a>;
 
-    fn wal(&self) -> Box<dyn ExactSizeIterator<Item = Result<&'a [u8]>> + 'a> {
-        Box::new(std::iter::empty())
-    }
+    fn wal(&self) -> Box<dyn ExactSizeIterator<Item = Result<&'a [u8]>> + 'a>;
 }
 
 impl<'a, T: AsRef<[u8]> + 'a> DqliteDatabaseContent<'a> for &'a [T] {
     fn main(&self) -> Box<dyn ExactSizeIterator<Item = Result<&'a [u8]>> + 'a> {
         Box::new(self.iter().map(|page| Ok(page.as_ref())))
+    }
+
+    fn wal(&self) -> Box<dyn ExactSizeIterator<Item = Result<&'a [u8]>> + 'a> {
+        Box::new(std::iter::empty())
     }
 }
 
@@ -914,7 +918,6 @@ impl<'a> DqliteSnapshotBuilder<'a> {
     }
 
     pub fn with_compression(mut self, compressed: bool) -> Self {
-        // Currently compression is always enabled.
         self.compressed = compressed;
         self
     }
@@ -998,9 +1001,6 @@ impl<'a> DqliteDirCreator<'a> {
 }
 
 impl<'a> DqliteDirCreator<'a> {
-    const WAL_HEADER_SIZE: u64 = 32;
-    const WAL_FRAME_HEADER_SIZE: u64 = 24;
-
     fn write_segment(&self, file: &mut File, batches: &Vec<Vec<DqliteLogEntry>>) -> Result<()> {
         let mut buf = uvSegmentBuffer::default();
         unsafe { sys::uvSegmentBufferInit(&mut buf, 4096) };
@@ -1063,8 +1063,8 @@ impl<'a> DqliteDirCreator<'a> {
             let wal_size = if wal_pages.len() == 0 {
                 0
             } else {
-                Self::WAL_HEADER_SIZE
-                    + (self.page_size + Self::WAL_FRAME_HEADER_SIZE) * (wal_pages.len() - 1) as u64
+                WAL_HEADER_SIZE
+                    + (self.page_size + WAL_FRAME_HEADER_SIZE) * (wal_pages.len() - 1) as u64
             };
 
             let header = snapshotDatabase {
@@ -1074,7 +1074,6 @@ impl<'a> DqliteDirCreator<'a> {
             };
 
             let header_size = unsafe { sys::snapshotDatabase__sizeof(&header) } as u64;
-
             size += header_size;
             size += main_size;
             size += wal_size;
@@ -1113,8 +1112,8 @@ impl<'a> DqliteDirCreator<'a> {
             let wal_size = if wal_pages.len() == 0 {
                 0
             } else {
-                Self::WAL_HEADER_SIZE
-                    + (self.page_size + Self::WAL_FRAME_HEADER_SIZE) * (wal_pages.len() - 1) as u64
+                WAL_HEADER_SIZE
+                    + (self.page_size + WAL_FRAME_HEADER_SIZE) * (wal_pages.len() - 1) as u64
             };
 
             let header = snapshotDatabase {
@@ -1140,9 +1139,9 @@ impl<'a> DqliteDirCreator<'a> {
                 let chunk = chunk?;
                 if is_header {
                     is_header = false;
-                    assert!(chunk.len() as u64 == Self::WAL_HEADER_SIZE);
+                    assert!(chunk.len() as u64 == WAL_HEADER_SIZE);
                 } else {
-                    assert!(chunk.len() as u64 == self.page_size + Self::WAL_FRAME_HEADER_SIZE);
+                    assert!(chunk.len() as u64 == self.page_size + WAL_FRAME_HEADER_SIZE);
                 }
                 data.write_all(&chunk)?;
             }
