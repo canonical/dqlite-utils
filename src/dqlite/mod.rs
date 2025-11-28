@@ -422,9 +422,9 @@ impl DqliteSnapshot {
             {
                 let database_header = content.decode::<snapshotDatabase>()?;
                 name = OsStr::from_bytes(
-                        unsafe { CStr::from_ptr(database_header.filename) }.to_bytes(),
-                    )
-                    .to_owned();
+                    unsafe { CStr::from_ptr(database_header.filename) }.to_bytes(),
+                )
+                .to_owned();
                 main_size = database_header.main_size as usize;
                 wal_size = database_header.wal_size as usize;
             };
