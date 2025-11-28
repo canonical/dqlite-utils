@@ -42,7 +42,7 @@ fn exec(args: Args) -> Result<()> {
     if let Some(dir_path) = dir_path {
         ctx.open(dir_path)?;
     } else {
-        // Attempt to open current director by default.
+        // Attempt to open current directory by default.
         ctx.open(PathBuf::from(".")).ok();
     }
 
