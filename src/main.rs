@@ -35,12 +35,12 @@ fn main() -> ExitCode {
 fn exec(args: Args) -> Result<()> {
     let Args {
         raw_commands,
-        dir_path: dir,
+        dir_path,
     } = args;
 
     let mut ctx = Context::new();
-    if let Some(dir) = dir {
-        ctx.open(dir)?;
+    if let Some(dir_path) = dir_path {
+        ctx.open(dir_path)?;
     }
 
     if !raw_commands.is_empty() {
