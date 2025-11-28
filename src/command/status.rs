@@ -1,8 +1,8 @@
 use anyhow::Result;
 use indoc::eprintdoc;
 
+use crate::Context;
 use crate::dqlite::DqliteSegment;
-use crate::{Context, DqliteContext};
 
 use super::UnrecognizedArgumentsError;
 
@@ -18,10 +18,10 @@ impl StatusCommand {
     }
 
     pub(crate) fn run(self, ctx: &Context) -> Result<()> {
-        let DqliteContext { path, dir, .. } = ctx.dqlite()?;
-        let first_index = dir.first_index();
+        let dqlite = ctx.dqlite()?;
+        let first_index = dqlite.first_index();
 
-        let last_closed_index = dir
+        let last_closed_index = dqlite
             .closed_segments()
             .last()
             .map(|segment| match segment {
@@ -29,15 +29,15 @@ impl StatusCommand {
                 _ => unreachable!(),
             })
             .cloned();
-        let num_entries_in_open_segments = dir
+        let num_entries_in_open_segments = dqlite
             .open_segments()
             .iter()
             .map(|segment| segment.entries().map(|entries| entries.len()))
             .sum::<Result<usize>>()? as u64;
         let last_index = last_closed_index.unwrap_or(first_index) + num_entries_in_open_segments;
 
-        let dir_path = path.display();
-        let term = dir.term();
+        let dir_path = dqlite.path().display();
+        let term = dqlite.term();
         eprintdoc!(
             "
                 dir: {dir_path}

@@ -174,7 +174,7 @@ fn stdin_commands() -> impl Iterator<Item = Command> {
 
 #[derive(Debug)]
 pub struct Context {
-    pub dqlite: Option<DqliteContext>,
+    pub dqlite: Option<DqliteDir>,
 }
 
 impl Context {
@@ -182,24 +182,15 @@ impl Context {
         Self { dqlite: None }
     }
 
-    fn open(&mut self, dir: PathBuf) -> Result<()> {
-        let dqlite = DqliteDir::open(&dir)?;
-        self.dqlite = Some(DqliteContext {
-            path: dir,
-            dir: dqlite,
-        });
-        Ok(())
+    fn open(&mut self, dir_path: PathBuf) -> Result<&DqliteDir> {
+        let dir = DqliteDir::open(dir_path)?;
+        let ret = self.dqlite.insert(dir);
+        Ok(ret)
     }
 
-    fn dqlite(&self) -> Result<&DqliteContext> {
+    fn dqlite(&self) -> Result<&DqliteDir> {
         Ok(self.dqlite.as_ref().ok_or(NoOpenDqliteDir)?)
     }
-}
-
-#[derive(Debug)]
-pub struct DqliteContext {
-    pub path: PathBuf,
-    pub dir: DqliteDir,
 }
 
 #[derive(Debug, thiserror::Error)]

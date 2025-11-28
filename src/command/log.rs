@@ -37,14 +37,14 @@ impl LogCommand {
     }
 
     pub(crate) fn run(mut self, ctx: &mut Context) -> Result<()> {
-        let dqlite_dir = &ctx.dqlite()?.dir;
+        let dqlite = ctx.dqlite()?;
         // In order to properly get the index of the last entry, we need to read
         // all open entries first.
-        let open_segments = dqlite_dir.open_segments();
-        let mut index = dqlite_dir
+        let open_segments = dqlite.open_segments();
+        let mut index = dqlite
             .closed_segments()
             .last()
-            .map_or(dqlite_dir.first_index(), |s| match s {
+            .map_or(dqlite.first_index(), |s| match s {
                 DqliteSegment::Closed { indexes, .. } => *indexes.end(),
                 DqliteSegment::Open { .. } => unreachable!(),
             });
@@ -52,7 +52,7 @@ impl LogCommand {
             index += segment.entries()?.len() as u64;
         }
 
-        for segment in dqlite_dir.segments().iter().rev() {
+        for segment in dqlite.segments().iter().rev() {
             if let DqliteSegment::Closed { indexes, .. } = segment {
                 assert!(index == *indexes.end());
             }
@@ -60,7 +60,7 @@ impl LogCommand {
             let entries = segment.entries()?;
             for (i, entry) in entries.iter().rev().enumerate() {
                 let entry_index = index - i as u64;
-                match self.write_entry(dqlite_dir, entry_index, entry) {
+                match self.write_entry(dqlite, entry_index, entry) {
                     Ok(()) => {}
                     Err(e) if e.kind() == ErrorKind::BrokenPipe => return Ok(()),
                     Err(e) => return Err(e.into()),

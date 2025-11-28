@@ -100,6 +100,7 @@ impl<T> Drop for RaftPtr<T> {
 
 #[derive(Debug)]
 pub struct DqliteDir {
+    path: PathBuf,
     snapshots: Vec<DqliteSnapshot>,
     segments: Vec<DqliteSegment>,
     num_closed_segments: usize,
@@ -109,8 +110,8 @@ pub struct DqliteDir {
 }
 
 impl DqliteDir {
-    pub fn open(dir: &Path) -> Result<Self> {
-        let cdir = CString::new(dir.as_os_str().as_bytes()).unwrap();
+    pub fn open(path: PathBuf) -> Result<Self> {
+        let cdir = CString::new(path.as_os_str().as_bytes()).unwrap();
         let mut err = RaftErrorStr::new();
 
         let mut metadata = uvMetadata::default();
@@ -121,7 +122,7 @@ impl DqliteDir {
             return Err(anyhow!("cannot load metadata: {err}"));
         }
         if metadata.version == 0 {
-            return Err(anyhow!("cannot find dqlite metadata in {}", dir.display()));
+            return Err(anyhow!("cannot find dqlite metadata in {}", path.display()));
         }
 
         let mut snapshots = ptr::null_mut();
@@ -132,7 +133,7 @@ impl DqliteDir {
 
         let rc = unsafe {
             sys::UvList(
-                CString::new(dir.as_os_str().as_bytes()).unwrap().as_ptr(),
+                CString::new(path.as_os_str().as_bytes()).unwrap().as_ptr(),
                 &mut snapshots,
                 &mut n_snapshots,
                 &mut segments,
@@ -157,7 +158,7 @@ impl DqliteDir {
 
         let segments: Vec<_> = unsafe { segments.as_slice(n_segments) }
             .iter()
-            .map(|s| DqliteSegment::open(dir, s))
+            .map(|s| DqliteSegment::open(&path, s))
             .collect::<Result<_>>()?;
 
         let num_open_segments = segments
@@ -176,6 +177,7 @@ impl DqliteDir {
             .unwrap_or(1);
 
         Ok(Self {
+            path,
             snapshots,
             segments,
             num_closed_segments,
@@ -195,6 +197,10 @@ impl DqliteDir {
             open_segments: Vec::new(),
             snapshots: Vec::new(),
         }
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
     }
 
     pub fn snapshots(&self) -> &[DqliteSnapshot] {
