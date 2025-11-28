@@ -2,11 +2,12 @@ mod sys;
 
 use std::{
     borrow::Cow,
+    cmp,
     ffi::{CStr, CString, OsStr, OsString, c_char, c_int, c_uint, c_void},
     fmt::Debug,
     fs::File,
     io::{self, Read, Seek, SeekFrom, Write},
-    ops::RangeInclusive,
+    ops::{Deref, DerefMut, RangeInclusive},
     os::unix::{ffi::OsStrExt, fs::FileExt},
     path::{Path, PathBuf},
     ptr,
@@ -17,11 +18,13 @@ use std::{
 use anyhow::{Context, Result, anyhow};
 use lz4_flex::frame::{BlockMode, FrameDecoder, FrameEncoder, FrameInfo};
 
+use crate::dqlite::sys::{cursor, dqlite_result};
+
 use self::sys::{
-    Decode, DecodeRef, RAFT_ERRMSG_BUF_SIZE, command_checkpoint, command_frames, command_open,
-    command_undo, frames_t, raft_buffer, raft_command_type, raft_configuration, raft_entry,
-    raft_entry_type, raft_result, raft_role, raft_server, raft_snapshot, snapshotDatabase,
-    snapshotHeader, uv_buf_t, uvMetadata, uvSegmentBuffer, uvSegmentInfo, uvSnapshotInfo,
+    RAFT_ERRMSG_BUF_SIZE, command_checkpoint, command_frames, command_open, command_undo, frames_t,
+    raft_buffer, raft_command_type, raft_configuration, raft_entry, raft_entry_type, raft_result,
+    raft_role, raft_server, raft_snapshot, snapshotDatabase, snapshotHeader, uv_buf_t, uvMetadata,
+    uvSegmentBuffer, uvSegmentInfo, uvSnapshotInfo,
 };
 
 const WAL_HEADER_SIZE: u64 = 32;
@@ -100,6 +103,72 @@ impl<T> Drop for RaftPtr<T> {
     fn drop(&mut self) {
         unsafe { sys::raft_free(self.0 as *mut _) };
     }
+}
+
+struct DecodeRef<'a, T> {
+    buf: &'a mut Vec<u8>,
+    value: T,
+    size: usize,
+}
+
+impl<'a, T> Deref for DecodeRef<'a, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.value
+    }
+}
+
+impl<'a, T> DerefMut for DecodeRef<'a, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.value
+    }
+}
+
+impl<'a, T> Drop for DecodeRef<'a, T> {
+    fn drop(&mut self) {
+        self.buf.drain(..self.size);
+    }
+}
+
+type DecodeFn<T> = unsafe extern "C" fn(*mut cursor, *mut T) -> dqlite_result;
+
+trait Deserialize: Default {
+    const DECODE: DecodeFn<Self>;
+
+    fn deserialize<'a>(
+        r: &mut impl std::io::Read,
+        buf: &'a mut Vec<u8>,
+    ) -> std::io::Result<DecodeRef<'a, Self>>
+    where
+        Self: Sized + Default,
+    {
+        let mut value = Self::default();
+        let mut chunk = [0u8; 8192];
+        loop {
+            let mut cursor = cursor {
+                p: buf.as_ptr() as *const i8,
+                cap: buf.len(),
+            };
+            let rc = unsafe { Self::DECODE(&mut cursor, &mut value) };
+            if rc == dqlite_result::PARSE {
+                let n = r.read(&mut chunk)?;
+                buf.extend_from_slice(&chunk[..n]);
+                continue;
+            }
+
+            let size = buf.len() - cursor.cap;
+            return Ok(DecodeRef { buf, value, size });
+        }
+    }
+}
+
+impl Deserialize for snapshotHeader {
+    const DECODE: DecodeFn<Self> = sys::snapshotHeader__decode;
+}
+
+impl Deserialize for snapshotDatabase {
+    const DECODE: DecodeFn<Self> = sys::snapshotDatabase__decode;
 }
 
 #[derive(Debug)]
@@ -306,22 +375,24 @@ impl RaftServer {
     }
 }
 
-pub trait DqliteDatabaseDecoder {
-    fn decode_main(&mut self, read: &mut dyn Read) -> Result<()>;
-    fn decode_wal(&mut self, read: &mut dyn Read) -> Result<()>;
-    fn finalize(self) -> Result<()>;
-}
-
-pub trait DqliteSnapshotDecoder {
-    type Decoder<'a>: DqliteDatabaseDecoder
+pub trait DqliteSnapshotLoader {
+    type DatabaseLoader<'a>: DqliteDatabaseLoader
     where
         Self: 'a;
     type Output;
 
-    fn create_decoder<'a>(&'a mut self, name: &'a OsStr) -> Result<Self::Decoder<'a>>;
-    fn finalize(self) -> Result<Self::Output>;
+    fn database_loader<'a>(&'a mut self, name: &'a OsStr) -> Result<Self::DatabaseLoader<'a>>;
+
+    fn finish(self) -> Result<Self::Output>;
 }
 
+pub trait DqliteDatabaseLoader {
+    fn load_main(&mut self, read: impl Read) -> Result<()>;
+    fn load_wal(&mut self, read: impl Read) -> Result<()>;
+}
+
+// As `BufReader::peek` is currently unstable, this type uses a `Vec` to provide similar functionality.
+// See https://github.com/rust-lang/rust/issues/128405
 struct BufferedReader<R> {
     content: R,
     buf: Vec<u8>,
@@ -334,29 +405,17 @@ impl<R: Read> BufferedReader<R> {
             buf: Vec::with_capacity(8192),
         }
     }
+}
 
-    fn decode<T: Decode + Default>(&mut self) -> Result<DecodeRef<'_, T>> {
-        Ok(T::decode(&mut self.content, &mut self.buf)?)
-    }
-
-    fn read_section(
-        &mut self,
-        size: usize,
-        f: impl FnOnce(&mut dyn Read) -> Result<()>,
-    ) -> Result<()> {
-        if let Some(mut stream) = self.buf.get(..size) {
-            f(&mut stream)?;
-            self.buf.drain(..size);
-            return Ok(());
+impl<R: Read> Read for BufferedReader<R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if !self.buf.is_empty() {
+            let n = cmp::min(buf.len(), self.buf.len());
+            buf[..n].copy_from_slice(&self.buf[..n]);
+            self.buf.drain(..n);
+            return Ok(n);
         }
-
-        let head = self.buf.as_slice();
-        let mut tail = (&mut self.content).take((size - self.buf.len()) as u64);
-        f(&mut head.chain(&mut tail))?;
-        self.buf.clear();
-        io::copy(&mut tail, &mut io::sink())?;
-
-        Ok(())
+        self.content.read(buf)
     }
 }
 
@@ -393,24 +452,21 @@ impl DqliteSnapshot {
     }
 
     fn is_compressed(file: &mut File) -> Result<bool> {
-        // LZ4 magic number is 0x184D2204 (little endian)
-        const LZ4_MAGIC: [u8; 4] = [0x04, 0x22, 0x4D, 0x18];
+        const LZ4_MAGIC: [u8; 4] = 0x184D2204u32.to_le_bytes();
         let mut header = [0u8; 4];
         file.read_exact_at(&mut header, 0)?;
         Ok(header == LZ4_MAGIC)
     }
 
-    fn read_content<C: Read, D: DqliteSnapshotDecoder>(
-        content: &mut C,
-        mut decoder: D,
-    ) -> Result<D::Output> {
-        // As `BufReader::peek` is currently unstable, a `Vec` is used to provide the same functionality.
-        // See https://github.com/rust-lang/rust/issues/128405
+    fn read_content<T: DqliteSnapshotLoader>(
+        content: impl Read,
+        mut loader: T,
+    ) -> Result<T::Output> {
         let mut content = BufferedReader::new(content);
         let snapshotHeader {
             format,
             n: n_databases,
-        } = *content.decode()?;
+        } = *Self::deserialize(&mut content)?;
         if format != sys::UV__DISK_FORMAT as u64 {
             return Err(anyhow!("unsupported snapshot format: {format}"));
         }
@@ -420,7 +476,7 @@ impl DqliteSnapshot {
             let main_size;
             let wal_size;
             {
-                let database_header = content.decode::<snapshotDatabase>()?;
+                let database_header = Self::deserialize::<snapshotDatabase>(&mut content)?;
                 name = OsStr::from_bytes(
                     unsafe { CStr::from_ptr(database_header.filename) }.to_bytes(),
                 )
@@ -429,26 +485,39 @@ impl DqliteSnapshot {
                 wal_size = database_header.wal_size as usize;
             };
 
-            let mut database_decoder = decoder.create_decoder(&name)?;
-            content.read_section(main_size, |data| database_decoder.decode_main(data))?;
-            content.read_section(wal_size, |data| database_decoder.decode_wal(data))?;
-            database_decoder.finalize()?;
+            let mut database_decoder = loader.database_loader(&name)?;
+            {
+                let mut main = (&mut content).take(main_size as u64);
+                database_decoder.load_main(&mut main)?;
+                io::copy(&mut main, &mut io::sink())?;
+            }
+            {
+                let mut wal = (&mut content).take(wal_size as u64);
+                database_decoder.load_wal(&mut wal)?;
+                io::copy(&mut wal, &mut io::sink())?;
+            }
         }
 
-        Ok(decoder.finalize()?)
+        Ok(loader.finish()?)
     }
 
-    pub fn read<D: DqliteSnapshotDecoder>(&self, decoder: D) -> Result<D::Output> {
+    fn deserialize<T: Deserialize>(
+        reader: &mut BufferedReader<impl Read>,
+    ) -> Result<DecodeRef<'_, T>> {
+        Ok(T::deserialize(&mut reader.content, &mut reader.buf)?)
+    }
+
+    pub fn read<D: DqliteSnapshotLoader>(&self, loader: D) -> Result<D::Output> {
         let mut content = self
             .content
             .lock()
             .map_err(|e| anyhow!("cannot take lock: {e}"))?;
         content.seek(SeekFrom::Start(0))?;
-        if Self::is_compressed(&mut content)? {
-            let mut frame_decoder = FrameDecoder::new(&mut *content);
-            Self::read_content(&mut frame_decoder, decoder)
+        if Self::is_compressed(&mut *content)? {
+            let frame_decoder = FrameDecoder::new(&mut *content);
+            Self::read_content(frame_decoder, loader)
         } else {
-            Self::read_content(&mut *content, decoder)
+            Self::read_content(&mut *content, loader)
         }
     }
 }
@@ -1484,18 +1553,14 @@ mod tests {
         wal: Vec<u8>,
     }
 
-    impl DqliteDatabaseDecoder for &mut TestDatabaseSnapshot {
-        fn decode_main(&mut self, data: &mut dyn Read) -> Result<()> {
+    impl DqliteDatabaseLoader for &mut TestDatabaseSnapshot {
+        fn load_main(&mut self, mut data: impl Read) -> Result<()> {
             data.read_to_end(&mut self.main)?;
             Ok(())
         }
 
-        fn decode_wal(&mut self, data: &mut dyn Read) -> Result<()> {
+        fn load_wal(&mut self, mut data: impl Read) -> Result<()> {
             data.read_to_end(&mut self.wal)?;
-            Ok(())
-        }
-
-        fn finalize(self) -> Result<()> {
             Ok(())
         }
     }
@@ -1512,11 +1577,11 @@ mod tests {
         }
     }
 
-    impl DqliteSnapshotDecoder for TestSnapshotDecoder {
-        type Decoder<'a> = &'a mut TestDatabaseSnapshot;
+    impl DqliteSnapshotLoader for TestSnapshotDecoder {
+        type DatabaseLoader<'a> = &'a mut TestDatabaseSnapshot;
         type Output = Vec<TestDatabaseSnapshot>;
 
-        fn create_decoder<'a>(&'a mut self, name: &'a OsStr) -> Result<Self::Decoder<'a>> {
+        fn database_loader<'a>(&'a mut self, name: &'a OsStr) -> Result<Self::DatabaseLoader<'a>> {
             self.databases.push(TestDatabaseSnapshot {
                 name: name.to_owned(),
                 main: Vec::new(),
@@ -1525,7 +1590,7 @@ mod tests {
             Ok(self.databases.last_mut().unwrap())
         }
 
-        fn finalize(self) -> Result<Self::Output> {
+        fn finish(self) -> Result<Self::Output> {
             Ok(self.databases)
         }
     }

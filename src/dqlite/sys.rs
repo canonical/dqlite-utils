@@ -8,7 +8,6 @@ include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 use std::error::Error;
 use std::ffi::{CStr, OsStr};
 use std::fmt::{Debug, Display};
-use std::ops::{Deref, DerefMut};
 use std::os::unix::ffi::OsStrExt;
 
 impl raft_result {
@@ -137,70 +136,4 @@ impl Drop for raft_snapshot {
     fn drop(&mut self) {
         unsafe { snapshotClose(self) };
     }
-}
-
-pub struct DecodeRef<'a, T> {
-    buf: &'a mut Vec<u8>,
-    value: T,
-    size: usize,
-}
-
-impl<'a, T> Deref for DecodeRef<'a, T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        &self.value
-    }
-}
-
-impl<'a, T> DerefMut for DecodeRef<'a, T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.value
-    }
-}
-
-impl<'a, T> Drop for DecodeRef<'a, T> {
-    fn drop(&mut self) {
-        self.buf.drain(..self.size);
-    }
-}
-
-pub trait Decode {
-    const try_decode: unsafe extern "C" fn(*mut cursor, *mut Self) -> dqlite_result;
-
-    fn decode<'a>(
-        r: &mut impl std::io::Read,
-        buf: &'a mut Vec<u8>,
-    ) -> std::io::Result<DecodeRef<'a, Self>>
-    where
-        Self: Sized + Default,
-    {
-        let mut value = Self::default();
-        let mut chunk = [0u8; 8192];
-        loop {
-            let mut cursor = cursor {
-                p: buf.as_ptr() as *const i8,
-                cap: buf.len(),
-            };
-            let rc = unsafe { Self::try_decode(&mut cursor, &mut value) };
-            if rc == dqlite_result::PARSE {
-                let n = r.read(&mut chunk)?;
-                buf.extend_from_slice(&chunk[..n]);
-                continue;
-            }
-
-            let size = buf.len() - cursor.cap;
-            return Ok(DecodeRef { buf, value, size });
-        }
-    }
-}
-
-impl Decode for snapshotHeader {
-    const try_decode: unsafe extern "C" fn(*mut cursor, *mut Self) -> dqlite_result =
-        snapshotHeader__decode;
-}
-
-impl Decode for snapshotDatabase {
-    const try_decode: unsafe extern "C" fn(*mut cursor, *mut Self) -> dqlite_result =
-        snapshotDatabase__decode;
 }
