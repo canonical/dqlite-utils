@@ -41,6 +41,9 @@ fn exec(args: Args) -> Result<()> {
     let mut ctx = Context::new();
     if let Some(dir_path) = dir_path {
         ctx.open(dir_path)?;
+    } else {
+        // Attempt to open current dir as dqlite dir, ignore errors.
+        ctx.open(".".into()).ok();
     }
 
     if !raw_commands.is_empty() {
