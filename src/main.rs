@@ -33,9 +33,16 @@ fn main() -> ExitCode {
 }
 
 fn exec(args: Args) -> Result<()> {
-    let Args { raw_commands, dir } = args;
+    let Args {
+        raw_commands,
+        dir_path: dir,
+    } = args;
 
-    let ctx = Context::new(dir)?;
+    let mut ctx = Context::new();
+    if let Some(dir) = dir {
+        ctx.open(dir)?;
+    }
+
     if !raw_commands.is_empty() {
         let commands: Vec<_> = raw_commands
             .into_iter()
@@ -167,13 +174,34 @@ fn stdin_commands() -> impl Iterator<Item = Command> {
 
 #[derive(Debug)]
 pub struct Context {
-    pub dir: PathBuf,
-    pub dqlite: DqliteDir,
+    pub dqlite: Option<DqliteContext>,
 }
 
 impl Context {
-    fn new(dir: PathBuf) -> Result<Self> {
+    fn new() -> Self {
+        Self { dqlite: None }
+    }
+
+    fn open(&mut self, dir: PathBuf) -> Result<()> {
         let dqlite = DqliteDir::open(&dir)?;
-        Ok(Self { dir, dqlite })
+        self.dqlite = Some(DqliteContext {
+            path: dir,
+            dir: dqlite,
+        });
+        Ok(())
+    }
+
+    fn dqlite(&self) -> Result<&DqliteContext> {
+        Ok(self.dqlite.as_ref().ok_or(NoOpenDqliteDir)?)
     }
 }
+
+#[derive(Debug)]
+pub struct DqliteContext {
+    pub path: PathBuf,
+    pub dir: DqliteDir,
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("no open dqlite directory")]
+struct NoOpenDqliteDir;
