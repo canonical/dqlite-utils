@@ -110,7 +110,8 @@ pub struct DqliteDir {
 }
 
 impl DqliteDir {
-    pub fn open(path: PathBuf) -> Result<Self> {
+    pub fn open(path: impl Into<PathBuf>) -> Result<Self> {
+        let path = path.into();
         let cdir = CString::new(path.as_os_str().as_bytes()).unwrap();
         let mut err = RaftErrorStr::new();
 
