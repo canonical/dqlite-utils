@@ -18,6 +18,7 @@ use self::args::Args;
 use self::command::Command;
 use self::command::quit::QuitCommand;
 use self::dqlite::DqliteDir;
+use self::utils::TerminalStylizeExt;
 
 pub type Error = anyhow::Error;
 pub type Result<T> = anyhow::Result<T>;
@@ -49,11 +50,17 @@ fn exec(args: Args) -> Result<()> {
     }
 }
 
-fn run_interactive(command_reader: InteractiveCommandReader, ctx: Context) -> Result<()> {
-    // This function is a placeholder to allow us to mutate the `command_reader` during
-    // iteration, e.g. to add context to its prompt. As context currently has no effect on
-    // the prompt, this function is equivalent to `run_batch`.
-    run_batch(command_reader, ctx)
+fn run_interactive(command_reader: InteractiveCommandReader, mut ctx: Context) -> Result<()> {
+    for command in command_reader {
+        let res = command.run(&mut ctx);
+        if let Err(err) = res {
+            println!(
+                "{}",
+                err.terminal_style(InteractiveCommandReader::ERROR_STYLE)
+            );
+        }
+    }
+    Ok(())
 }
 
 fn run_batch(commands: impl IntoIterator<Item = Command>, mut ctx: Context) -> Result<()> {
