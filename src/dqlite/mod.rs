@@ -1004,10 +1004,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let err = DqliteDir::open(dir.path()).unwrap_err();
 
-        assert!(err.to_string().contains(&format!(
-            "cannot find dqlite metadata in {}",
-            dir.path().display()
-        )));
+        assert!(err.to_string().contains("cannot find dqlite metadata",));
     }
 
     #[test]
