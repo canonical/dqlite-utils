@@ -47,7 +47,7 @@ fn exec(args: Args) -> Result<()> {
             return Err(err).with_context(|| anyhow!("cannot open current directory"));
         }
         eprintln!(
-            "{}: current folder is not a valid dqlite directory",
+            "{}: {err}",
             "warning".terminal_style(Style::new().yellow().bold())
         );
     }
