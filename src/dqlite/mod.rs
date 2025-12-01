@@ -14,7 +14,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use anyhow::{Context, Error, Result, anyhow};
+use anyhow::{Context, Result, anyhow};
 
 use self::sys::{
     RAFT_ERRMSG_BUF_SIZE, command_checkpoint, command_frames, command_open, command_undo, frames_t,
@@ -99,10 +99,8 @@ impl<T> Drop for RaftPtr<T> {
 }
 
 #[derive(Debug, thiserror::Error)]
-#[error("cannot find dqlite metadata in {}", path.display())]
-pub struct NoMetadataError {
-    path: PathBuf,
-}
+#[error("cannot find dqlite metadata")]
+pub struct NoMetadataError;
 
 #[derive(Debug)]
 pub struct DqliteDir {
@@ -129,7 +127,7 @@ impl DqliteDir {
             return Err(anyhow!("cannot load metadata: {err}"));
         }
         if metadata.version == 0 {
-            return Err(Error::from(NoMetadataError { path }));
+            return Err(NoMetadataError.into());
         }
 
         let mut snapshots = ptr::null_mut();

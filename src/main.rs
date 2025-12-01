@@ -41,7 +41,8 @@ fn exec(args: Args) -> Result<()> {
 
     let mut ctx = Context::new();
     if let Some(dir_path) = dir_path {
-        ctx.open(dir_path)?;
+        ctx.open(&dir_path)
+            .with_context(|| anyhow!("cannot open {}", dir_path.display()))?;
     } else if let Err(err) = ctx.open(PathBuf::from(".")) {
         if !err.is::<NoMetadataError>() {
             return Err(err).with_context(|| anyhow!("cannot open current directory"));
@@ -191,7 +192,7 @@ impl Context {
         Self { dqlite: None }
     }
 
-    fn open(&mut self, dir_path: PathBuf) -> Result<&DqliteDir> {
+    fn open(&mut self, dir_path: impl Into<PathBuf>) -> Result<&DqliteDir> {
         let dir = DqliteDir::open(dir_path)?;
         let ret = self.dqlite.insert(dir);
         Ok(ret)
