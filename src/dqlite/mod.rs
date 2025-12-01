@@ -233,7 +233,8 @@ pub struct DqliteSnapshot {
     pub timestamp: SystemTime,
     pub configuration: RaftConfiguration,
 
-    file: File,
+    // File pointer held to prevent data removal.
+    _file: File,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -330,7 +331,7 @@ impl DqliteSnapshot {
             index: snapshot.index,
             timestamp,
             configuration,
-            file,
+            _file: file,
         })
     }
 }
