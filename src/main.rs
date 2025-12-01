@@ -17,7 +17,7 @@ use rustyline::history::DefaultHistory;
 use self::args::Args;
 use self::command::Command;
 use self::command::quit::QuitCommand;
-use self::dqlite::DqliteDir;
+use self::dqlite::{DqliteDir, NoMetadataError};
 use self::utils::TerminalStylizeExt;
 
 pub type Error = anyhow::Error;
@@ -34,9 +34,25 @@ fn main() -> ExitCode {
 }
 
 fn exec(args: Args) -> Result<()> {
-    let Args { raw_commands, dir } = args;
+    let Args {
+        raw_commands,
+        dir_path,
+    } = args;
 
-    let ctx = Context::new(dir)?;
+    let mut ctx = Context::new();
+    if let Some(dir_path) = dir_path {
+        ctx.open(&dir_path)
+            .with_context(|| anyhow!("cannot open {}", dir_path.display()))?;
+    } else if let Err(err) = ctx.open(PathBuf::from(".")) {
+        if !err.is::<NoMetadataError>() {
+            return Err(err).with_context(|| anyhow!("cannot open current directory"));
+        }
+        eprintln!(
+            "{}: {err}",
+            "warning".terminal_style(Style::new().yellow().bold())
+        );
+    }
+
     if !raw_commands.is_empty() {
         let commands: Vec<_> = raw_commands
             .into_iter()
@@ -174,13 +190,25 @@ fn stdin_commands() -> impl Iterator<Item = Command> {
 
 #[derive(Debug)]
 pub struct Context {
-    pub dir: PathBuf,
-    pub dqlite: DqliteDir,
+    pub dqlite: Option<DqliteDir>,
 }
 
 impl Context {
-    fn new(dir: PathBuf) -> Result<Self> {
-        let dqlite = DqliteDir::open(&dir)?;
-        Ok(Self { dir, dqlite })
+    fn new() -> Self {
+        Self { dqlite: None }
+    }
+
+    fn open(&mut self, dir_path: impl Into<PathBuf>) -> Result<&DqliteDir> {
+        let dir = DqliteDir::open(dir_path)?;
+        let ret = self.dqlite.insert(dir);
+        Ok(ret)
+    }
+
+    fn dqlite(&self) -> Result<&DqliteDir> {
+        Ok(self.dqlite.as_ref().ok_or(NoOpenDqliteDir)?)
     }
 }
+
+#[derive(Debug, thiserror::Error)]
+#[error("no open dqlite directory")]
+struct NoOpenDqliteDir;
