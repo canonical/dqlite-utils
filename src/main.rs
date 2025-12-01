@@ -17,7 +17,8 @@ use rustyline::history::DefaultHistory;
 use self::args::Args;
 use self::command::Command;
 use self::command::quit::QuitCommand;
-use self::dqlite::DqliteDir;
+use self::dqlite::{DqliteDir, NoMetadataError};
+use self::utils::TerminalStylizeExt;
 
 pub type Error = anyhow::Error;
 pub type Result<T> = anyhow::Result<T>;
@@ -41,9 +42,14 @@ fn exec(args: Args) -> Result<()> {
     let mut ctx = Context::new();
     if let Some(dir_path) = dir_path {
         ctx.open(dir_path)?;
-    } else {
-        // Attempt to open current directory by default.
-        ctx.open(PathBuf::from(".")).ok();
+    } else if let Err(err) = ctx.open(PathBuf::from(".")) {
+        if !err.is::<NoMetadataError>() {
+            return Err(err).with_context(|| anyhow!("cannot open current directory"));
+        }
+        eprintln!(
+            "{}: current folder is not a valid dqlite directory",
+            "warning".terminal_style(Style::new().yellow().bold())
+        );
     }
 
     if !raw_commands.is_empty() {
