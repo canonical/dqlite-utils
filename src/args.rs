@@ -12,7 +12,7 @@ pub struct Args {
     pub raw_commands: Vec<String>,
 
     /// Dqlite data directory
-    #[arg(long, global = true)]
+    #[arg(long = "dir", global = true)]
     pub dir_path: Option<PathBuf>,
 }
 
