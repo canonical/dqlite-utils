@@ -6,7 +6,7 @@ use owo_colors::Style;
 
 use crate::Context;
 use crate::command::help::Help;
-use crate::dqlite::{DqliteLogEntry, DqliteLogEntryContent, DqliteSegment, RaftServer};
+use crate::dqlite::{DqliteDir, DqliteLogEntry, DqliteLogEntryContent, DqliteSegment, RaftServer};
 use crate::utils::{Pager, TerminalStylizeExt};
 
 use super::UnrecognizedArgumentsError;
@@ -51,14 +51,14 @@ impl LogCommand {
     }
 
     pub(crate) fn run(mut self, ctx: &mut Context) -> Result<()> {
+        let dqlite = ctx.dqlite()?;
         // In order to properly get the index of the last entry, we need to read
         // all open entries first.
-        let open_segments = ctx.dqlite.open_segments();
-        let mut index = ctx
-            .dqlite
+        let open_segments = dqlite.open_segments();
+        let mut index = dqlite
             .closed_segments()
             .last()
-            .map_or(ctx.dqlite.first_index(), |s| match s {
+            .map_or(dqlite.first_index(), |s| match s {
                 DqliteSegment::Closed { indexes, .. } => *indexes.end(),
                 DqliteSegment::Open { .. } => unreachable!(),
             });
@@ -66,7 +66,8 @@ impl LogCommand {
             index += segment.entries()?.len() as u64;
         }
 
-        for segment in ctx.dqlite.segments().iter().rev() {
+        let mut entry_written = false;
+        for segment in dqlite.segments().iter().rev() {
             if let DqliteSegment::Closed { indexes, .. } = segment {
                 assert!(index == *indexes.end());
             }
@@ -74,22 +75,31 @@ impl LogCommand {
             let entries = segment.entries()?;
             for (i, entry) in entries.iter().rev().enumerate() {
                 let entry_index = index - i as u64;
-                match self.write_entry(ctx, entry_index, entry) {
+                match self.write_entry(dqlite, entry_index, entry) {
                     Ok(()) => {}
                     Err(e) if e.kind() == ErrorKind::BrokenPipe => return Ok(()),
                     Err(e) => return Err(e.into()),
                 }
+                entry_written = true;
             }
             index -= entries.len() as u64;
+        }
+        if !entry_written {
+            writeln!(self.pager, "(no entries)")?;
         }
 
         Ok(())
     }
 
-    fn write_entry(&mut self, ctx: &Context, index: u64, entry: &DqliteLogEntry) -> io::Result<()> {
+    fn write_entry(
+        &mut self,
+        dqlite_dir: &DqliteDir,
+        index: u64,
+        entry: &DqliteLogEntry,
+    ) -> io::Result<()> {
         self.write_term(entry.term)?;
 
-        let snapshot_tag = if ctx.dqlite.snapshots().iter().any(|s| s.index == index) {
+        let snapshot_tag = if dqlite_dir.snapshots().iter().any(|s| s.index == index) {
             "[SNAPSHOT]"
         } else {
             ""

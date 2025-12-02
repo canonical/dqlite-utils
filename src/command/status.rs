@@ -28,7 +28,7 @@ impl StatusCommand {
     }
 
     pub(crate) fn run(self, ctx: &Context) -> Result<()> {
-        let dqlite = &ctx.dqlite;
+        let dqlite = ctx.dqlite()?;
         let first_index = dqlite.first_index();
 
         let last_closed_index = dqlite
@@ -46,11 +46,11 @@ impl StatusCommand {
             .sum::<Result<usize>>()? as u64;
         let last_index = last_closed_index.unwrap_or(first_index) + num_entries_in_open_segments;
 
-        let dir = ctx.dir.display();
+        let dir_path = dqlite.path().display();
         let term = dqlite.term();
         eprintdoc!(
             "
-                dir: {dir}
+                dir: {dir_path}
                 term: {term}
                 current_index: {last_index}
                 first_index: {first_index}
