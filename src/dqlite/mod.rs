@@ -170,8 +170,13 @@ impl Deserialize for snapshotDatabase {
     const DECODE: DecodeFn<Self> = sys::snapshotDatabase__decode;
 }
 
+#[derive(Debug, thiserror::Error)]
+#[error("cannot find dqlite metadata")]
+pub struct NoMetadataError;
+
 #[derive(Debug)]
 pub struct DqliteDir {
+    path: PathBuf,
     snapshots: Vec<DqliteSnapshot>,
     segments: Vec<DqliteSegment>,
     num_closed_segments: usize,
@@ -181,8 +186,9 @@ pub struct DqliteDir {
 }
 
 impl DqliteDir {
-    pub fn open(dir: &Path) -> Result<Self> {
-        let cdir = CString::new(dir.as_os_str().as_bytes()).unwrap();
+    pub fn open(path: impl Into<PathBuf>) -> Result<Self> {
+        let path = path.into();
+        let cdir = CString::new(path.as_os_str().as_bytes()).unwrap();
         let mut err = RaftErrorStr::new();
 
         let mut metadata = uvMetadata::default();
@@ -193,7 +199,7 @@ impl DqliteDir {
             return Err(anyhow!("cannot load metadata: {err}"));
         }
         if metadata.version == 0 {
-            return Err(anyhow!("cannot find dqlite metadata in {}", dir.display()));
+            return Err(NoMetadataError.into());
         }
 
         let mut snapshots = ptr::null_mut();
@@ -204,7 +210,7 @@ impl DqliteDir {
 
         let rc = unsafe {
             sys::UvList(
-                CString::new(dir.as_os_str().as_bytes()).unwrap().as_ptr(),
+                CString::new(path.as_os_str().as_bytes()).unwrap().as_ptr(),
                 &mut snapshots,
                 &mut n_snapshots,
                 &mut segments,
@@ -229,7 +235,7 @@ impl DqliteDir {
 
         let segments: Vec<_> = unsafe { segments.as_slice(n_segments) }
             .iter()
-            .map(|s| DqliteSegment::open(dir, s))
+            .map(|s| DqliteSegment::open(&path, s))
             .collect::<Result<_>>()?;
 
         let num_open_segments = segments
@@ -248,6 +254,7 @@ impl DqliteDir {
             .unwrap_or(1);
 
         Ok(Self {
+            path,
             snapshots,
             segments,
             num_closed_segments,
@@ -255,6 +262,23 @@ impl DqliteDir {
             voted_for: metadata.voted_for,
             first_index,
         })
+    }
+
+    pub fn creator(dir: impl Into<PathBuf>) -> DqliteDirCreator<Empty> {
+        DqliteDirCreator {
+            dir: dir.into(),
+            term: 1,
+            voted_for: 0,
+            first_index: 1,
+            page_size: 4096,
+            closed_segments: Vec::new(),
+            open_segments: Vec::new(),
+            snapshots: Vec::new(),
+        }
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
     }
 
     pub fn snapshots(&self) -> &[DqliteSnapshot] {
@@ -1002,21 +1026,6 @@ pub struct DqliteDirCreator<T> {
     snapshots: Vec<DqliteSnapshotBuilder<T>>,
 }
 
-impl DqliteDir {
-    pub fn creator(dir: impl Into<PathBuf>) -> DqliteDirCreator<Empty> {
-        DqliteDirCreator {
-            dir: dir.into(),
-            term: 1,
-            voted_for: 0,
-            first_index: 1,
-            page_size: 4096,
-            closed_segments: Vec::new(),
-            open_segments: Vec::new(),
-            snapshots: Vec::new(),
-        }
-    }
-}
-
 impl<T> DqliteDirCreator<T> {
     pub fn with_term(mut self, term: u64) -> Self {
         self.term = term;
@@ -1404,10 +1413,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let err = DqliteDir::open(dir.path()).unwrap_err();
 
-        assert!(err.to_string().contains(&format!(
-            "cannot find dqlite metadata in {}",
-            dir.path().display()
-        )));
+        assert!(err.to_string().contains("cannot find dqlite metadata",));
     }
 
     #[test]
