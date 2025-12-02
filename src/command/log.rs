@@ -52,6 +52,7 @@ impl LogCommand {
             index += segment.entries()?.len() as u64;
         }
 
+        let mut entry_written = false;
         for segment in dqlite.segments().iter().rev() {
             if let DqliteSegment::Closed { indexes, .. } = segment {
                 assert!(index == *indexes.end());
@@ -65,8 +66,12 @@ impl LogCommand {
                     Err(e) if e.kind() == ErrorKind::BrokenPipe => return Ok(()),
                     Err(e) => return Err(e.into()),
                 }
+                entry_written = true;
             }
             index -= entries.len() as u64;
+        }
+        if !entry_written {
+            writeln!(self.pager, "(no entries)")?;
         }
 
         Ok(())
