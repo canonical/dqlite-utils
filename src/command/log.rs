@@ -6,7 +6,7 @@ use std::io::{self, ErrorKind, Write};
 use super::UnrecognizedArgumentsError;
 use crate::Context;
 use crate::command::ReplEffect;
-use crate::dqlite::{DqliteLogEntry, DqliteLogEntryContent, DqliteSegment, RaftServer};
+use crate::dqlite::{DqliteDir, DqliteLogEntry, DqliteLogEntryContent, DqliteSegment, RaftServer};
 use crate::utils::{Pager, TerminalStylizeExt};
 
 #[derive(Debug)]
