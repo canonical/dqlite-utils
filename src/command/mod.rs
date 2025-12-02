@@ -6,6 +6,7 @@ use std::str::FromStr;
 
 use anyhow::anyhow;
 
+use crate::prompt::Prompt;
 use crate::{Context, Error, Result};
 
 use self::log::LogCommand;
@@ -54,6 +55,7 @@ impl FromStr for Command {
 struct UnrecognizedArgumentsError(Vec<String>);
 
 pub enum ReplEffect {
-    ChangePrompt(String),
+    #[allow(unused)]
+    ChangePrompt(Prompt),
     Quit,
 }

@@ -1,6 +1,7 @@
 mod args;
 mod command;
 mod dqlite;
+mod prompt;
 mod utils;
 
 use std::io::{self, IsTerminal};
@@ -19,6 +20,7 @@ use self::command::Command;
 use self::command::ReplEffect;
 use self::command::quit::QuitCommand;
 use self::dqlite::{DqliteDir, NoMetadataError};
+use self::prompt::Prompt;
 use self::utils::TerminalStylizeExt;
 
 pub type Error = anyhow::Error;
@@ -118,7 +120,7 @@ fn run_batch(commands: impl IntoIterator<Item = Command>, mut ctx: Context) -> R
 struct InteractiveCommandReader {
     history_path: Option<PathBuf>,
 
-    prompt: String,
+    prompt: Prompt,
 
     // TODO(kcza): improve completion.
     line_editor: Editor<(), DefaultHistory>,
@@ -126,7 +128,6 @@ struct InteractiveCommandReader {
 
 impl InteractiveCommandReader {
     const ERROR_STYLE: Style = Style::new().bright_red();
-    const PROMPT_STYLE: Style = Style::new().bright_green();
 
     fn new() -> Result<Self> {
         const HISTORY_FILE: &str = ".dqlite-utils-history";
@@ -140,9 +141,7 @@ impl InteractiveCommandReader {
             eprintln!("cannot load history");
         }
 
-        let prompt = "> "
-            .if_supports_color(Stream::Stdout, |text| text.style(Self::PROMPT_STYLE))
-            .to_string();
+        let prompt = Prompt::default();
         Ok(Self {
             history_path,
             prompt,
@@ -151,7 +150,7 @@ impl InteractiveCommandReader {
     }
 
     fn next_command(&mut self) -> Result<Option<Command>> {
-        let line = self.line_editor.readline(&self.prompt)?;
+        let line = self.line_editor.readline(self.prompt.as_str())?;
         let trimmed_line = line.trim();
         let ret = trimmed_line.parse().map(Some);
         self.line_editor.add_history_entry(line)?;
