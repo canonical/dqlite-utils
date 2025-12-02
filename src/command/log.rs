@@ -5,7 +5,8 @@ use std::io::{self, ErrorKind, Write};
 
 use super::UnrecognizedArgumentsError;
 use crate::Context;
-use crate::dqlite::{DqliteDir, DqliteLogEntry, DqliteLogEntryContent, DqliteSegment, RaftServer};
+use crate::command::ReplEffect;
+use crate::dqlite::{DqliteLogEntry, DqliteLogEntryContent, DqliteSegment, RaftServer};
 use crate::utils::{Pager, TerminalStylizeExt};
 
 #[derive(Debug)]
@@ -36,7 +37,7 @@ impl LogCommand {
         })
     }
 
-    pub(crate) fn run(mut self, ctx: &mut Context) -> Result<()> {
+    pub(crate) fn run(mut self, ctx: &mut Context) -> Result<Option<ReplEffect>> {
         let dqlite = ctx.dqlite()?;
         // In order to properly get the index of the last entry, we need to read
         // all open entries first.
@@ -63,7 +64,7 @@ impl LogCommand {
                 let entry_index = index - i as u64;
                 match self.write_entry(dqlite, entry_index, entry) {
                     Ok(()) => {}
-                    Err(e) if e.kind() == ErrorKind::BrokenPipe => return Ok(()),
+                    Err(e) if e.kind() == ErrorKind::BrokenPipe => return Ok(None),
                     Err(e) => return Err(e.into()),
                 }
                 entry_written = true;
@@ -74,7 +75,7 @@ impl LogCommand {
             writeln!(self.pager, "(no entries)")?;
         }
 
-        Ok(())
+        Ok(None)
     }
 
     fn write_entry(

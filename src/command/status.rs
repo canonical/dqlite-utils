@@ -2,6 +2,7 @@ use anyhow::Result;
 use indoc::eprintdoc;
 
 use crate::Context;
+use crate::command::ReplEffect;
 use crate::dqlite::DqliteSegment;
 
 use super::UnrecognizedArgumentsError;
@@ -17,7 +18,7 @@ impl StatusCommand {
         Ok(Self)
     }
 
-    pub(crate) fn run(self, ctx: &Context) -> Result<()> {
+    pub(crate) fn run(self, ctx: &Context) -> Result<Option<ReplEffect>> {
         let dqlite = ctx.dqlite()?;
         let first_index = dqlite.first_index();
 
@@ -46,6 +47,6 @@ impl StatusCommand {
                 first_index: {first_index}
             "
         );
-        Ok(())
+        Ok(None)
     }
 }

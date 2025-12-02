@@ -16,6 +16,7 @@ use rustyline::history::DefaultHistory;
 
 use self::args::Args;
 use self::command::Command;
+use self::command::ReplEffect;
 use self::command::quit::QuitCommand;
 use self::dqlite::{DqliteDir, NoMetadataError};
 use self::utils::TerminalStylizeExt;
@@ -66,14 +67,42 @@ fn exec(args: Args) -> Result<()> {
     }
 }
 
-fn run_interactive(command_reader: InteractiveCommandReader, mut ctx: Context) -> Result<()> {
-    for command in command_reader {
-        let res = command.run(&mut ctx);
-        if let Err(err) = res {
-            println!(
+fn run_interactive(mut command_reader: InteractiveCommandReader, mut ctx: Context) -> Result<()> {
+    loop {
+        let command = match command_reader.next_command() {
+            Ok(Some(command)) => command,
+            Ok(None) => continue,
+            Err(err) => match err.downcast_ref() {
+                Some(ReadlineError::Interrupted) => {
+                    eprintln!(
+                        "{}",
+                        "(Press Ctrl+D or type 'quit' to exit)"
+                            .terminal_style(InteractiveCommandReader::ERROR_STYLE)
+                    );
+                    continue;
+                }
+                Some(ReadlineError::Eof) => break,
+                _ => {
+                    eprintln!(
+                        "{}",
+                        err.terminal_style(InteractiveCommandReader::ERROR_STYLE)
+                    );
+                    continue;
+                }
+            },
+        };
+        match command.run(&mut ctx) {
+            Ok(Some(action)) => match action {
+                ReplEffect::ChangePrompt(prompt) => {
+                    command_reader.prompt = prompt;
+                }
+                ReplEffect::Quit => break,
+            },
+            Ok(None) => {}
+            Err(err) => println!(
                 "{}",
                 err.terminal_style(InteractiveCommandReader::ERROR_STYLE)
-            );
+            ),
         }
     }
     Ok(())

@@ -21,9 +21,9 @@ pub enum Command {
 }
 
 impl Command {
-    pub fn run(self, ctx: &mut Context) -> Result<()> {
+    pub fn run(self, ctx: &mut Context) -> Result<Option<ReplEffect>> {
         match self {
-            Self::Noop => Ok(()),
+            Self::Noop => Ok(None),
             Self::Quit(cmd) => cmd.run(ctx),
             Self::Status(cmd) => cmd.run(ctx),
             Self::Log(cmd) => cmd.run(ctx),
@@ -52,3 +52,8 @@ impl FromStr for Command {
 #[derive(Debug, thiserror::Error)]
 #[error("unrecognized arguments: {_0:?}")]
 struct UnrecognizedArgumentsError(Vec<String>);
+
+pub enum ReplEffect {
+    ChangePrompt(String),
+    Quit,
+}

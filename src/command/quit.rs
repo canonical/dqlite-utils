@@ -1,6 +1,4 @@
-use std::process;
-
-use crate::command::UnrecognizedArgumentsError;
+use crate::command::{ReplEffect, UnrecognizedArgumentsError};
 use crate::{Context, Result};
 
 #[derive(Debug, Default)]
@@ -14,7 +12,7 @@ impl QuitCommand {
         Ok(Self)
     }
 
-    pub(crate) fn run(&self, _ctx: &Context) -> ! {
-        process::exit(0);
+    pub(crate) fn run(&self, _ctx: &Context) -> Result<Option<ReplEffect>> {
+        Ok(Some(ReplEffect::Quit))
     }
 }
