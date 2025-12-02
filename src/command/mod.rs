@@ -54,7 +54,7 @@ impl FromStr for Command {
 #[error("unrecognized arguments: {_0:?}")]
 struct UnrecognizedArgumentsError(Vec<String>);
 
-pub enum ReplEffect {
+pub(crate) enum ReplEffect {
     #[allow(unused)]
     ChangePrompt(Prompt),
     Quit,
