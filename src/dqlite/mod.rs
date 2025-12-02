@@ -27,9 +27,6 @@ use self::sys::{
     uvSegmentBuffer, uvSegmentInfo, uvSnapshotInfo,
 };
 
-const WAL_HEADER_SIZE: u64 = 32;
-const WAL_FRAME_HEADER_SIZE: u64 = 24;
-
 #[derive(thiserror::Error)]
 #[error("{}", self.as_str())]
 struct RaftErrorStr([u8; RAFT_ERRMSG_BUF_SIZE as usize]);
@@ -68,6 +65,7 @@ impl<T> RaftPtr<T> {
         Self(ptr::null_mut())
     }
 
+    #[allow(unused)]
     fn as_ptr(&self) -> *const T {
         self.0
     }
@@ -89,6 +87,7 @@ impl<T> RaftPtr<T> {
         unsafe { std::slice::from_raw_parts(self.0, len) }
     }
 
+    #[allow(unused)]
     unsafe fn as_mut_slice(&mut self, len: usize) -> &mut [T] {
         if len == 0 {
             assert!(self.0.is_null());
@@ -256,19 +255,6 @@ impl DqliteDir {
             voted_for: metadata.voted_for,
             first_index,
         })
-    }
-
-    pub fn creator<'a>(dir: impl Into<PathBuf>) -> DqliteDirCreator<'a> {
-        DqliteDirCreator {
-            dir: dir.into(),
-            term: 1,
-            voted_for: 0,
-            first_index: 1,
-            page_size: 4096,
-            closed_segments: Vec::new(),
-            open_segments: Vec::new(),
-            snapshots: Vec::new(),
-        }
     }
 
     pub fn snapshots(&self) -> &[DqliteSnapshot] {
@@ -911,50 +897,26 @@ impl DqliteSegmentBuilder {
     }
 }
 
-pub trait DqliteDatabaseContent<'a> {
-    fn main(&self) -> Box<dyn ExactSizeIterator<Item = Result<&'a [u8]>> + 'a>;
+pub trait DqliteDatabaseWriter {
+    fn main_size(&self) -> usize;
+    fn wal_size(&self) -> usize;
 
-    fn wal(&self) -> Box<dyn ExactSizeIterator<Item = Result<&'a [u8]>> + 'a>;
+    fn write_main(&self, out: &mut impl Write) -> Result<()>;
+    fn write_wal(&self, out: &mut impl Write) -> Result<()>;
 }
 
-impl<'a, T: AsRef<[u8]> + 'a> DqliteDatabaseContent<'a> for &'a [T] {
-    fn main(&self) -> Box<dyn ExactSizeIterator<Item = Result<&'a [u8]>> + 'a> {
-        Box::new(self.iter().map(|page| Ok(page.as_ref())))
-    }
+pub struct Empty;
 
-    fn wal(&self) -> Box<dyn ExactSizeIterator<Item = Result<&'a [u8]>> + 'a> {
-        Box::new(std::iter::empty())
-    }
-}
-
-impl<'a, T1, I1, S1, T2, I2, S2> DqliteDatabaseContent<'a> for &'a (T1, T2)
-where
-    &'a T1: IntoIterator<Item = &'a S1, IntoIter = I1>,
-    I1: ExactSizeIterator<Item = &'a S1> + 'a,
-    S1: AsRef<[u8]> + 'a,
-    &'a T2: IntoIterator<Item = &'a S2, IntoIter = I2>,
-    I2: ExactSizeIterator<Item = &'a S2> + 'a,
-    S2: AsRef<[u8]> + 'a,
-{
-    fn main(&self) -> Box<dyn ExactSizeIterator<Item = Result<&'a [u8]>> + 'a> {
-        Box::new(self.0.into_iter().map(|page| Ok(page.as_ref())))
-    }
-
-    fn wal(&self) -> Box<dyn ExactSizeIterator<Item = Result<&'a [u8]>> + 'a> {
-        Box::new(self.1.into_iter().map(|page| Ok(page.as_ref())))
-    }
-}
-
-pub struct DqliteSnapshotBuilder<'a> {
+pub struct DqliteSnapshotBuilder<T> {
     term: u64,
     index: u64,
     timestamp: SystemTime,
     compressed: bool,
-    databases: Vec<(CString, Box<dyn DqliteDatabaseContent<'a> + 'a>)>,
+    databases: Vec<(CString, T)>,
     configuration: Option<RaftConfiguration>,
 }
 
-impl<'a> DqliteSnapshotBuilder<'a> {
+impl<T> DqliteSnapshotBuilder<T> {
     fn new(term: u64, index: u64, timestamp: SystemTime) -> Self {
         Self {
             term,
@@ -990,18 +952,46 @@ impl<'a> DqliteSnapshotBuilder<'a> {
         self.compressed = compressed;
         self
     }
+}
 
-    pub fn add_database(
-        mut self,
+impl DqliteSnapshotBuilder<Empty> {
+    pub fn add_database<T: DqliteDatabaseWriter>(
+        self,
         name: CString,
-        content: Box<dyn DqliteDatabaseContent<'a> + 'a>,
-    ) -> Self {
+        content: T,
+    ) -> DqliteSnapshotBuilder<T> {
+        let Self {
+            term,
+            index,
+            timestamp,
+            compressed,
+            configuration,
+            databases,
+        } = self;
+        debug_assert!(databases.is_empty());
+        let databases = vec![(name, content)];
+        DqliteSnapshotBuilder {
+            term,
+            index,
+            timestamp,
+            compressed,
+            configuration,
+            databases,
+        }
+    }
+}
+
+impl<T> DqliteSnapshotBuilder<T>
+where
+    T: DqliteDatabaseWriter,
+{
+    pub fn add_database(mut self, name: CString, content: T) -> Self {
         self.databases.push((name, content));
         self
     }
 }
 
-pub struct DqliteDirCreator<'a> {
+pub struct DqliteDirCreator<T> {
     dir: PathBuf,
     term: u64,
     voted_for: u64,
@@ -1009,10 +999,25 @@ pub struct DqliteDirCreator<'a> {
     page_size: u64,
     closed_segments: Vec<DqliteSegmentBuilder>,
     open_segments: Vec<DqliteSegmentBuilder>,
-    snapshots: Vec<DqliteSnapshotBuilder<'a>>,
+    snapshots: Vec<DqliteSnapshotBuilder<T>>,
 }
 
-impl<'a> DqliteDirCreator<'a> {
+impl DqliteDir {
+    pub fn creator(dir: impl Into<PathBuf>) -> DqliteDirCreator<Empty> {
+        DqliteDirCreator {
+            dir: dir.into(),
+            term: 1,
+            voted_for: 0,
+            first_index: 1,
+            page_size: 4096,
+            closed_segments: Vec::new(),
+            open_segments: Vec::new(),
+            snapshots: Vec::new(),
+        }
+    }
+}
+
+impl<T> DqliteDirCreator<T> {
     pub fn with_term(mut self, term: u64) -> Self {
         self.term = term;
         self
@@ -1052,11 +1057,61 @@ impl<'a> DqliteDirCreator<'a> {
         self.open_segments.push(segment);
         self
     }
+}
 
-    fn with_snapshot(
+impl DqliteDirCreator<Empty> {
+    #[allow(unused)]
+    pub fn with_snapshot<T>(
+        self,
+        f: impl FnOnce(DqliteSnapshotBuilder<Empty>) -> DqliteSnapshotBuilder<T>,
+    ) -> DqliteDirCreator<T>
+    where
+        T: DqliteDatabaseWriter,
+    {
+        let Self {
+            dir,
+            term,
+            voted_for,
+            first_index,
+            page_size,
+            closed_segments,
+            open_segments,
+            snapshots,
+        } = self;
+        debug_assert!(snapshots.is_empty());
+
+        let mut index = first_index;
+        for entry in closed_segments.iter().chain(open_segments.iter()) {
+            index += entry.0.iter().fold(0, |c, b| c + b.len()) as u64;
+        }
+        let timestamp = SystemTime::now();
+        let snapshot = f(DqliteSnapshotBuilder::new(term, index, timestamp));
+        let snapshots = vec![snapshot];
+        DqliteDirCreator {
+            dir,
+            term,
+            voted_for,
+            first_index,
+            page_size,
+            closed_segments,
+            open_segments,
+            snapshots,
+        }
+    }
+}
+
+impl<T> DqliteDirCreator<T>
+where
+    T: DqliteDatabaseWriter,
+{
+    #[allow(unused)]
+    pub fn with_snapshot(
         mut self,
-        f: impl FnOnce(DqliteSnapshotBuilder<'a>) -> DqliteSnapshotBuilder<'a>,
-    ) -> Self {
+        f: impl FnOnce(DqliteSnapshotBuilder<T>) -> DqliteSnapshotBuilder<T>,
+    ) -> Self
+    where
+        T: DqliteDatabaseWriter,
+    {
         let mut index = self.first_index;
         for entry in self.closed_segments.iter().chain(self.open_segments.iter()) {
             index += entry.0.iter().fold(0, |c, b| c + b.len()) as u64;
@@ -1069,7 +1124,77 @@ impl<'a> DqliteDirCreator<'a> {
     }
 }
 
-impl<'a> DqliteDirCreator<'a> {
+impl DqliteDirCreator<Empty> {
+    pub fn create(self) -> Result<()> {
+        self.write_metadata()?;
+        self.write_segments()?;
+
+        Ok(())
+    }
+}
+
+impl<T> DqliteDirCreator<T>
+where
+    T: DqliteDatabaseWriter,
+{
+    pub fn create(self) -> Result<()> {
+        self.write_metadata()?;
+        self.write_segments()?;
+        self.write_snapshots()?;
+        Ok(())
+    }
+}
+
+impl<T> DqliteDirCreator<T> {
+    fn write_metadata(&self) -> Result<()> {
+        let mut err = RaftErrorStr::new();
+
+        let rc = unsafe {
+            sys::uvMetadataStore(
+                CString::new(self.dir.as_os_str().as_bytes())
+                    .unwrap()
+                    .as_ptr(),
+                &uvMetadata {
+                    version: 1,
+                    term: self.term,
+                    voted_for: self.voted_for,
+                },
+                err.as_mut_ptr(),
+            )
+        };
+        if rc != raft_result::OK {
+            return Err(anyhow!("cannot store metadata: {err}"));
+        }
+
+        Ok(())
+    }
+
+    fn write_segments(&self) -> Result<()> {
+        let mut path = self.dir.clone();
+        let mut index = self.first_index;
+        for closed_segment in self.closed_segments.iter() {
+            let last_index = index + closed_segment.0.len() as u64 - 1;
+            path.push(format!("{index:0>16}-{last_index:0>16}"));
+
+            let mut file = File::create(path.as_path())?;
+            self.write_segment(&mut file, &closed_segment.0)?;
+
+            path.pop();
+            index = last_index + 1;
+        }
+
+        for (index, open_segment) in self.open_segments.iter().enumerate() {
+            path.push(format!("open-{index}"));
+
+            let mut file = File::create(path.as_path())?;
+            self.write_segment(&mut file, &open_segment.0)?;
+
+            path.pop();
+        }
+
+        Ok(())
+    }
+
     fn write_segment(&self, file: &mut File, batches: &Vec<Vec<DqliteLogEntry>>) -> Result<()> {
         let mut buf = uvSegmentBuffer::default();
         unsafe { sys::uvSegmentBufferInit(&mut buf, 4096) };
@@ -1112,10 +1237,43 @@ impl<'a> DqliteDirCreator<'a> {
 
         Ok(())
     }
+}
+
+impl<T> DqliteDirCreator<T>
+where
+    T: DqliteDatabaseWriter,
+{
+    fn write_snapshots(&self) -> Result<()> {
+        for snapshot in &self.snapshots {
+            self.write_snapshot(snapshot, &self.dir)?;
+        }
+        Ok(())
+    }
+
+    fn write_snapshot(&self, s: &DqliteSnapshotBuilder<T>, folder: &Path) -> Result<()> {
+        let mut path = {
+            let term = s.term;
+            let index = s.index;
+            let timestamp = s.timestamp.duration_since(UNIX_EPOCH)?.as_millis();
+            folder.join(format!("snapshot-{term}-{index}-{timestamp}"))
+        };
+
+        let file = File::create(&path)?;
+        if s.compressed {
+            self.write_compressed_snapshot_data(s, file)?;
+        } else {
+            self.write_snapshot_data(s, file)?;
+        }
+
+        path.set_extension("meta");
+        self.write_snapshot_metadata(s, File::create(&path)?)?;
+
+        Ok(())
+    }
 
     fn write_compressed_snapshot_data(
         &self,
-        s: &DqliteSnapshotBuilder<'a>,
+        s: &DqliteSnapshotBuilder<T>,
         data: impl Write,
     ) -> Result<()> {
         // Unfortunately dqlite requires the full content type to be stored
@@ -1124,17 +1282,9 @@ impl<'a> DqliteDirCreator<'a> {
         // first to compute the total size, then to actually write it.
         let mut size = 16u64; // The header
 
-        for (name, content) in &s.databases {
-            let main_pages = content.main();
-            let main_size = self.page_size * main_pages.len() as u64;
-
-            let wal_pages = content.wal();
-            let wal_size = if wal_pages.len() == 0 {
-                0
-            } else {
-                WAL_HEADER_SIZE
-                    + (self.page_size + WAL_FRAME_HEADER_SIZE) * (wal_pages.len() - 1) as u64
-            };
+        for (name, database) in &s.databases {
+            let main_size = database.main_size() as u64;
+            let wal_size = database.wal_size() as u64;
 
             let header = snapshotDatabase {
                 filename: name.as_ptr(),
@@ -1161,7 +1311,7 @@ impl<'a> DqliteDirCreator<'a> {
 
     fn write_snapshot_data(
         &self,
-        s: &DqliteSnapshotBuilder<'a>,
+        s: &DqliteSnapshotBuilder<T>,
         mut data: impl Write,
     ) -> Result<()> {
         let mut write_buf = raft_buffer::default();
@@ -1173,18 +1323,10 @@ impl<'a> DqliteDirCreator<'a> {
         unsafe { sys::raft_free(write_buf.base) };
         result?; // Avoid leaking `header_buf` content.
 
-        for (name, content) in &s.databases {
-            let main_pages = content.main();
-            let main_size = self.page_size as u64 * main_pages.len() as u64;
+        for (name, database) in &s.databases {
+            let main_size = database.main_size() as u64;
 
-            let wal_pages = content.wal();
-            let wal_size = if wal_pages.len() == 0 {
-                0
-            } else {
-                WAL_HEADER_SIZE
-                    + (self.page_size + WAL_FRAME_HEADER_SIZE) * (wal_pages.len() - 1) as u64
-            };
-
+            let wal_size = database.wal_size() as u64;
             let header = snapshotDatabase {
                 filename: name.as_ptr(),
                 main_size,
@@ -1197,23 +1339,9 @@ impl<'a> DqliteDirCreator<'a> {
             unsafe { sys::snapshotDatabase__encode(&header, &mut cursor) };
 
             data.write_all(&write_buf)?;
-            for chunk in main_pages {
-                let chunk = chunk?;
-                assert!(chunk.len() as u64 == self.page_size);
-                data.write_all(&chunk)?;
-            }
-
-            let mut is_header = true;
-            for chunk in wal_pages {
-                let chunk = chunk?;
-                if is_header {
-                    is_header = false;
-                    assert!(chunk.len() as u64 == WAL_HEADER_SIZE);
-                } else {
-                    assert!(chunk.len() as u64 == self.page_size + WAL_FRAME_HEADER_SIZE);
-                }
-                data.write_all(&chunk)?;
-            }
+            // TODO: wrap a writer so that we are sure to write exactly main_size and wal_size bytes.
+            database.write_main(&mut data)?;
+            database.write_wal(&mut data)?;
         }
 
         Ok(())
@@ -1221,7 +1349,7 @@ impl<'a> DqliteDirCreator<'a> {
 
     fn write_snapshot_metadata(
         &self,
-        s: &DqliteSnapshotBuilder<'a>,
+        s: &DqliteSnapshotBuilder<T>,
         mut meta: impl Write,
     ) -> Result<()> {
         let mut config = raft_configuration::default();
@@ -1260,76 +1388,6 @@ impl<'a> DqliteDirCreator<'a> {
             .and_then(|_| meta.write_all(unsafe { config_buf.as_bytes() }));
         unsafe { sys::raft_free(config_buf.base) };
         result?; // Avoid leaking `config_buf` content.
-
-        Ok(())
-    }
-
-    fn write_snapshot(&self, s: &DqliteSnapshotBuilder<'a>, folder: &Path) -> Result<()> {
-        let mut path = {
-            let term = s.term;
-            let index = s.index;
-            let timestamp = s.timestamp.duration_since(UNIX_EPOCH)?.as_millis();
-            folder.join(format!("snapshot-{term}-{index}-{timestamp}"))
-        };
-
-        let file = File::create(&path)?;
-        if s.compressed {
-            self.write_compressed_snapshot_data(s, file)?;
-        } else {
-            self.write_snapshot_data(s, file)?;
-        }
-
-        path.set_extension("meta");
-        self.write_snapshot_metadata(s, File::create(&path)?)?;
-
-        Ok(())
-    }
-
-    pub fn create(self) -> Result<()> {
-        let mut err = RaftErrorStr::new();
-
-        let rc = unsafe {
-            sys::uvMetadataStore(
-                CString::new(self.dir.as_os_str().as_bytes())
-                    .unwrap()
-                    .as_ptr(),
-                &uvMetadata {
-                    version: 1,
-                    term: self.term,
-                    voted_for: self.voted_for,
-                },
-                err.as_mut_ptr(),
-            )
-        };
-        if rc != raft_result::OK {
-            return Err(anyhow!("cannot store metadata: {err}"));
-        }
-
-        let mut path = self.dir.clone();
-        let mut index = self.first_index;
-        for closed_segment in self.closed_segments.iter() {
-            let last_index = index + closed_segment.0.len() as u64 - 1;
-            path.push(format!("{index:0>16}-{last_index:0>16}"));
-
-            let mut file = File::create(path.as_path())?;
-            self.write_segment(&mut file, &closed_segment.0)?;
-
-            path.pop();
-            index = last_index + 1;
-        }
-
-        for (index, open_segment) in self.open_segments.iter().enumerate() {
-            path.push(format!("open-{index}"));
-
-            let mut file = File::create(path.as_path())?;
-            self.write_segment(&mut file, &open_segment.0)?;
-
-            path.pop();
-        }
-
-        for snapshot in &self.snapshots {
-            self.write_snapshot(snapshot, self.dir.as_path())?;
-        }
 
         Ok(())
     }
@@ -1519,6 +1577,7 @@ mod tests {
                 content: DqliteLogEntryContent::CommandUndo { tx_id: 1 },
             },
         ];
+
         DqliteDir::creator(dir.path())
             .with_term(3)
             .with_voted_for(1)
@@ -1547,10 +1606,31 @@ mod tests {
         drop(dir)
     }
 
+    #[derive(Debug, Eq, PartialEq)]
     struct TestDatabaseSnapshot {
         name: OsString,
         main: Vec<u8>,
         wal: Vec<u8>,
+    }
+
+    impl DqliteDatabaseWriter for &TestDatabaseSnapshot {
+        fn main_size(&self) -> usize {
+            self.main.len()
+        }
+
+        fn wal_size(&self) -> usize {
+            self.wal.len()
+        }
+
+        fn write_main(&self, out: &mut impl Write) -> Result<()> {
+            out.write_all(&self.main)?;
+            Ok(())
+        }
+
+        fn write_wal(&self, out: &mut impl Write) -> Result<()> {
+            out.write_all(&self.wal)?;
+            Ok(())
+        }
     }
 
     impl DqliteDatabaseLoader for &mut TestDatabaseSnapshot {
@@ -1597,8 +1677,16 @@ mod tests {
 
     fn test_snapshots(compressed: bool) {
         let dir = tempfile::tempdir().unwrap();
-        let content_db1 = [[0u8; 4096]];
-        let content_db2 = ([[1u8; 4096]], [[0u8; 32].as_ref(), [2u8; 4120].as_ref()]);
+        let db1 = TestDatabaseSnapshot {
+            name: OsString::from("db1"),
+            main: vec![1u8; 4096],
+            wal: Vec::new(),
+        };
+        let db2 = TestDatabaseSnapshot {
+            name: OsString::from("db2"),
+            main: vec![1u8; 4096],
+            wal: [[0u8; 32].as_ref(), &[2u8; 4120]].concat(),
+        };
 
         let configuration = RaftConfiguration {
             servers: vec![RaftServer {
@@ -1621,8 +1709,8 @@ mod tests {
                     .with_index(1)
                     .with_timestamp(timestamp)
                     .with_compression(compressed)
-                    .add_database(CString::new("db1").unwrap(), Box::new(&content_db1[..]))
-                    .add_database(CString::new("db2").unwrap(), Box::new(&content_db2))
+                    .add_database(CString::new("db1").unwrap(), &db1)
+                    .add_database(CString::new("db2").unwrap(), &db2)
             })
             .create()
             .unwrap();
@@ -1639,21 +1727,8 @@ mod tests {
         let databases = snapshots[0].read(TestSnapshotDecoder::new()).unwrap();
         assert_eq!(databases.len(), 2);
 
-        assert_eq!(databases[0].name, OsStr::new("db1"));
-        assert_eq!(databases[0].main, content_db1.as_flattened());
-        assert!(databases[0].wal.is_empty());
-
-        assert_eq!(databases[1].name, OsStr::new("db2"));
-        assert_eq!(databases[1].main, content_db2.0.as_flattened());
-        assert_eq!(
-            databases[1].wal,
-            content_db2
-                .1
-                .into_iter()
-                .flatten()
-                .cloned()
-                .collect::<Vec<u8>>()
-        );
+        assert_eq!(databases[0], db1);
+        assert_eq!(databases[1], db2);
     }
 
     #[test]
