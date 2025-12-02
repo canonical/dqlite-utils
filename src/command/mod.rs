@@ -9,6 +9,7 @@ use std::str::FromStr;
 use anyhow::anyhow;
 use strum::EnumIter;
 
+use crate::prompt::Prompt;
 use crate::{Context, Error, Result};
 
 use self::help::HelpCommand;
