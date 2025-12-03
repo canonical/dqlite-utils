@@ -230,4 +230,36 @@ raft_result uvLoadEntriesBatch(const struct raft_buffer *content,
                                size_t *offset, /* Offset of last batch */
                                bool *last, char errmsg[RAFT_ERRMSG_BUF_SIZE]);
 
+struct cursor {
+	const char *p; /* Next byte to read */
+	size_t cap;    /* Number of bytes left in the buffer */
+};
+
+struct snapshotHeader {
+  uint64_t format;
+  uint64_t n;
+};
+
+struct snapshotDatabase {
+  text_t filename;
+  uint64_t main_size;
+  uint64_t wal_size;
+};
+
+enum dqlite_result_code {
+  DQLITE_OK = 0,
+  DQLITE_ERROR,
+  DQLITE_MISUSE,
+  DQLITE_NOMEM,
+  DQLITE_PARSE = 1005,
+};
+
+typedef int dqlite_result;
+
+dqlite_result snapshotHeader__decode(struct cursor *cursor, struct snapshotHeader *p);
+
+size_t snapshotDatabase__sizeof(const struct snapshotDatabase *p);
+dqlite_result snapshotDatabase__decode(struct cursor *cursor, struct snapshotDatabase *p);
+void snapshotDatabase__encode(const struct snapshotDatabase *p, char **cursor);
+
 #endif /* DQLITE_INTERNAL_H */

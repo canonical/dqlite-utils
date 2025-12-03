@@ -58,6 +58,14 @@ impl Display for raft_result {
     }
 }
 
+impl dqlite_result {
+    pub const OK: Self = Self(dqlite_result_code::DQLITE_OK as _);
+    pub const ERROR: Self = Self(dqlite_result_code::DQLITE_ERROR as _);
+    pub const MISUSE: Self = Self(dqlite_result_code::DQLITE_MISUSE as _);
+    pub const NOMEM: Self = Self(dqlite_result_code::DQLITE_NOMEM as _);
+    pub const PARSE: Self = Self(dqlite_result_code::DQLITE_PARSE as _);
+}
+
 impl raft_buffer {
     pub unsafe fn as_bytes(&self) -> &[u8] {
         unsafe { std::slice::from_raw_parts(self.base as *const u8, self.len) }

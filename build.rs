@@ -20,7 +20,7 @@ impl ParseCallbacks for BindgenRules {
 
     fn add_derives(&self, info: &DeriveInfo<'_>) -> Vec<String> {
         match info.name {
-            "raft_result" => vec!["PartialEq".to_owned(), "Eq".to_owned()],
+            "raft_result" | "dqlite_result" => vec!["PartialEq".to_owned(), "Eq".to_owned()],
             _ => vec![],
         }
     }
@@ -64,6 +64,8 @@ fn main() {
         .constified_enum_module("raft_role")
         .constified_enum_module("raft_entry_type")
         .constified_enum_module("raft_command_type")
+        .new_type_alias("dqlite_result")
+        .constified_enum_module("dqlite_result_code")
         .parse_callbacks(Box::new(BindgenRules {
             ingore_macros: HashSet::new(),
         }))
