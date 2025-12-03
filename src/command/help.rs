@@ -192,6 +192,8 @@ impl Help {
     }
 }
 
+// NOTE: If the `typed_builder` crate is added, consider refactoring away this explicit
+// `HelpBuilder` implementation.
 #[derive(Default)]
 pub(crate) struct HelpBuilder<N, S> {
     name: N,
