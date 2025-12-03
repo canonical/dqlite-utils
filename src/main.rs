@@ -2,6 +2,7 @@ mod args;
 mod command;
 mod dqlite;
 mod utils;
+mod vfs;
 
 use std::io::{self, IsTerminal};
 use std::path::PathBuf;
