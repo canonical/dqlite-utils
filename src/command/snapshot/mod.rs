@@ -1,11 +1,23 @@
+mod finish;
+mod info;
+mod set_index;
+mod set_term;
+
+use std::cell::Cell;
+use std::fmt::Debug;
 use std::{fs, io::ErrorKind, path::PathBuf, time::SystemTime};
 
 use anyhow::{Context as _, anyhow};
 
 use crate::command::{UnknownCommand, UnrecognizedArgumentsError};
-use crate::dqlite::DqliteSnapshotBuilder;
+use crate::dqlite::{DqliteSnapshotBuilder, Empty};
 use crate::prompt::Prompt;
 use crate::{Context, Result, Shell};
+
+use self::finish::FinishCommand;
+use self::info::InfoCommand;
+use self::set_index::SetIndexCommand;
+use self::set_term::SetTermCommand;
 
 #[derive(Debug)]
 pub(crate) struct SnapshotCommand {
@@ -27,13 +39,6 @@ impl SnapshotCommand {
         let Self {
             snapshot_path: path,
         } = self;
-        let timestamp = SystemTime::now();
-
-        let dqlite = ctx.dqlite()?;
-        let term = dqlite.term();
-        let index = dqlite.first_index();
-        let builder = DqliteSnapshotBuilder::new(term, index, timestamp);
-
         match fs::read_dir(&path) {
             Ok(mut dir_reader) => {
                 if dir_reader.next().is_some() {
@@ -48,37 +53,65 @@ impl SnapshotCommand {
             }
         }
 
+        let dqlite = ctx.dqlite()?;
+        let term = dqlite.term();
+        let index = dqlite.first_index();
+        let timestamp = SystemTime::now();
+        let builder = Cell::new(DqliteSnapshotBuilder::new(term, index, timestamp));
         ctx.shell = Shell::Snapshot(SnapshotShell { path, builder });
+
         ctx.prompt = Prompt::new("snapshot");
         Ok(())
     }
 }
 
-#[derive(Debug)]
 pub struct SnapshotShell {
     path: PathBuf,
-    builder: DqliteSnapshotBuilder<()>,
+    builder: Cell<DqliteSnapshotBuilder<Empty>>,
+}
+
+impl Debug for SnapshotShell {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let Self { path, builder: _ } = self;
+        f.debug_struct("SnapshotShell")
+            .field("path", path)
+            .finish_non_exhaustive()
+    }
 }
 
 pub enum SnapshotShellCommand {
-    Finish,
+    Finish(FinishCommand),
+    Info(InfoCommand),
+    SetIndex(SetIndexCommand),
+    SetTerm(SetTermCommand),
 }
 
 impl SnapshotShellCommand {
     pub fn try_from_input(command: &str, args: &[String]) -> Result<Self> {
         match command {
-            "finish" => Ok(Self::Finish),
+            "finish" => Ok(Self::Finish(FinishCommand::try_from_args(args)?)),
+            "info" => Ok(Self::Info(InfoCommand::try_from_args(args)?)),
+            "set-index" => Ok(Self::SetIndex(SetIndexCommand::try_from_args(args)?)),
+            "set-term" => Ok(Self::SetTerm(SetTermCommand::try_from_args(args)?)),
             _ => Err(UnknownCommand.into()),
         }
     }
 
     pub fn name(&self) -> &'static str {
         match self {
-            Self::Finish => "finish",
+            Self::Finish(_) => "finish",
+            Self::Info(_) => "info",
+            Self::SetIndex(_) => "set-index",
+            Self::SetTerm(_) => "set-term",
         }
     }
 
-    pub fn run(self, _ctx: &mut Context) -> Result<()> {
-        todo!("run snapshot command")
+    pub fn run(self, ctx: &mut Context) -> Result<()> {
+        match self {
+            Self::Finish(cmd) => cmd.run(ctx),
+            Self::Info(cmd) => cmd.run(ctx),
+            Self::SetIndex(cmd) => cmd.run(ctx),
+            Self::SetTerm(cmd) => cmd.run(ctx),
+        }
     }
 }

@@ -4,7 +4,7 @@ use std::{
     borrow::Cow,
     cmp,
     ffi::{CStr, CString, OsStr, OsString, c_char, c_int, c_uint, c_void},
-    fmt::Debug,
+    fmt::{Debug, Display},
     fs::File,
     io::{self, Read, Seek, SeekFrom, Write},
     ops::{Deref, DerefMut, RangeInclusive},
@@ -16,6 +16,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow};
+use indoc::writedoc;
 use lz4_flex::frame::{BlockMode, FrameDecoder, FrameEncoder, FrameInfo};
 
 use crate::dqlite::sys::{cursor, dqlite_result};
@@ -367,6 +368,16 @@ pub enum RaftRole {
     Standby,
     Voter,
     Spare,
+}
+
+impl Display for RaftRole {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Standby => write!(f, "standby"),
+            Self::Voter => write!(f, "voter"),
+            Self::Spare => write!(f, "spare"),
+        }
+    }
 }
 
 impl RaftServer {
@@ -941,6 +952,12 @@ pub struct DqliteSnapshotBuilder<T> {
     configuration: Option<RaftConfiguration>,
 }
 
+// impl<T> Default for DqliteSnapshotBuilder<T> {
+//     fn default() -> Self {
+//         Self::new(1, 1, SystemTime::now())
+//     }
+// }
+
 impl<T> DqliteSnapshotBuilder<T> {
     // TODO(kcza): make this private again.
     pub(crate) fn new(term: u64, index: u64, timestamp: SystemTime) -> Self {
@@ -1007,6 +1024,19 @@ impl DqliteSnapshotBuilder<Empty> {
     }
 }
 
+impl Default for DqliteSnapshotBuilder<Empty> {
+    fn default() -> Self {
+        Self {
+            term: 1,
+            index: 1,
+            timestamp: SystemTime::UNIX_EPOCH,
+            compressed: false,
+            configuration: None,
+            databases: Vec::new(),
+        }
+    }
+}
+
 impl<T> DqliteSnapshotBuilder<T>
 where
     T: DqliteDatabaseWriter,
@@ -1014,6 +1044,48 @@ where
     pub fn add_database(mut self, name: CString, content: T) -> Self {
         self.databases.push((name, content));
         self
+    }
+}
+
+impl<T> Display for DqliteSnapshotBuilder<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let Self {
+            term,
+            index,
+            timestamp,
+            configuration,
+            compressed,
+            databases,
+        } = self;
+        let _ = timestamp; // TODO(kcza): format this!
+        let _ = databases; // TODO(kcza): format this!
+        writedoc!(
+            f,
+            "
+                term: {term}
+                index: {index}
+                timestamp: TODO
+                compressed: {compressed}
+                databases: TODO
+            "
+        )?;
+        if let Some(configuration) = configuration {
+            writeln!(f, "configuration:")?;
+            for server in &configuration.servers {
+                let RaftServer { id, address, role } = server;
+                writedoc!(
+                    f,
+                    "
+                        - id: {id}
+                          address: {address}
+                          role: {role}
+                    "
+                )?;
+            }
+        } else {
+            writeln!(f, "configuration: -")?;
+        }
+        Ok(())
     }
 }
 

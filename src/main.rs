@@ -207,8 +207,9 @@ impl Context {
 #[error("no open dqlite directory")]
 struct NoOpenDqliteDir;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub enum Shell {
+    #[default]
     Root,
     Snapshot(SnapshotShell),
 }
@@ -218,6 +219,20 @@ impl Shell {
         match self {
             Self::Root => "root",
             Self::Snapshot(_) => "snapshot",
+        }
+    }
+
+    fn snapshot(&self) -> Option<&SnapshotShell> {
+        match self {
+            Self::Snapshot(shell) => Some(shell),
+            _ => None,
+        }
+    }
+
+    fn snapshot_mut(&mut self) -> Option<&mut SnapshotShell> {
+        match self {
+            Self::Snapshot(shell) => Some(shell),
+            _ => None,
         }
     }
 }
