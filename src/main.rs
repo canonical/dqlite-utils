@@ -10,14 +10,14 @@ use std::process::ExitCode;
 
 use anyhow::{Context as _, anyhow};
 use clap::Parser;
-use owo_colors::{OwoColorize, Stream, Style};
+use command::snapshot::SnapshotShell;
+use owo_colors::Style;
 use rustyline::Editor;
 use rustyline::error::ReadlineError;
 use rustyline::history::DefaultHistory;
 
 use self::args::Args;
 use self::command::Command;
-use self::command::quit::QuitCommand;
 use self::dqlite::{DqliteDir, NoMetadataError};
 use self::prompt::Prompt;
 use self::utils::TerminalStylizeExt;
@@ -68,12 +68,33 @@ fn exec(args: Args) -> Result<()> {
     }
 }
 
-fn run_interactive(command_reader: InteractiveCommandReader, mut ctx: Context) -> Result<()> {
-    for command in command_reader {
-        let res = command.run(&mut ctx);
-        if let Err(err) = res {
+fn run_interactive(mut command_reader: InteractiveCommandReader, mut ctx: Context) -> Result<()> {
+    loop {
+        let command = match command_reader.next_command(&ctx) {
+            Ok(Some(command)) => command,
+            Ok(None) => continue,
+            Err(err) => match err.downcast_ref() {
+                Some(ReadlineError::Interrupted) => {
+                    eprintln!(
+                        "{}",
+                        "(Press Ctrl+D or type 'quit' to exit)"
+                            .terminal_style(InteractiveCommandReader::ERROR_STYLE)
+                    );
+                    continue;
+                }
+                Some(ReadlineError::Eof) => break,
+                _ => {
+                    eprintln!(
+                        "{}",
+                        err.terminal_style(InteractiveCommandReader::ERROR_STYLE)
+                    );
+                    continue;
+                }
+            },
+        };
+        if let Err(err) = command.run(&mut ctx) {
             println!(
-                "{}",
+                "{:?}",
                 err.terminal_style(InteractiveCommandReader::ERROR_STYLE)
             );
         }
@@ -90,8 +111,6 @@ fn run_batch(commands: impl IntoIterator<Item = Command>, mut ctx: Context) -> R
 
 struct InteractiveCommandReader {
     history_path: Option<PathBuf>,
-
-    prompt: Prompt,
 
     // TODO(kcza): improve completion.
     line_editor: Editor<(), DefaultHistory>,
@@ -112,16 +131,14 @@ impl InteractiveCommandReader {
             eprintln!("cannot load history");
         }
 
-        let prompt = Prompt::default();
         Ok(Self {
             history_path,
-            prompt,
             line_editor,
         })
     }
 
-    fn next_command(&mut self) -> Result<Option<Command>> {
-        let line = self.line_editor.readline(self.prompt.as_str())?;
+    fn next_command(&mut self, ctx: &Context) -> Result<Option<Command>> {
+        let line = self.line_editor.readline(ctx.prompt.as_str())?;
         let trimmed_line = line.trim();
         let ret = trimmed_line.parse().map(Some);
         self.line_editor.add_history_entry(line)?;
@@ -134,34 +151,6 @@ impl Drop for InteractiveCommandReader {
         if let Some(history_path) = &self.history_path {
             if let Err(err) = self.line_editor.save_history(history_path) {
                 eprintln!("cannot save history: {err}");
-            }
-        }
-    }
-}
-
-impl Iterator for InteractiveCommandReader {
-    type Item = Command;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            match self.next_command() {
-                Ok(Some(command)) => return Some(command),
-                Ok(None) => continue,
-                Err(err) => match err.downcast_ref() {
-                    Some(ReadlineError::Interrupted) => {
-                        eprintln!(
-                            "{}",
-                            "(Press Ctrl+D or type 'quit' to exit)"
-                                .if_supports_color(Stream::Stderr, |text| text
-                                    .style(Self::ERROR_STYLE))
-                        )
-                    }
-                    Some(ReadlineError::Eof) => return Some(Command::Quit(QuitCommand)),
-                    _ => eprintln!(
-                        "{}",
-                        err.if_supports_color(Stream::Stderr, |text| text.style(Self::ERROR_STYLE))
-                    ),
-                },
             }
         }
     }
@@ -190,11 +179,17 @@ fn stdin_commands() -> impl Iterator<Item = Command> {
 #[derive(Debug)]
 pub struct Context {
     pub dqlite: Option<DqliteDir>,
+    pub shell: Shell,
+    pub prompt: Prompt,
 }
 
 impl Context {
     fn new() -> Self {
-        Self { dqlite: None }
+        Self {
+            dqlite: None,
+            shell: Shell::Root,
+            prompt: Prompt::default(),
+        }
     }
 
     fn open(&mut self, dir_path: impl Into<PathBuf>) -> Result<&DqliteDir> {
@@ -211,3 +206,18 @@ impl Context {
 #[derive(Debug, thiserror::Error)]
 #[error("no open dqlite directory")]
 struct NoOpenDqliteDir;
+
+#[derive(Debug)]
+pub enum Shell {
+    Root,
+    Snapshot(SnapshotShell),
+}
+
+impl Shell {
+    fn name(&self) -> &'static str {
+        match self {
+            Self::Root => "root",
+            Self::Snapshot(_) => "snapshot",
+        }
+    }
+}

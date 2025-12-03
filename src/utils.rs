@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 use std::io::{self, IsTerminal, StdoutLock, Write};
 use std::process::{Child, Command, Stdio};
 
@@ -66,11 +66,11 @@ impl Drop for Pager {
 
 /// Reduce boilerplates when applying styles.
 pub(crate) trait TerminalStylizeExt {
-    fn terminal_style(&self, style: Style) -> impl Display;
+    fn terminal_style(&self, style: Style) -> impl Debug + Display;
 }
 
-impl<T: OwoColorize + Display> TerminalStylizeExt for T {
-    fn terminal_style(&self, style: owo_colors::Style) -> impl Display {
+impl<T: OwoColorize + Debug + Display> TerminalStylizeExt for T {
+    fn terminal_style(&self, style: owo_colors::Style) -> impl Debug + Display {
         self.if_supports_color(Stream::Stdout, move |t| t.style(style))
     }
 }

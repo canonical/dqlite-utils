@@ -1,43 +1,28 @@
 mod help;
 mod log;
 pub(crate) mod quit;
+pub(crate) mod snapshot;
 mod status;
 
 use std::io::{self, Write};
 use std::str::FromStr;
 
-use anyhow::anyhow;
+use anyhow::{Error, anyhow};
 use strum::EnumIter;
 
-use crate::prompt::Prompt;
-use crate::{Context, Error, Result};
+use crate::{Context, Result, Shell};
 
 use self::help::HelpCommand;
 use self::log::LogCommand;
 use self::quit::QuitCommand;
+use self::snapshot::{SnapshotCommand, SnapshotShellCommand};
 use self::status::StatusCommand;
 
-#[derive(Debug)]
 pub enum Command {
     // NOTE: when adding new commands, remember to add them to the general `help` output.
-    Quit(QuitCommand),
-    Status(StatusCommand),
-    Help(HelpCommand),
-    Log(LogCommand),
-
     Noop,
-}
-
-impl Command {
-    pub fn run(self, ctx: &mut Context) -> Result<()> {
-        match self {
-            Self::Noop => Ok(()),
-            Self::Quit(cmd) => cmd.run(ctx),
-            Self::Status(cmd) => cmd.run(ctx),
-            Self::Help(cmd) => cmd.run(ctx),
-            Self::Log(cmd) => cmd.run(ctx),
-        }
-    }
+    Root(RootCommand),
+    Snapshot(SnapshotShellCommand),
 }
 
 impl FromStr for Command {
@@ -49,11 +34,38 @@ impl FromStr for Command {
             Some((command, args)) => (command, args),
             None => return Ok(Self::Noop),
         };
-        match command.parse()? {
-            CommandKind::Status => Ok(Self::Status(StatusCommand::try_from_args(args)?)),
-            CommandKind::Log => Ok(Self::Log(LogCommand::try_from_args(args)?)),
-            CommandKind::Help => Ok(Self::Help(HelpCommand::try_from_args(args)?)),
-            CommandKind::Quit => Ok(Self::Quit(QuitCommand::try_from_args(args)?)),
+
+        // NOTE: All commands share the same namespace, thereby allowing us to successfully
+        // parse all commands ahead of time, without knowing their effect on the Context;
+        // availability is checked later.
+        match RootCommand::try_from_input(command, args) {
+            Ok(cmd) => return Ok(Self::Root(cmd)),
+            Err(err) if err.is::<UnknownCommand>() => {}
+            Err(err) => return Err(err),
+        }
+        let cmd = SnapshotShellCommand::try_from_input(command, args)?;
+        Ok(Self::Snapshot(cmd))
+    }
+}
+
+impl Command {
+    pub fn run(self, ctx: &mut Context) -> Result<()> {
+        match (self, &ctx.shell) {
+            (Self::Noop, _) => Ok(()),
+            (Self::Root(cmd), Shell::Root) => cmd.run(ctx),
+            (Self::Root(cmd), _) => {
+                return Err(Error::from(CommandUnavailable {
+                    command_name: cmd.name(),
+                    shell_name: ctx.shell.name(),
+                }));
+            }
+            (Self::Snapshot(cmd), Shell::Snapshot(_)) => cmd.run(ctx),
+            (Self::Snapshot(cmd), _) => {
+                return Err(Error::from(CommandUnavailable {
+                    command_name: cmd.name(),
+                    shell_name: ctx.shell.name(),
+                }));
+            }
         }
     }
 }
@@ -112,8 +124,59 @@ impl FromStr for CommandKind {
 }
 
 #[derive(Debug, thiserror::Error)]
+#[error("{command_name} command unavailable in {shell_name} shell")]
+struct CommandUnavailable {
+    command_name: &'static str,
+    shell_name: &'static str,
+}
+
+#[derive(Debug)]
+pub enum RootCommand {
+    Quit(QuitCommand),
+    Status(StatusCommand),
+    Log(LogCommand),
+    Snapshot(SnapshotCommand),
+}
+
+impl RootCommand {
+    pub fn run(self, ctx: &mut Context) -> Result<()> {
+        match self {
+            Self::Quit(cmd) => cmd.run(ctx),
+            Self::Status(cmd) => cmd.run(ctx),
+            Self::Log(cmd) => cmd.run(ctx),
+            Self::Snapshot(cmd) => cmd.run(ctx),
+        }
+    }
+
+    fn name(&self) -> &'static str {
+        match self {
+            Self::Quit(_) => "quit",
+            Self::Status(_) => "status",
+            Self::Log(_) => "log",
+            Self::Snapshot(_) => "snapshot",
+        }
+    }
+}
+
+impl RootCommand {
+    fn try_from_input(command: &str, args: &[String]) -> Result<Self> {
+        match command {
+            "status" => Ok(Self::Status(StatusCommand::try_from_args(args)?)),
+            "log" => Ok(Self::Log(LogCommand::try_from_args(args)?)),
+            "quit" => Ok(Self::Quit(QuitCommand::try_from_args(args)?)),
+            "snapshot" => Ok(Self::Snapshot(SnapshotCommand::try_from_args(args)?)),
+            _ => Err(UnknownCommand.into()),
+        }
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
 #[error("unrecognized arguments: {_0:?}")]
 struct UnrecognizedArgumentsError(Vec<String>);
+
+#[derive(Debug, thiserror::Error)]
+#[error("unknown command")]
+struct UnknownCommand;
 
 #[cfg(test)]
 mod tests {

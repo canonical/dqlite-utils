@@ -931,6 +931,7 @@ pub trait DqliteDatabaseWriter {
 
 pub struct Empty;
 
+#[derive(Debug)]
 pub struct DqliteSnapshotBuilder<T> {
     term: u64,
     index: u64,
@@ -941,7 +942,8 @@ pub struct DqliteSnapshotBuilder<T> {
 }
 
 impl<T> DqliteSnapshotBuilder<T> {
-    fn new(term: u64, index: u64, timestamp: SystemTime) -> Self {
+    // TODO(kcza): make this private again.
+    pub(crate) fn new(term: u64, index: u64, timestamp: SystemTime) -> Self {
         Self {
             term,
             index,
