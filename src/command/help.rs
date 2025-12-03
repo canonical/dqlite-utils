@@ -2,7 +2,6 @@ use std::io::{self, ErrorKind, Write};
 
 use owo_colors::Style;
 use strum::IntoEnumIterator;
-use typed_builder::TypedBuilder;
 
 use crate::utils::TerminalStylizeExt;
 use crate::{Context, Result};
@@ -73,71 +72,25 @@ impl HelpCommand {
     }
 }
 
-pub(crate) struct HelpEntry<K> {
+struct HelpEntry<K> {
     kind: K,
     name: &'static str,
     summary: &'static str,
 }
 
-pub(crate) struct Arg {
+struct Arg {
     optional: bool,
 }
-pub(crate) struct Flag;
+struct Flag;
 // NOTE: short name to avoid clash with `crate::Command` type.
-pub(crate) struct Cmd;
+struct Cmd;
 
-#[derive(TypedBuilder)]
-#[builder(mutators(
-    pub(crate) fn add_arg(&mut self, name: &'static str, summary: &'static str) {
-        self.args.push(HelpEntry {
-            name,
-            kind: Arg {
-                optional: false,
-            },
-            summary,
-        });
-    }
-
-    pub(crate) fn add_optional_arg(&mut self, name: &'static str, summary: &'static str) {
-        self.args.push(HelpEntry {
-            name,
-            kind: Arg {
-                optional: true,
-            },
-            summary,
-        });
-    }
-
-    pub(crate) fn add_flag(&mut self, name: &'static str, summary: &'static str) {
-        self.flags.push(HelpEntry {
-            name,
-            kind: Flag,
-            summary,
-        });
-    }
-
-    pub(crate) fn add_command(&mut self, name: &'static str, summary: &'static str) {
-        self.commands.push(HelpEntry {
-            name,
-            kind: Cmd,
-            summary,
-        });
-    }
-))]
 pub(crate) struct Help {
     name: &'static str,
     summary: &'static str,
-
-    #[builder(setter(strip_bool))]
     skip_usage: bool,
-
-    #[builder(default, via_mutators)]
     args: Vec<HelpEntry<Arg>>,
-
-    #[builder(default, via_mutators)]
     flags: Vec<HelpEntry<Flag>>,
-
-    #[builder(default, via_mutators)]
     commands: Vec<HelpEntry<Cmd>>,
 }
 
@@ -145,6 +98,10 @@ impl Help {
     const HEADING_STYLE: Style = Style::new().bold().green();
     const PARAM_STYLE: Style = Style::new().bold().cyan();
     const USAGE_PARAM_STYLE: Style = Style::new().cyan();
+
+    pub(crate) fn builder() -> HelpBuilder<(), ()> {
+        HelpBuilder::default()
+    }
 
     pub(crate) fn write_to(self, mut w: impl Write) -> io::Result<()> {
         let name = self.name.terminal_style(Self::PARAM_STYLE);
@@ -234,12 +191,140 @@ impl Help {
     }
 }
 
+#[derive(Default)]
+pub(crate) struct HelpBuilder<N, S> {
+    name: N,
+    summary: S,
+    skip_usage: bool,
+    args: Vec<HelpEntry<Arg>>,
+    flags: Vec<HelpEntry<Flag>>,
+    commands: Vec<HelpEntry<Cmd>>,
+}
+
+pub(crate) struct WithName {
+    name: &'static str,
+}
+
+impl<N, S> HelpBuilder<N, S> {
+    pub(crate) fn name(self, name: &'static str) -> HelpBuilder<WithName, S> {
+        let Self {
+            name: _,
+            summary,
+            skip_usage,
+            args,
+            flags,
+            commands,
+        } = self;
+        let name = WithName { name };
+        HelpBuilder {
+            name,
+            summary,
+            skip_usage,
+            args,
+            flags,
+            commands,
+        }
+    }
+}
+
+pub(crate) struct WithSummary {
+    summary: &'static str,
+}
+
+impl<N, S> HelpBuilder<N, S> {
+    pub(crate) fn summary(self, summary: &'static str) -> HelpBuilder<N, WithSummary> {
+        let Self {
+            name,
+            summary: _,
+            skip_usage,
+            args,
+            flags,
+            commands,
+        } = self;
+        let summary = WithSummary { summary };
+        HelpBuilder {
+            name,
+            summary,
+            skip_usage,
+            args,
+            flags,
+            commands,
+        }
+    }
+}
+
+impl<N, S> HelpBuilder<N, S> {
+    pub(crate) fn skip_usage(mut self) -> Self {
+        self.skip_usage = true;
+        self
+    }
+
+    #[allow(unused)]
+    pub(crate) fn add_arg(mut self, name: &'static str, summary: &'static str) -> Self {
+        self.args.push(HelpEntry {
+            name,
+            kind: Arg { optional: false },
+            summary,
+        });
+        self
+    }
+
+    pub(crate) fn add_optional_arg(mut self, name: &'static str, summary: &'static str) -> Self {
+        self.args.push(HelpEntry {
+            name,
+            kind: Arg { optional: true },
+            summary,
+        });
+        self
+    }
+
+    pub(crate) fn add_flag(mut self, name: &'static str, summary: &'static str) -> Self {
+        self.flags.push(HelpEntry {
+            name,
+            kind: Flag,
+            summary,
+        });
+        self
+    }
+
+    pub(crate) fn add_command(mut self, name: &'static str, summary: &'static str) -> Self {
+        self.commands.push(HelpEntry {
+            name,
+            kind: Cmd,
+            summary,
+        });
+        self
+    }
+}
+
+impl HelpBuilder<WithName, WithSummary> {
+    pub(crate) fn build(self) -> Help {
+        let Self {
+            name: WithName { name },
+            summary: WithSummary { summary },
+            skip_usage,
+            args,
+            flags,
+            commands,
+        } = self;
+        Help {
+            name,
+            summary,
+            skip_usage,
+            args,
+            flags,
+            commands,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::borrow::Cow;
     use std::io::Cursor;
 
     use googletest::expect_that;
+
     use googletest::matchers::contains_substring;
     use strum::IntoEnumIterator;
 
