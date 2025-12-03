@@ -462,7 +462,7 @@ impl DqliteSnapshot {
     }
 
     fn is_compressed(file: &mut File) -> Result<bool> {
-        const LZ4_MAGIC: [u8; 4] = 0x184D2204u32.to_le_bytes();
+        const LZ4_MAGIC: [u8; 4] = 0x184d2204_u32.to_le_bytes();
         let mut header = [0u8; 4];
         file.read_exact_at(&mut header, 0)?;
         Ok(header == LZ4_MAGIC)
