@@ -176,8 +176,10 @@ impl Help {
             .max()
             .expect("internal error: no max of non-empty list");
 
-        // Static padding string to avoid allocations. If too short, add more spaces.
-        const PADDING: &str = "                         ";
+        const PADDING: &str = match str::from_utf8(&[b' '; 80]) {
+            Ok(padding) => padding,
+            Err(_) => unreachable!(),
+        };
         let padding_to = |intended_len, word: &str| {
             assert!(intended_len < PADDING.len());
             &PADDING[..intended_len - word.len()]
