@@ -1,3 +1,4 @@
+mod add_server;
 mod finish;
 mod info;
 mod set_index;
@@ -15,6 +16,7 @@ use crate::dqlite::{DqliteSnapshotBuilder, Empty};
 use crate::prompt::Prompt;
 use crate::{Context, Result, Shell};
 
+use self::add_server::AddServerCommand;
 use self::finish::FinishCommand;
 use self::info::InfoCommand;
 use self::set_index::SetIndexCommand;
@@ -82,6 +84,7 @@ impl Debug for SnapshotShell {
 }
 
 pub enum SnapshotShellCommand {
+    AddServer(AddServerCommand),
     Finish(FinishCommand),
     Info(InfoCommand),
     SetIndex(SetIndexCommand),
@@ -92,6 +95,7 @@ pub enum SnapshotShellCommand {
 impl SnapshotShellCommand {
     pub fn try_from_input(command: &str, args: &[String]) -> Result<Self> {
         match command {
+            "add-server" => Ok(Self::AddServer(AddServerCommand::try_from_args(args)?)),
             "finish" => Ok(Self::Finish(FinishCommand::try_from_args(args)?)),
             "info" => Ok(Self::Info(InfoCommand::try_from_args(args)?)),
             "set-index" => Ok(Self::SetIndex(SetIndexCommand::try_from_args(args)?)),
@@ -105,6 +109,7 @@ impl SnapshotShellCommand {
 
     pub fn name(&self) -> &'static str {
         match self {
+            Self::AddServer(_) => "add-server",
             Self::Finish(_) => "finish",
             Self::Info(_) => "info",
             Self::SetIndex(_) => "set-index",
@@ -115,6 +120,7 @@ impl SnapshotShellCommand {
 
     pub fn run(self, ctx: &mut Context) -> Result<()> {
         match self {
+            Self::AddServer(cmd) => cmd.run(ctx),
             Self::Finish(cmd) => cmd.run(ctx),
             Self::Info(cmd) => cmd.run(ctx),
             Self::SetIndex(cmd) => cmd.run(ctx),

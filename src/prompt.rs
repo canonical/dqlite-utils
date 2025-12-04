@@ -5,7 +5,7 @@ use owo_colors::Style;
 use crate::utils::TerminalStylizeExt;
 
 #[derive(Debug)]
-pub(crate) struct Prompt {
+pub struct Prompt {
     content: String,
 }
 

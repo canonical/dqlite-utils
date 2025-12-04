@@ -3,7 +3,7 @@ mod sys;
 use std::{
     borrow::Cow,
     cmp,
-    ffi::{c_char, c_int, c_uint, c_void, CStr, CString, OsStr, OsString},
+    ffi::{CStr, CString, OsStr, OsString, c_char, c_int, c_uint, c_void},
     fmt::{self, Debug, Display},
     fs::File,
     io::{self, Read, Seek, SeekFrom, Write},
@@ -11,22 +11,25 @@ use std::{
     os::unix::{ffi::OsStrExt, fs::FileExt},
     path::{Path, PathBuf},
     ptr,
+    str::FromStr,
     sync::Mutex,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use indoc::writedoc;
 use lz4_flex::frame::{BlockMode, FrameDecoder, FrameEncoder, FrameInfo};
-use time::{format_description::well_known::Iso8601, UtcDateTime};
+use time::{UtcDateTime, format_description::well_known::Iso8601};
 
 use crate::dqlite::sys::{cursor, dqlite_result};
 
+use crate::Error;
+
 use self::sys::{
-    command_checkpoint, command_frames, command_open, command_undo, frames_t, raft_buffer,
-    raft_command_type, raft_configuration, raft_entry, raft_entry_type, raft_result, raft_role,
-    raft_server, raft_snapshot, snapshotDatabase, snapshotHeader, uvMetadata, uvSegmentBuffer,
-    uvSegmentInfo, uvSnapshotInfo, uv_buf_t, RAFT_ERRMSG_BUF_SIZE,
+    RAFT_ERRMSG_BUF_SIZE, command_checkpoint, command_frames, command_open, command_undo, frames_t,
+    raft_buffer, raft_command_type, raft_configuration, raft_entry, raft_entry_type, raft_result,
+    raft_role, raft_server, raft_snapshot, snapshotDatabase, snapshotHeader, uv_buf_t, uvMetadata,
+    uvSegmentBuffer, uvSegmentInfo, uvSnapshotInfo,
 };
 
 #[derive(thiserror::Error)]
@@ -337,6 +340,12 @@ impl RaftConfiguration {
         Ok(Self { servers })
     }
 
+    pub fn empty() -> Self {
+        Self {
+            servers: Vec::new(),
+        }
+    }
+
     fn to_raw(&self) -> Result<raft_configuration> {
         let mut c = raft_configuration::default();
         unsafe { sys::configurationInit(&mut c) };
@@ -369,6 +378,19 @@ pub enum RaftRole {
     Standby,
     Voter,
     Spare,
+}
+
+impl FromStr for RaftRole {
+    type Err = Error;
+
+    fn from_str(raw: &str) -> Result<Self> {
+        match raw {
+            "standby" => Ok(Self::Standby),
+            "voter" => Ok(Self::Voter),
+            "spare" => Ok(Self::Spare),
+            _ => Err(anyhow!("cannot parse {raw} as raft role")),
+        }
+    }
 }
 
 impl Display for RaftRole {
@@ -994,6 +1016,14 @@ impl<T> DqliteSnapshotBuilder<T> {
 
     pub fn with_compression(mut self, compressed: bool) -> Self {
         self.compressed = compressed;
+        self
+    }
+
+    pub fn add_server(mut self, server: RaftServer) -> Self {
+        self.configuration
+            .get_or_insert_with(|| RaftConfiguration::empty())
+            .servers
+            .push(server);
         self
     }
 }
