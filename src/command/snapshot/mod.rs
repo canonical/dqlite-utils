@@ -2,6 +2,7 @@ mod finish;
 mod info;
 mod set_index;
 mod set_term;
+mod set_timestamp;
 
 use std::cell::Cell;
 use std::fmt::Debug;
@@ -18,6 +19,7 @@ use self::finish::FinishCommand;
 use self::info::InfoCommand;
 use self::set_index::SetIndexCommand;
 use self::set_term::SetTermCommand;
+use self::set_timestamp::SetTimestampCommand;
 
 #[derive(Debug)]
 pub(crate) struct SnapshotCommand {
@@ -84,6 +86,7 @@ pub enum SnapshotShellCommand {
     Info(InfoCommand),
     SetIndex(SetIndexCommand),
     SetTerm(SetTermCommand),
+    SetTimestamp(SetTimestampCommand),
 }
 
 impl SnapshotShellCommand {
@@ -93,6 +96,9 @@ impl SnapshotShellCommand {
             "info" => Ok(Self::Info(InfoCommand::try_from_args(args)?)),
             "set-index" => Ok(Self::SetIndex(SetIndexCommand::try_from_args(args)?)),
             "set-term" => Ok(Self::SetTerm(SetTermCommand::try_from_args(args)?)),
+            "set-timestamp" => Ok(Self::SetTimestamp(SetTimestampCommand::try_from_args(
+                args,
+            )?)),
             _ => Err(UnknownCommand.into()),
         }
     }
@@ -103,6 +109,7 @@ impl SnapshotShellCommand {
             Self::Info(_) => "info",
             Self::SetIndex(_) => "set-index",
             Self::SetTerm(_) => "set-term",
+            Self::SetTimestamp(_) => "set-timestamp",
         }
     }
 
@@ -112,6 +119,7 @@ impl SnapshotShellCommand {
             Self::Info(cmd) => cmd.run(ctx),
             Self::SetIndex(cmd) => cmd.run(ctx),
             Self::SetTerm(cmd) => cmd.run(ctx),
+            Self::SetTimestamp(cmd) => cmd.run(ctx),
         }
     }
 }

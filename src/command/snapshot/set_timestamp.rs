@@ -1,0 +1,38 @@
+use std::time::SystemTime;
+
+use anyhow::{Context as _, anyhow};
+use time::{UtcDateTime, format_description::well_known::Iso8601};
+
+use crate::{
+    Context, Result,
+    command::{MissingArgumentError, UnrecognizedArgumentsError},
+};
+
+pub(crate) struct SetTimestampCommand {
+    timestamp: SystemTime,
+}
+
+impl SetTimestampCommand {
+    pub(crate) fn try_from_args(args: &[String]) -> Result<Self> {
+        let timestamp = match args {
+            [] => return Err(MissingArgumentError("timestamp").into()),
+            [timestamp] => timestamp,
+            [_, tail @ ..] => return Err(UnrecognizedArgumentsError(tail.to_vec()).into()),
+        };
+        let timestamp =
+            UtcDateTime::parse(timestamp, &Iso8601::DEFAULT).context("cannot parse timestamp")?;
+        let timestamp = SystemTime::from(timestamp);
+        Ok(Self { timestamp })
+    }
+
+    pub(crate) fn run(self, ctx: &mut Context) -> Result<()> {
+        let Self { timestamp } = self;
+        let shell = ctx.shell.snapshot_mut().ok_or_else(|| {
+            anyhow!("internal error: finish command not called in snapshot shell")
+        })?;
+        shell
+            .builder
+            .set(shell.builder.take().with_timestamp(timestamp));
+        Ok(())
+    }
+}

@@ -25,7 +25,8 @@ impl InfoCommand {
         let dir_path = path.display();
         printdoc! {r#"
             dir: {dir_path}
-            {b}"#};
+            {b}"#
+        };
 
         builder.set(b);
         Ok(())

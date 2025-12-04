@@ -3,8 +3,8 @@ mod sys;
 use std::{
     borrow::Cow,
     cmp,
-    ffi::{CStr, CString, OsStr, OsString, c_char, c_int, c_uint, c_void},
-    fmt::{Debug, Display},
+    ffi::{c_char, c_int, c_uint, c_void, CStr, CString, OsStr, OsString},
+    fmt::{self, Debug, Display},
     fs::File,
     io::{self, Read, Seek, SeekFrom, Write},
     ops::{Deref, DerefMut, RangeInclusive},
@@ -15,17 +15,18 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{anyhow, Context, Result};
 use indoc::writedoc;
 use lz4_flex::frame::{BlockMode, FrameDecoder, FrameEncoder, FrameInfo};
+use time::{format_description::well_known::Iso8601, UtcDateTime};
 
 use crate::dqlite::sys::{cursor, dqlite_result};
 
 use self::sys::{
-    RAFT_ERRMSG_BUF_SIZE, command_checkpoint, command_frames, command_open, command_undo, frames_t,
-    raft_buffer, raft_command_type, raft_configuration, raft_entry, raft_entry_type, raft_result,
-    raft_role, raft_server, raft_snapshot, snapshotDatabase, snapshotHeader, uv_buf_t, uvMetadata,
-    uvSegmentBuffer, uvSegmentInfo, uvSnapshotInfo,
+    command_checkpoint, command_frames, command_open, command_undo, frames_t, raft_buffer,
+    raft_command_type, raft_configuration, raft_entry, raft_entry_type, raft_result, raft_role,
+    raft_server, raft_snapshot, snapshotDatabase, snapshotHeader, uvMetadata, uvSegmentBuffer,
+    uvSegmentInfo, uvSnapshotInfo, uv_buf_t, RAFT_ERRMSG_BUF_SIZE,
 };
 
 #[derive(thiserror::Error)]
@@ -1057,14 +1058,16 @@ impl<T> Display for DqliteSnapshotBuilder<T> {
             compressed,
             databases,
         } = self;
-        let _ = timestamp; // TODO(kcza): format this!
+        let timestamp = UtcDateTime::from(*timestamp)
+            .format(&Iso8601::DEFAULT)
+            .map_err(|_| fmt::Error)?;
         let _ = databases; // TODO(kcza): format this!
         writedoc!(
             f,
             "
                 term: {term}
                 index: {index}
-                timestamp: TODO
+                timestamp: {timestamp}
                 compressed: {compressed}
                 databases: TODO
             "
