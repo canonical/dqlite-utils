@@ -1026,6 +1026,10 @@ impl<T> DqliteSnapshotBuilder<T> {
             .push(server);
         self
     }
+
+    pub(crate) fn configuration(&self) -> Option<&RaftConfiguration> {
+        self.configuration.as_ref()
+    }
 }
 
 impl DqliteSnapshotBuilder<Empty> {

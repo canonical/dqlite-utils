@@ -5,7 +5,6 @@ mod set_index;
 mod set_term;
 mod set_timestamp;
 
-use std::cell::Cell;
 use std::fmt::Debug;
 use std::{fs, io::ErrorKind, path::PathBuf, time::SystemTime};
 
@@ -14,6 +13,7 @@ use anyhow::{Context as _, anyhow};
 use crate::command::{UnknownCommand, UnrecognizedArgumentsError};
 use crate::dqlite::{DqliteSnapshotBuilder, Empty};
 use crate::prompt::Prompt;
+use crate::utils::Boomerang;
 use crate::{Context, Result, Shell};
 
 use self::add_server::AddServerCommand;
@@ -61,7 +61,7 @@ impl SnapshotCommand {
         let term = dqlite.term();
         let index = dqlite.first_index();
         let timestamp = SystemTime::now();
-        let builder = Cell::new(DqliteSnapshotBuilder::new(term, index, timestamp));
+        let builder = Boomerang::new(DqliteSnapshotBuilder::new(term, index, timestamp));
         ctx.shell = Shell::Snapshot(SnapshotShell { path, builder });
 
         ctx.prompt = Prompt::new("snapshot");
@@ -71,7 +71,7 @@ impl SnapshotCommand {
 
 pub struct SnapshotShell {
     path: PathBuf,
-    builder: Cell<DqliteSnapshotBuilder<Empty>>,
+    builder: Boomerang<DqliteSnapshotBuilder<Empty>>,
 }
 
 impl Debug for SnapshotShell {

@@ -32,7 +32,7 @@ impl SetTimestampCommand {
         })?;
         shell
             .builder
-            .set(shell.builder.take().with_timestamp(timestamp));
+            .update(|builder| builder.with_timestamp(timestamp));
         Ok(())
     }
 }

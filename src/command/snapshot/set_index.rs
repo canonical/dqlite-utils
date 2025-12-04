@@ -28,7 +28,7 @@ impl SetIndexCommand {
         let shell = ctx.shell.snapshot_mut().ok_or_else(|| {
             anyhow!("internal error: finish command not called in snapshot shell")
         })?;
-        shell.builder.set(shell.builder.take().with_index(term));
+        shell.builder.update(|builder| builder.with_index(term));
         Ok(())
     }
 }

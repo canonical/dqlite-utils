@@ -20,15 +20,12 @@ impl InfoCommand {
             anyhow!("internal error: finish command not called in snapshot shell")
         })?;
         let SnapshotShell { path, builder } = shell;
-        let b = builder.take();
-
+        let builder = builder.get();
         let dir_path = path.display();
         printdoc! {r#"
             dir: {dir_path}
-            {b}"#
+            {builder}"#
         };
-
-        builder.set(b);
         Ok(())
     }
 }
