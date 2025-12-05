@@ -17,8 +17,8 @@ impl SetTimestampCommand {
             [timestamp] => timestamp,
             [_, tail @ ..] => return Err(UnrecognizedArgumentsError(tail.to_vec()).into()),
         };
-        let timestamp =
-            UtcDateTime::parse(timestamp, &Iso8601::DEFAULT).context("cannot parse timestamp")?;
+        let timestamp = UtcDateTime::parse(timestamp, &Iso8601::DEFAULT)
+            .context("cannot parse timestamp, expected yyyy-mm-ddThh:MM:ss")?;
         Ok(Self { timestamp })
     }
 
