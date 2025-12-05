@@ -5,15 +5,17 @@ mod set_index;
 mod set_term;
 mod set_timestamp;
 
-use std::fmt::Debug;
-use std::{fs, io::ErrorKind, path::PathBuf, time::SystemTime};
+use std::fmt::{self, Debug, Display};
+use std::{fs, io::ErrorKind, path::PathBuf};
 
-use anyhow::{Context as _, anyhow};
+use anyhow::{anyhow, Context as _};
+use indoc::writedoc;
+use time::format_description::well_known::Iso8601;
+use time::UtcDateTime;
 
 use crate::command::{UnknownCommand, UnrecognizedArgumentsError};
-use crate::dqlite::{DqliteSnapshotBuilder, Empty};
+use crate::dqlite::{RaftConfiguration, RaftServer};
 use crate::prompt::Prompt;
-use crate::utils::Boomerang;
 use crate::{Context, Result, Shell};
 
 use self::add_server::AddServerCommand;
@@ -60,9 +62,17 @@ impl SnapshotCommand {
         let dqlite = ctx.dqlite()?;
         let term = dqlite.term();
         let index = dqlite.first_index();
-        let timestamp = SystemTime::now();
-        let builder = Boomerang::new(DqliteSnapshotBuilder::new(term, index, timestamp));
-        ctx.shell = Shell::Snapshot(SnapshotShell { path, builder });
+        let timestamp = UtcDateTime::now();
+        let builder = ShellSnapshotContext {
+            term,
+            index,
+            timestamp,
+            configuration: None,
+        };
+        ctx.shell = Shell::Snapshot(SnapshotShell {
+            path,
+            snapshot: builder,
+        });
 
         ctx.prompt = Prompt::new("snapshot");
         Ok(())
@@ -71,15 +81,73 @@ impl SnapshotCommand {
 
 pub struct SnapshotShell {
     path: PathBuf,
-    builder: Boomerang<DqliteSnapshotBuilder<Empty>>,
+    snapshot: ShellSnapshotContext,
 }
 
 impl Debug for SnapshotShell {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let Self { path, builder: _ } = self;
+        let Self { path, snapshot: _ } = self;
         f.debug_struct("SnapshotShell")
             .field("path", path)
             .finish_non_exhaustive()
+    }
+}
+
+struct ShellSnapshotContext {
+    term: u64,
+    index: u64,
+    timestamp: UtcDateTime,
+    configuration: Option<ShellSnapshotRaftConfiguration>,
+}
+
+impl Display for ShellSnapshotContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let Self {
+            term,
+            index,
+            timestamp,
+            configuration,
+        } = self;
+        let timestamp = timestamp
+            .format(&Iso8601::DEFAULT)
+            .map_err(|_| fmt::Error)?;
+        writedoc!(
+            f,
+            "
+                term: {term}
+                index: {index}
+                timestamp: {timestamp}
+            "
+        )?;
+        if let Some(configuration) = configuration {
+            writeln!(f, "configuration:")?;
+            for server in &configuration.servers {
+                let RaftServer { id, address, role } = server;
+                writedoc!(
+                    f,
+                    "
+                        - id: {id}
+                          address: {address}
+                          role: {role}
+                    "
+                )?;
+            }
+        } else {
+            writeln!(f, "configuration: -")?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Default)]
+struct ShellSnapshotRaftConfiguration {
+    servers: Vec<RaftServer>,
+}
+
+impl From<ShellSnapshotRaftConfiguration> for RaftConfiguration {
+    fn from(configuration: ShellSnapshotRaftConfiguration) -> Self {
+        let ShellSnapshotRaftConfiguration { servers } = configuration;
+        Self { servers }
     }
 }
 

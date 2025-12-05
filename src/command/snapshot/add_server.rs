@@ -33,22 +33,24 @@ impl AddServerCommand {
             anyhow!("internal error: add-server command not called in snapshot shell")
         })?;
 
-        {
-            let builder = shell.builder.get();
-            if let Some(configuration) = builder.configuration() {
-                if configuration.servers.iter().any(|s| s.id == id) {
-                    return Err(anyhow!("cannot add server with id {id}: already used"));
-                }
-                if configuration.servers.iter().any(|s| s.address == address) {
-                    return Err(anyhow!(
-                        "cannot add server with address '{address}': already used"
-                    ));
-                }
+        if let Some(configuration) = &shell.snapshot.configuration {
+            if configuration.servers.iter().any(|s| s.id == id) {
+                return Err(anyhow!("cannot add server with id {id}: already used"));
+            }
+            if configuration.servers.iter().any(|s| s.address == address) {
+                return Err(anyhow!(
+                    "cannot add server with address '{address}': already used"
+                ));
             }
         }
 
         let server = RaftServer { id, address, role };
-        shell.builder.update(|builder| builder.add_server(server));
+        shell
+            .snapshot
+            .configuration
+            .get_or_insert_default()
+            .servers
+            .push(server);
         Ok(())
     }
 }

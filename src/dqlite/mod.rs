@@ -3,7 +3,7 @@ mod sys;
 use std::{
     borrow::Cow,
     cmp,
-    ffi::{CStr, CString, OsStr, OsString, c_char, c_int, c_uint, c_void},
+    ffi::{c_char, c_int, c_uint, c_void, CStr, CString, OsStr, OsString},
     fmt::{self, Debug, Display},
     fs::File,
     io::{self, Read, Seek, SeekFrom, Write},
@@ -16,20 +16,20 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{anyhow, Context, Result};
 use indoc::writedoc;
 use lz4_flex::frame::{BlockMode, FrameDecoder, FrameEncoder, FrameInfo};
-use time::{UtcDateTime, format_description::well_known::Iso8601};
+use time::{format_description::well_known::Iso8601, UtcDateTime};
 
 use crate::dqlite::sys::{cursor, dqlite_result};
 
 use crate::Error;
 
 use self::sys::{
-    RAFT_ERRMSG_BUF_SIZE, command_checkpoint, command_frames, command_open, command_undo, frames_t,
-    raft_buffer, raft_command_type, raft_configuration, raft_entry, raft_entry_type, raft_result,
-    raft_role, raft_server, raft_snapshot, snapshotDatabase, snapshotHeader, uv_buf_t, uvMetadata,
-    uvSegmentBuffer, uvSegmentInfo, uvSnapshotInfo,
+    command_checkpoint, command_frames, command_open, command_undo, frames_t, raft_buffer,
+    raft_command_type, raft_configuration, raft_entry, raft_entry_type, raft_result, raft_role,
+    raft_server, raft_snapshot, snapshotDatabase, snapshotHeader, uvMetadata, uvSegmentBuffer,
+    uvSegmentInfo, uvSnapshotInfo, uv_buf_t, RAFT_ERRMSG_BUF_SIZE,
 };
 
 #[derive(thiserror::Error)]
@@ -338,12 +338,6 @@ impl RaftConfiguration {
             servers.push(RaftServer::new(server)?);
         }
         Ok(Self { servers })
-    }
-
-    pub fn empty() -> Self {
-        Self {
-            servers: Vec::new(),
-        }
     }
 
     fn to_raw(&self) -> Result<raft_configuration> {
@@ -1019,14 +1013,6 @@ impl<T> DqliteSnapshotBuilder<T> {
         self
     }
 
-    pub fn add_server(mut self, server: RaftServer) -> Self {
-        self.configuration
-            .get_or_insert_with(|| RaftConfiguration::empty())
-            .servers
-            .push(server);
-        self
-    }
-
     pub(crate) fn configuration(&self) -> Option<&RaftConfiguration> {
         self.configuration.as_ref()
     }
@@ -1391,6 +1377,7 @@ where
         Ok(())
     }
 
+    // <<<<<<< HEAD
     fn write_compressed_snapshot_data(
         &self,
         s: &DqliteSnapshotBuilder<T>,
@@ -1401,6 +1388,25 @@ where
         // This means that it is necessary to loop twice over the data:
         // first to compute the total size, then to actually write it.
         let mut size = 16u64; // The header
+                              // =======
+                              //             let configuration = s
+                              //                 .configuration
+                              //                 .as_ref()
+                              //                 .context("cannot write snapshot without configuration")?;
+                              //             for server in &configuration.servers {
+                              //                 let id = server.id;
+                              //                 let address = CString::new(server.address.as_str()).unwrap();
+                              //                 let role = match server.role {
+                              //                     RaftRole::Standby => raft_role::RAFT_STANDBY,
+                              //                     RaftRole::Voter => raft_role::RAFT_VOTER,
+                              //                     RaftRole::Spare => raft_role::RAFT_SPARE,
+                              //                 } as _;
+                              //                 let rc = unsafe { sys::configurationAdd(&mut config, id, address.as_ptr(), role) };
+                              //                 if rc != raft_result::OK {
+                              //                     return Err(anyhow!("cannot add server to configuration"));
+                              //                 }
+                              //             }
+                              // >>>>>>> c95395e (Write snapshot on `finish` command)
 
         for (name, database) in &s.databases {
             let main_size = database.main_size() as u64;
@@ -1475,10 +1481,11 @@ where
         let mut config = raft_configuration::default();
         unsafe { sys::configurationInit(&mut config) };
 
+        // <<<<<<< HEAD
         let configuration = s
             .configuration
             .as_ref()
-            .expect("cannot write snapshot without configuration");
+            .context("cannot write snapshot without configuration")?;
         for server in &configuration.servers {
             let id = server.id;
             let address = CString::new(server.address.as_str()).unwrap();
@@ -1495,6 +1502,24 @@ where
 
         let mut config_buf = raft_buffer::default();
         let rc = unsafe { sys::configurationEncode(&config, &mut config_buf) };
+        // =======
+        //         fs::create_dir_all(&self.dir)
+        //             .with_context(|| anyhow!("cannot create {} directory", self.dir.display()))?;
+        //
+        //         let rc = unsafe {
+        //             sys::uvMetadataStore(
+        //                 CString::new(self.dir.as_os_str().as_bytes())
+        //                     .unwrap()
+        //                     .as_ptr(),
+        //                 &uvMetadata {
+        //                     version: 1,
+        //                     term: self.term,
+        //                     voted_for: self.voted_for,
+        //                 },
+        //                 err.as_mut_ptr(),
+        //             )
+        //         };
+        // >>>>>>> c95395e (Write snapshot on `finish` command)
         if rc != raft_result::OK {
             return Err(anyhow!("failed to encode configuration"));
         }

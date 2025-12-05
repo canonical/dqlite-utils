@@ -19,12 +19,11 @@ impl InfoCommand {
         let shell = ctx.shell.snapshot_mut().ok_or_else(|| {
             anyhow!("internal error: finish command not called in snapshot shell")
         })?;
-        let SnapshotShell { path, builder } = shell;
-        let builder = builder.get();
+        let SnapshotShell { path, snapshot } = shell;
         let dir_path = path.display();
         printdoc! {r#"
             dir: {dir_path}
-            {builder}"#
+            {snapshot}"#
         };
         Ok(())
     }

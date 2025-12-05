@@ -6,29 +6,28 @@ use crate::{
 };
 
 pub(crate) struct SetIndexCommand {
-    term: u64,
+    index: u64,
 }
 
 impl SetIndexCommand {
     pub(crate) fn try_from_args(args: &[String]) -> Result<Self> {
-        let term = match args {
-            [] => return Err(MissingArgumentError("term").into()),
-            [term] => term,
+        let index = match args {
+            [] => return Err(MissingArgumentError("index").into()),
+            [index] => index,
             [_, tail @ ..] => return Err(UnrecognizedArgumentsError(tail.to_vec()).into()),
         };
-        let term = term
+        let index = index
             .parse()
-            .with_context(|| anyhow!("cannot parse term {term}"))?;
-        Ok(Self { term })
+            .with_context(|| anyhow!("cannot parse index {index}"))?;
+        Ok(Self { index })
     }
 
     pub(crate) fn run(self, ctx: &mut Context) -> Result<()> {
-        let Self { term } = self;
-
+        let Self { index } = self;
         let shell = ctx.shell.snapshot_mut().ok_or_else(|| {
             anyhow!("internal error: finish command not called in snapshot shell")
         })?;
-        shell.builder.update(|builder| builder.with_index(term));
+        shell.snapshot.index = index;
         Ok(())
     }
 }

@@ -74,27 +74,3 @@ impl<T: OwoColorize + Debug + Display> TerminalStylizeExt for T {
         self.if_supports_color(Stream::Stdout, move |t| t.style(style))
     }
 }
-
-/// Holds a value, allows access by reference and mutation by moving the contained value in and
-/// out.
-pub(crate) struct Boomerang<T> {
-    inner: Option<T>,
-}
-
-impl<T> Boomerang<T> {
-    pub(crate) fn new(value: T) -> Self {
-        Self { inner: Some(value) }
-    }
-
-    pub(crate) fn update(&mut self, f: impl FnOnce(T) -> T) {
-        let value = self
-            .inner
-            .take()
-            .expect("internal error: value already taken");
-        self.inner = Some(f(value));
-    }
-
-    pub(crate) fn get(&self) -> &T {
-        self.inner.as_ref().expect("internal error: already taken")
-    }
-}

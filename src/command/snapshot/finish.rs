@@ -1,7 +1,11 @@
+use std::ffi::CString;
+use std::time::SystemTime;
+
 use anyhow::anyhow;
 
+use crate::command::snapshot::{ShellSnapshotContext, SnapshotShell};
 use crate::command::UnrecognizedArgumentsError;
-use crate::command::snapshot::SnapshotShell;
+use crate::dqlite::DqliteDir;
 use crate::prompt::Prompt;
 use crate::{Context, Result, Shell};
 
@@ -19,8 +23,27 @@ impl FinishCommand {
         let shell = ctx.shell.snapshot().ok_or_else(|| {
             anyhow!("internal error: finish command not called in snapshot shell")
         })?;
-        let SnapshotShell { path, builder: _ } = shell;
-        println!("writing snapshot to {}...", path.display());
+        let SnapshotShell { path, snapshot } = shell;
+        println!("writing snapshot to {}", path.display());
+
+        // TODO(kcza): just replicate the builder! No boomerangs, just &mut refs! todo!();
+        let ShellSnapshotContext {
+            term,
+            index,
+            timestamp,
+            configuration,
+        } = snapshot;
+        let timestamp = SystemTime::from(*timestamp);
+        let configuration = configuration.clone().unwrap_or_default();
+
+        // DqliteDir::creator(path)
+        //     .with_snapshot(move |s| {
+        //         s.with_term(*term)
+        //             .with_index(*index)
+        //             .with_timestamp(timestamp)
+        //             .with_configuration(configuration.to_owned().into())
+        //     })
+        //     .create()?;
 
         ctx.shell = Shell::default();
         ctx.prompt = Prompt::default();
