@@ -33,6 +33,7 @@ impl LogCommand {
             .summary(Self::SUMMARY)
             .add_flag("--compact", "output compactly")
             .build()
+            .expect("internal error: help invalid")
     }
 
     pub(crate) fn try_from_args(args: &[String]) -> Result<Self> {

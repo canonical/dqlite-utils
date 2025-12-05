@@ -11,7 +11,11 @@ impl QuitCommand {
     pub(crate) const SUMMARY: &'static str = "Exit";
 
     pub(crate) fn help() -> Help {
-        Help::builder().name("quit").summary(Self::SUMMARY).build()
+        Help::builder()
+            .name("quit")
+            .summary(Self::SUMMARY)
+            .build()
+            .expect("internal error: help invalid")
     }
 
     pub(crate) fn try_from_args(args: &[String]) -> Result<Self> {

@@ -18,6 +18,7 @@ impl StatusCommand {
             .name("status")
             .summary(Self::SUMMARY)
             .build()
+            .expect("internal error: help invalid")
     }
 
     pub(crate) fn try_from_args(args: &[String]) -> Result<Self> {

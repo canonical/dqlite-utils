@@ -1,5 +1,6 @@
 use std::io::{self, ErrorKind, Write};
 
+use anyhow::Context as _;
 use owo_colors::Style;
 use strum::IntoEnumIterator;
 
@@ -22,6 +23,7 @@ impl HelpCommand {
             .summary(Self::SUMMARY)
             .add_optional_arg("command", "the command to get help for")
             .build()
+            .expect("internal error: help invalid")
     }
 
     pub(crate) fn try_from_args(args: &[String]) -> Result<Self> {
@@ -66,7 +68,7 @@ impl HelpCommand {
             for command in CommandKind::iter() {
                 help = help.add_command(command.name(), command.summary());
             }
-            help.build()
+            help.build().expect("internal error: help invalid")
         };
         help.write_to(w)
     }
@@ -99,7 +101,7 @@ impl Help {
     const PARAM_STYLE: Style = Style::new().bold().cyan();
     const USAGE_PARAM_STYLE: Style = Style::new().cyan();
 
-    pub(crate) fn builder() -> HelpBuilder<(), ()> {
+    pub(crate) fn builder() -> HelpBuilder {
         HelpBuilder::default()
     }
 
@@ -194,71 +196,27 @@ impl Help {
     }
 }
 
-// NOTE: If the `typed_builder` crate is added, consider refactoring away this explicit
-// `HelpBuilder` implementation.
 #[derive(Default)]
-pub(crate) struct HelpBuilder<N, S> {
-    name: N,
-    summary: S,
+pub(crate) struct HelpBuilder {
+    name: Option<&'static str>,
+    summary: Option<&'static str>,
     skip_usage: bool,
     args: Vec<HelpEntry<Arg>>,
     flags: Vec<HelpEntry<Flag>>,
     commands: Vec<HelpEntry<Cmd>>,
 }
 
-pub(crate) struct WithName {
-    name: &'static str,
-}
-
-impl<N, S> HelpBuilder<N, S> {
-    pub(crate) fn name(self, name: &'static str) -> HelpBuilder<WithName, S> {
-        let Self {
-            name: _,
-            summary,
-            skip_usage,
-            args,
-            flags,
-            commands,
-        } = self;
-        let name = WithName { name };
-        HelpBuilder {
-            name,
-            summary,
-            skip_usage,
-            args,
-            flags,
-            commands,
-        }
+impl HelpBuilder {
+    pub(crate) fn name(mut self, name: &'static str) -> Self {
+        self.name = Some(name);
+        self
     }
-}
 
-pub(crate) struct WithSummary {
-    summary: &'static str,
-}
-
-impl<N, S> HelpBuilder<N, S> {
-    pub(crate) fn summary(self, summary: &'static str) -> HelpBuilder<N, WithSummary> {
-        let Self {
-            name,
-            summary: _,
-            skip_usage,
-            args,
-            flags,
-            commands,
-        } = self;
-        let summary = WithSummary { summary };
-        HelpBuilder {
-            name,
-            summary,
-            skip_usage,
-            args,
-            flags,
-            commands,
-        }
+    pub(crate) fn summary(mut self, summary: &'static str) -> Self {
+        self.summary = Some(summary);
+        self
     }
-}
 
-impl<N, S> HelpBuilder<N, S> {
     pub(crate) fn skip_usage(mut self) -> Self {
         self.skip_usage = true;
         self
@@ -300,26 +258,26 @@ impl<N, S> HelpBuilder<N, S> {
         });
         self
     }
-}
 
-impl HelpBuilder<WithName, WithSummary> {
-    pub(crate) fn build(self) -> Help {
+    pub(crate) fn build(self) -> Result<Help> {
         let Self {
-            name: WithName { name },
-            summary: WithSummary { summary },
-            skip_usage,
-            args,
-            flags,
-            commands,
-        } = self;
-        Help {
             name,
             summary,
             skip_usage,
             args,
             flags,
             commands,
-        }
+        } = self;
+        let name = name.context("internal error: help declared without name")?;
+        let summary = summary.context("internal error: help declared without summary")?;
+        Ok(Help {
+            name,
+            summary,
+            skip_usage,
+            args,
+            flags,
+            commands,
+        })
     }
 }
 
