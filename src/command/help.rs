@@ -74,19 +74,26 @@ impl HelpCommand {
     }
 }
 
+#[derive(Debug)]
 struct HelpEntry<K> {
     kind: K,
     name: &'static str,
     summary: &'static str,
 }
 
+#[derive(Debug)]
 struct Arg {
     optional: bool,
 }
+
+#[derive(Debug)]
 struct Flag;
+
 // NOTE: short name to avoid clash with `crate::Command` type.
+#[derive(Debug)]
 struct Cmd;
 
+#[derive(Debug)]
 pub(crate) struct Help {
     name: &'static str,
     summary: &'static str,
@@ -288,7 +295,7 @@ mod tests {
 
     use googletest::expect_that;
 
-    use googletest::matchers::contains_substring;
+    use googletest::matchers::{anything, contains_substring, displays_as, err};
     use strum::IntoEnumIterator;
 
     use super::*;
@@ -404,5 +411,14 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[googletest::test]
+    fn test_help_validation() {
+        let no_name = Help::builder().build();
+        expect_that!(no_name, err(anything()));
+
+        let no_summary = Help::builder().name("asdf").build();
+        expect_that!(no_summary, err(anything()));
     }
 }
