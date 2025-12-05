@@ -2,6 +2,7 @@ use anyhow::Result;
 use indoc::eprintdoc;
 
 use crate::Context;
+use crate::command::help::Help;
 use crate::dqlite::DqliteSegment;
 
 use super::UnrecognizedArgumentsError;
@@ -10,6 +11,16 @@ use super::UnrecognizedArgumentsError;
 pub(crate) struct StatusCommand;
 
 impl StatusCommand {
+    pub(crate) const SUMMARY: &'static str = "Show brief summary of the current Raft state";
+
+    pub(crate) fn help() -> Help {
+        Help::builder()
+            .name("status")
+            .summary(Self::SUMMARY)
+            .build()
+            .expect("internal error: help invalid")
+    }
+
     pub(crate) fn try_from_args(args: &[String]) -> Result<Self> {
         if !args.is_empty() {
             return Err(UnrecognizedArgumentsError(args.to_vec()).into());
