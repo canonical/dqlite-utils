@@ -313,7 +313,7 @@ mod tests {
         Test::new("basic info")
             .expect(NAME)
             .expect(SUMMARY)
-            .test(Help::builder().name(NAME).summary(SUMMARY).build());
+            .test(Help::builder().name(NAME).summary(SUMMARY).build().unwrap());
 
         const FLAG_1: &str = "--flag-1";
         const FLAG_2: &str = "--flag-2";
@@ -330,7 +330,8 @@ mod tests {
                     .summary(SUMMARY)
                     .add_flag(FLAG_1, FLAG_1_HELP)
                     .add_flag(FLAG_2, FLAG_2_HELP)
-                    .build(),
+                    .build()
+                    .unwrap(),
             );
 
         const ARG_1: &str = "__ARG_1__";
@@ -349,7 +350,8 @@ mod tests {
                     .summary(SUMMARY)
                     .add_arg(ARG_1, ARG_1_HELP)
                     .add_optional_arg(ARG_2, ARG_2_HELP)
-                    .build(),
+                    .build()
+                    .unwrap(),
             );
 
         const COMMAND_1: &str = "__COMMAND_1__";
@@ -367,7 +369,8 @@ mod tests {
                     .summary(SUMMARY)
                     .add_command(COMMAND_1, COMMAND_1_HELP)
                     .add_command(COMMAND_2, COMMAND_2_HELP)
-                    .build(),
+                    .build()
+                    .unwrap(),
             );
 
         // Test helpers.
