@@ -2,7 +2,7 @@ use anyhow::{Context as _, anyhow};
 
 use crate::{
     Context, Result,
-    command::{MissingArgumentError, UnrecognizedArgumentsError},
+    command::{MissingArgumentError, UnrecognizedArgumentsError, help::Help},
 };
 
 pub(crate) struct SetIndexCommand {
@@ -10,6 +10,15 @@ pub(crate) struct SetIndexCommand {
 }
 
 impl SetIndexCommand {
+    pub(crate) fn help() -> Help {
+        Help::builder()
+            .name("set-index")
+            .summary("set the index of the snapshot")
+            .add_arg("index", "the new index")
+            .build()
+            .expect("internal error: help invalid")
+    }
+
     pub(crate) fn try_from_args(args: &[String]) -> Result<Self> {
         let index = match args {
             [] => return Err(MissingArgumentError("index").into()),

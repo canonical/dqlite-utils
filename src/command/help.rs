@@ -4,8 +4,9 @@ use anyhow::Context as _;
 use owo_colors::Style;
 use strum::IntoEnumIterator;
 
+use crate::command::snapshot::SnapshotShell;
 use crate::utils::TerminalStylizeExt;
-use crate::{Context, Result};
+use crate::{Context, Result, RootShell, Shell};
 
 use super::{CommandKind, UnrecognizedArgumentsError};
 
@@ -44,33 +45,22 @@ impl HelpCommand {
         })
     }
 
-    pub(crate) fn run(self, _ctx: &Context) -> Result<()> {
+    pub(crate) fn run(self, ctx: &Context) -> Result<()> {
         let Self { command } = self;
         let stdout = io::stdout().lock();
-        let res = match command {
-            None => Self::write_general_help(stdout),
-            Some(command) => command.write_help(stdout),
+        let help = match command {
+            None => match ctx.shell {
+                Shell::Root(_) => RootShell::help(),
+                Shell::Snapshot(_) => SnapshotShell::help(),
+            },
+            Some(command) => command.help(),
         };
-        match res {
+        match help.write_to(stdout) {
             Ok(()) => {}
             Err(e) if e.kind() == ErrorKind::BrokenPipe => return Ok(()),
             Err(e) => return Err(e.into()),
         }
         Ok(())
-    }
-
-    fn write_general_help(w: impl Write) -> io::Result<()> {
-        let help = {
-            let mut help = Help::builder()
-                .name("dqlite-utils")
-                .summary("an observability tool for inspecting the on-disk state of a dqlite node")
-                .skip_usage();
-            for command in CommandKind::iter() {
-                help = help.add_command(command.name(), command.summary());
-            }
-            help.build().expect("internal error: help invalid")
-        };
-        help.write_to(w)
     }
 }
 
@@ -161,7 +151,7 @@ impl Help {
             if arg.kind.optional {
                 write!(w, " [{name}]")?;
             } else {
-                write!(w, " {name}")?;
+                write!(w, " <{name}>")?;
             }
         }
         writeln!(w)?;
@@ -229,7 +219,6 @@ impl HelpBuilder {
         self
     }
 
-    #[allow(unused)]
     pub(crate) fn add_arg(mut self, name: &'static str, summary: &'static str) -> Self {
         self.args.push(HelpEntry {
             name,
@@ -257,11 +246,11 @@ impl HelpBuilder {
         self
     }
 
-    pub(crate) fn add_command(mut self, name: &'static str, summary: &'static str) -> Self {
+    pub(crate) fn add_command(mut self, help: Help) -> Self {
         self.commands.push(HelpEntry {
-            name,
+            name: help.name,
             kind: Cmd,
-            summary,
+            summary: help.summary,
         });
         self
     }
@@ -304,10 +293,10 @@ mod tests {
     fn test_all_commands_listed_in_help() {
         let help_output = {
             let mut help_output = Cursor::new(Vec::new());
-            HelpCommand::write_general_help(&mut help_output).unwrap();
+            HelpCommand::write_root_help(&mut help_output).unwrap();
             String::try_from(help_output.into_inner()).unwrap()
         };
-        for command_kind in CommandKind::iter() {
+        for command_kind in RootCommandKind::iter() {
             expect_that!(help_output, contains_substring(command_kind.name()));
         }
     }

@@ -3,8 +3,9 @@ use std::time::SystemTime;
 
 use anyhow::anyhow;
 
-use crate::command::snapshot::{ShellSnapshotContext, SnapshotShell};
 use crate::command::UnrecognizedArgumentsError;
+use crate::command::help::Help;
+use crate::command::snapshot::{ShellSnapshotContext, SnapshotShell};
 use crate::dqlite::DqliteDir;
 use crate::prompt::Prompt;
 use crate::{Context, Result, Shell};
@@ -12,6 +13,14 @@ use crate::{Context, Result, Shell};
 pub(crate) struct FinishCommand;
 
 impl FinishCommand {
+    pub(crate) fn help() -> Help {
+        Help::builder()
+            .name("finish")
+            .summary("validate snapshot and write to disk")
+            .build()
+            .expect("internal error: help invalid")
+    }
+
     pub(crate) fn try_from_args(args: &[String]) -> Result<Self> {
         if !args.is_empty() {
             return Err(UnrecognizedArgumentsError(args.to_vec()).into());

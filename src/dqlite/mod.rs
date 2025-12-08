@@ -3,7 +3,7 @@ mod sys;
 use std::{
     borrow::Cow,
     cmp,
-    ffi::{c_char, c_int, c_uint, c_void, CStr, CString, OsStr, OsString},
+    ffi::{CStr, CString, OsStr, OsString, c_char, c_int, c_uint, c_void},
     fmt::{self, Debug, Display},
     fs::File,
     io::{self, Read, Seek, SeekFrom, Write},
@@ -16,20 +16,20 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use indoc::writedoc;
 use lz4_flex::frame::{BlockMode, FrameDecoder, FrameEncoder, FrameInfo};
-use time::{format_description::well_known::Iso8601, UtcDateTime};
+use time::{UtcDateTime, format_description::well_known::Iso8601};
 
 use crate::dqlite::sys::{cursor, dqlite_result};
 
 use crate::Error;
 
 use self::sys::{
-    command_checkpoint, command_frames, command_open, command_undo, frames_t, raft_buffer,
-    raft_command_type, raft_configuration, raft_entry, raft_entry_type, raft_result, raft_role,
-    raft_server, raft_snapshot, snapshotDatabase, snapshotHeader, uvMetadata, uvSegmentBuffer,
-    uvSegmentInfo, uvSnapshotInfo, uv_buf_t, RAFT_ERRMSG_BUF_SIZE,
+    RAFT_ERRMSG_BUF_SIZE, command_checkpoint, command_frames, command_open, command_undo, frames_t,
+    raft_buffer, raft_command_type, raft_configuration, raft_entry, raft_entry_type, raft_result,
+    raft_role, raft_server, raft_snapshot, snapshotDatabase, snapshotHeader, uv_buf_t, uvMetadata,
+    uvSegmentBuffer, uvSegmentInfo, uvSnapshotInfo,
 };
 
 #[derive(thiserror::Error)]

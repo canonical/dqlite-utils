@@ -2,12 +2,21 @@ use anyhow::anyhow;
 use indoc::printdoc;
 
 use crate::command::UnrecognizedArgumentsError;
+use crate::command::help::Help;
 use crate::command::snapshot::SnapshotShell;
 use crate::{Context, Result};
 
 pub(crate) struct InfoCommand;
 
 impl InfoCommand {
+    pub(crate) fn help() -> Help {
+        Help::builder()
+            .name("info")
+            .summary("show info about the current snapshot")
+            .build()
+            .expect("internal error: help invalid")
+    }
+
     pub(crate) fn try_from_args(args: &[String]) -> Result<Self> {
         if !args.is_empty() {
             return Err(UnrecognizedArgumentsError(args.to_vec()).into());

@@ -2,7 +2,7 @@ use anyhow::anyhow;
 
 use crate::{
     Context, Result,
-    command::{MissingArgumentError, UnrecognizedArgumentsError},
+    command::{MissingArgumentError, UnrecognizedArgumentsError, help::Help},
     dqlite::{RaftRole, RaftServer},
 };
 
@@ -13,6 +13,20 @@ pub(crate) struct AddServerCommand {
 }
 
 impl AddServerCommand {
+    pub(crate) fn help() -> Help {
+        Help::builder()
+            .name("add-server")
+            .summary("add a server to the snapshot")
+            .add_arg(
+                "role",
+                "the role of the new server (standby, voter or spare)",
+            )
+            .add_arg("id", "the raft ID of the server")
+            .add_arg("address", "the server's address")
+            .build()
+            .expect("internal error: help invalid")
+    }
+
     pub(crate) fn try_from_args(args: &[String]) -> Result<Self> {
         let (role, id, address) = match args {
             [] => return Err(MissingArgumentError("role").into()),

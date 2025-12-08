@@ -10,14 +10,22 @@ use std::process::ExitCode;
 
 use anyhow::{Context as _, anyhow};
 use clap::Parser;
-use command::snapshot::SnapshotShell;
+use command::RootCommandKind;
+use command::help::HelpCommand;
+use command::log::LogCommand;
+use command::quit::QuitCommand;
+use command::snapshot::SnapshotCommand;
+use command::status::StatusCommand;
 use owo_colors::Style;
 use rustyline::Editor;
 use rustyline::error::ReadlineError;
 use rustyline::history::DefaultHistory;
+use strum::IntoEnumIterator;
 
 use self::args::Args;
 use self::command::Command;
+use self::command::help::Help;
+use self::command::snapshot::SnapshotShell;
 use self::dqlite::{DqliteDir, NoMetadataError};
 use self::prompt::Prompt;
 use self::utils::TerminalStylizeExt;
@@ -176,7 +184,7 @@ fn stdin_commands() -> impl Iterator<Item = Command> {
         })
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Context {
     pub dqlite: Option<DqliteDir>,
     pub shell: Shell,
@@ -185,11 +193,7 @@ pub struct Context {
 
 impl Context {
     fn new() -> Self {
-        Self {
-            dqlite: None,
-            shell: Shell::Root,
-            prompt: Prompt::default(),
-        }
+        Self::default()
     }
 
     fn open(&mut self, dir_path: impl Into<PathBuf>) -> Result<&DqliteDir> {
@@ -207,17 +211,16 @@ impl Context {
 #[error("no open dqlite directory")]
 struct NoOpenDqliteDir;
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub enum Shell {
-    #[default]
-    Root,
+    Root(RootShell),
     Snapshot(SnapshotShell),
 }
 
 impl Shell {
     fn name(&self) -> &'static str {
         match self {
-            Self::Root => "root",
+            Self::Root(_) => "root",
             Self::Snapshot(_) => "snapshot",
         }
     }
@@ -234,5 +237,30 @@ impl Shell {
             Self::Snapshot(shell) => Some(shell),
             _ => None,
         }
+    }
+}
+
+impl Default for Shell {
+    fn default() -> Self {
+        Self::Root(RootShell)
+    }
+}
+
+#[derive(Debug)]
+pub struct RootShell;
+
+impl RootShell {
+    pub(crate) fn help() -> Help {
+        Help::builder()
+            .name("dqlite-utils")
+            .summary("an observability tool for inspecting the on-disk state of a dqlite node")
+            .skip_usage()
+            .add_command(HelpCommand::help())
+            .add_command(LogCommand::help())
+            .add_command(QuitCommand::help())
+            .add_command(SnapshotCommand::help())
+            .add_command(StatusCommand::help())
+            .build()
+            .expect("internal error: help invalid")
     }
 }

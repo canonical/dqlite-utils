@@ -3,7 +3,7 @@ use time::{UtcDateTime, format_description::well_known::Iso8601};
 
 use crate::{
     Context, Result,
-    command::{MissingArgumentError, UnrecognizedArgumentsError},
+    command::{MissingArgumentError, UnrecognizedArgumentsError, help::Help},
 };
 
 pub(crate) struct SetTimestampCommand {
@@ -11,6 +11,14 @@ pub(crate) struct SetTimestampCommand {
 }
 
 impl SetTimestampCommand {
+    pub(crate) fn help() -> Help {
+        Help::builder()
+            .name("set-timestamp")
+            .summary("set the timestamp of the snapshot")
+            .build()
+            .expect("internal error: help invalid")
+    }
+
     pub(crate) fn try_from_args(args: &[String]) -> Result<Self> {
         let timestamp = match args {
             [] => return Err(MissingArgumentError("timestamp").into()),

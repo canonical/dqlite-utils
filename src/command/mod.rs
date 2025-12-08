@@ -1,10 +1,9 @@
-mod help;
-mod log;
+pub(crate) mod help;
+pub(crate) mod log;
 pub(crate) mod quit;
 pub(crate) mod snapshot;
-mod status;
+pub(crate) mod status;
 
-use std::io::{self, Write};
 use std::str::FromStr;
 
 use anyhow::{Error, anyhow};
@@ -12,15 +11,16 @@ use strum::EnumIter;
 
 use crate::{Context, Result, Shell};
 
-use self::help::HelpCommand;
+use self::help::{Help, HelpCommand};
 use self::log::LogCommand;
 use self::quit::QuitCommand;
-use self::snapshot::{SnapshotCommand, SnapshotShellCommand};
+use self::snapshot::{SnapshotCommand, SnapshotShellCommand, SnapshotShellCommandKind};
 use self::status::StatusCommand;
 
 pub enum Command {
     // NOTE: when adding new commands, remember to add them to the general `help` output.
     Noop,
+    Help(HelpCommand),
     Root(RootCommand),
     Snapshot(SnapshotShellCommand),
 }
@@ -34,6 +34,11 @@ impl FromStr for Command {
             Some((command, args)) => (command, args),
             None => return Ok(Self::Noop),
         };
+
+        match command.as_str() {
+            "help" => return Ok(Self::Help(HelpCommand::try_from_args(args)?)),
+            _ => {}
+        }
 
         // NOTE: All commands share the same namespace, thereby allowing us to successfully
         // parse all commands ahead of time, without knowing their effect on the Context;
@@ -52,7 +57,8 @@ impl Command {
     pub fn run(self, ctx: &mut Context) -> Result<()> {
         match (self, &ctx.shell) {
             (Self::Noop, _) => Ok(()),
-            (Self::Root(cmd), Shell::Root) => cmd.run(ctx),
+            (Self::Help(cmd), _) => cmd.run(ctx),
+            (Self::Root(cmd), Shell::Root(_)) => cmd.run(ctx),
             (Self::Root(cmd), _) => {
                 return Err(Error::from(CommandUnavailable {
                     command_name: cmd.name(),
@@ -70,42 +76,20 @@ impl Command {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, EnumIter)]
+#[derive(Debug, Eq, PartialEq)]
 pub(crate) enum CommandKind {
-    Log,
-    Quit,
-    Status,
     Help,
+    Root(RootCommandKind),
+    Snapshot(SnapshotShellCommandKind),
 }
 
 impl CommandKind {
-    pub(crate) fn name(&self) -> &'static str {
+    pub(crate) fn help(&self) -> Help {
         match self {
-            Self::Log => "log",
-            Self::Quit => "quit",
-            Self::Status => "status",
-            Self::Help => "help",
-        }
-    }
-
-    pub(crate) fn summary(&self) -> &'static str {
-        match self {
-            Self::Log => LogCommand::SUMMARY,
-            Self::Quit => QuitCommand::SUMMARY,
-            Self::Status => StatusCommand::SUMMARY,
-            Self::Help => HelpCommand::SUMMARY,
-        }
-    }
-
-    pub(crate) fn write_help(&self, writer: impl Write) -> io::Result<()> {
-        let help = match self {
-            Self::Log => LogCommand::help(),
-            Self::Quit => QuitCommand::help(),
-            Self::Status => StatusCommand::help(),
             Self::Help => HelpCommand::help(),
-        };
-        help.write_to(writer)?;
-        Ok(())
+            Self::Root(cmd) => cmd.help(),
+            Self::Snapshot(cmd) => cmd.help(),
+        }
     }
 }
 
@@ -113,11 +97,42 @@ impl FromStr for CommandKind {
     type Err = Error;
 
     fn from_str(raw: &str) -> Result<Self> {
+        if raw == "help" {
+            return Ok(Self::Help);
+        }
+        RootCommandKind::from_str(raw)
+            .map(Self::Root)
+            .or_else(|_| SnapshotShellCommandKind::from_str(raw).map(Self::Snapshot))
+    }
+}
+
+#[derive(Debug, Eq, PartialEq, EnumIter)]
+pub(crate) enum RootCommandKind {
+    Log,
+    Quit,
+    Status,
+    Snapshot,
+}
+
+impl RootCommandKind {
+    pub(crate) fn help(&self) -> Help {
+        match self {
+            Self::Log => LogCommand::help(),
+            Self::Quit => QuitCommand::help(),
+            Self::Status => StatusCommand::help(),
+            Self::Snapshot => SnapshotCommand::help(),
+        }
+    }
+}
+
+impl FromStr for RootCommandKind {
+    type Err = Error;
+
+    fn from_str(raw: &str) -> Result<Self> {
         match raw {
             "log" => Ok(Self::Log),
             "quit" => Ok(Self::Quit),
             "status" => Ok(Self::Status),
-            "help" => Ok(Self::Help),
             unknown => Err(anyhow!("unknown command '{unknown}'")),
         }
     }
@@ -192,16 +207,17 @@ mod tests {
 
     #[googletest::test]
     fn test_command_kinds_sorted_by_name() {
-        let command_kinds: Vec<_> = CommandKind::iter().collect();
+        // TODO(kcza): test commands for the different shells
+        let command_kinds: Vec<_> = RootCommandKind::iter().collect();
         for window in command_kinds.windows(2) {
             let (entry_1, entry_2) = match window {
                 [e_1, e_2] => (e_1, e_2),
                 _ => unreachable!(),
             };
             // Help must come last.
-            expect_that!(entry_1, not(eq(&CommandKind::Help)));
+            expect_that!(entry_1, not(eq(&RootCommandKind::Help)));
 
-            if !matches!(entry_2, CommandKind::Help) {
+            if !matches!(entry_2, RootCommandKind::Help) {
                 expect_that!(entry_1.name(), lt(entry_2.name()));
             }
         }

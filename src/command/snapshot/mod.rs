@@ -6,17 +6,20 @@ mod set_term;
 mod set_timestamp;
 
 use std::fmt::{self, Debug, Display};
+use std::str::FromStr;
 use std::{fs, io::ErrorKind, path::PathBuf};
 
-use anyhow::{anyhow, Context as _};
+use anyhow::{Context as _, anyhow};
 use indoc::writedoc;
-use time::format_description::well_known::Iso8601;
+use strum::{EnumIter, IntoEnumIterator};
 use time::UtcDateTime;
+use time::format_description::well_known::Iso8601;
 
+use crate::command::help::Help;
 use crate::command::{UnknownCommand, UnrecognizedArgumentsError};
 use crate::dqlite::{RaftConfiguration, RaftServer};
 use crate::prompt::Prompt;
-use crate::{Context, Result, Shell};
+use crate::{Context, Error, Result, Shell};
 
 use self::add_server::AddServerCommand;
 use self::finish::FinishCommand;
@@ -39,6 +42,17 @@ impl SnapshotCommand {
         };
         let snapshot_path = PathBuf::from(snapshot_path);
         Ok(Self { snapshot_path })
+    }
+
+    pub(crate) const SUMMARY: &'static str = "Enter snapshot-creation shell";
+
+    pub(crate) fn help() -> Help {
+        Help::builder()
+            .name("snapshot")
+            .summary(Self::SUMMARY)
+            .add_arg("dir", "the directory to save the snapshot into")
+            .build()
+            .expect("internal error: help invalid")
     }
 
     pub(crate) fn run(self, ctx: &mut Context) -> Result<()> {
@@ -82,6 +96,23 @@ impl SnapshotCommand {
 pub struct SnapshotShell {
     path: PathBuf,
     snapshot: ShellSnapshotContext,
+}
+
+impl SnapshotShell {
+    pub(crate) fn help() -> Help {
+        Help::builder()
+            .name("snapshot shell")
+            .summary("incrementally create a snapshot")
+            .skip_usage()
+            .add_command(AddServerCommand::help())
+            .add_command(FinishCommand::help())
+            .add_command(InfoCommand::help())
+            .add_command(SetIndexCommand::help())
+            .add_command(SetTermCommand::help())
+            .add_command(SetTimestampCommand::help())
+            .build()
+            .expect("internal error: help invalid")
+    }
 }
 
 impl Debug for SnapshotShell {
@@ -194,6 +225,45 @@ impl SnapshotShellCommand {
             Self::SetIndex(cmd) => cmd.run(ctx),
             Self::SetTerm(cmd) => cmd.run(ctx),
             Self::SetTimestamp(cmd) => cmd.run(ctx),
+        }
+    }
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub enum SnapshotShellCommandKind {
+    AddServer,
+    Finish,
+    Info,
+    SetIndex,
+    SetTerm,
+    SetTimestamp,
+}
+
+impl SnapshotShellCommandKind {
+    pub(crate) fn help(&self) -> Help {
+        match self {
+            Self::AddServer => AddServerCommand::help(),
+            Self::Finish => FinishCommand::help(),
+            Self::Info => InfoCommand::help(),
+            Self::SetIndex => SetIndexCommand::help(),
+            Self::SetTerm => SetTermCommand::help(),
+            Self::SetTimestamp => SetTimestampCommand::help(),
+        }
+    }
+}
+
+impl FromStr for SnapshotShellCommandKind {
+    type Err = Error;
+
+    fn from_str(raw: &str) -> Result<Self> {
+        match raw {
+            "add-server" => Ok(Self::AddServer),
+            "finish" => Ok(Self::Finish),
+            "info" => Ok(Self::Info),
+            "set-index" => Ok(Self::SetIndex),
+            "set-term" => Ok(Self::SetTerm),
+            "set-timestamp" => Ok(Self::SetTimestamp),
+            _ => Err(UnknownCommand.into()),
         }
     }
 }

@@ -2,7 +2,7 @@ use anyhow::{Context as _, anyhow};
 
 use crate::{
     Context, Result,
-    command::{MissingArgumentError, UnrecognizedArgumentsError},
+    command::{MissingArgumentError, UnrecognizedArgumentsError, help::Help},
 };
 
 pub(crate) struct SetTermCommand {
@@ -10,6 +10,14 @@ pub(crate) struct SetTermCommand {
 }
 
 impl SetTermCommand {
+    pub(crate) fn help() -> Help {
+        Help::builder()
+            .name("set-term")
+            .summary("set the term of the snapshot")
+            .build()
+            .expect("internal error: help invalid")
+    }
+
     pub(crate) fn try_from_args(args: &[String]) -> Result<Self> {
         let term = match args {
             [] => return Err(MissingArgumentError("term").into()),
