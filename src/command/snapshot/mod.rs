@@ -1,3 +1,4 @@
+mod abort;
 mod add_server;
 mod finish;
 mod info;
@@ -21,6 +22,7 @@ use crate::dqlite::{RaftConfiguration, RaftServer};
 use crate::prompt::Prompt;
 use crate::{Context, Error, Result, Shell};
 
+use self::abort::AbortCommand;
 use self::add_server::AddServerCommand;
 use self::finish::FinishCommand;
 use self::info::InfoCommand;
@@ -104,6 +106,7 @@ impl SnapshotShell {
             .name("snapshot shell")
             .summary("incrementally create a snapshot")
             .skip_usage()
+            .add_command(AbortCommand::help())
             .add_command(AddServerCommand::help())
             .add_command(FinishCommand::help())
             .add_command(InfoCommand::help())
@@ -183,6 +186,7 @@ impl From<ShellSnapshotRaftConfiguration> for RaftConfiguration {
 }
 
 pub enum SnapshotShellCommand {
+    Abort(AbortCommand),
     AddServer(AddServerCommand),
     Finish(FinishCommand),
     Info(InfoCommand),
@@ -194,6 +198,7 @@ pub enum SnapshotShellCommand {
 impl SnapshotShellCommand {
     pub fn try_from_input(command: &str, args: &[String]) -> Result<Self> {
         match command {
+            "abort" => Ok(Self::Abort(AbortCommand::try_from_args(args)?)),
             "add-server" => Ok(Self::AddServer(AddServerCommand::try_from_args(args)?)),
             "finish" => Ok(Self::Finish(FinishCommand::try_from_args(args)?)),
             "info" => Ok(Self::Info(InfoCommand::try_from_args(args)?)),
@@ -208,6 +213,7 @@ impl SnapshotShellCommand {
 
     pub fn name(&self) -> &'static str {
         match self {
+            Self::Abort(_) => "abort",
             Self::AddServer(_) => "add-server",
             Self::Finish(_) => "finish",
             Self::Info(_) => "info",
@@ -219,6 +225,7 @@ impl SnapshotShellCommand {
 
     pub fn run(self, ctx: &mut Context) -> Result<()> {
         match self {
+            Self::Abort(cmd) => cmd.run(ctx),
             Self::AddServer(cmd) => cmd.run(ctx),
             Self::Finish(cmd) => cmd.run(ctx),
             Self::Info(cmd) => cmd.run(ctx),
@@ -231,6 +238,7 @@ impl SnapshotShellCommand {
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum SnapshotShellCommandKind {
+    Abort,
     AddServer,
     Finish,
     Info,
@@ -242,6 +250,7 @@ pub enum SnapshotShellCommandKind {
 impl SnapshotShellCommandKind {
     pub(crate) fn help(&self) -> Help {
         match self {
+            Self::Abort => AbortCommand::help(),
             Self::AddServer => AddServerCommand::help(),
             Self::Finish => FinishCommand::help(),
             Self::Info => InfoCommand::help(),
@@ -257,6 +266,7 @@ impl FromStr for SnapshotShellCommandKind {
 
     fn from_str(raw: &str) -> Result<Self> {
         match raw {
+            "abort" => Ok(Self::Abort),
             "add-server" => Ok(Self::AddServer),
             "finish" => Ok(Self::Finish),
             "info" => Ok(Self::Info),
