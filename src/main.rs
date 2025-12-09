@@ -262,3 +262,29 @@ impl RootShell {
             .expect("internal error: help invalid")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::io::Cursor;
+
+    use googletest::expect_that;
+    use googletest::matchers::contains_substring;
+
+    use strum::IntoEnumIterator;
+
+    use self::command::RootCommandKind;
+
+    use super::*;
+
+    #[googletest::test]
+    fn test_all_commands_listed_in_help() {
+        let help_output = {
+            let mut help_output = Cursor::new(Vec::new());
+            RootShell::help().write_to(&mut help_output).unwrap();
+            String::try_from(help_output.into_inner()).unwrap()
+        };
+        for command_kind in RootCommandKind::iter() {
+            expect_that!(help_output, contains_substring(command_kind.name()));
+        }
+    }
+}

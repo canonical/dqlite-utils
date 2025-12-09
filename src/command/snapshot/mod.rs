@@ -12,6 +12,7 @@ use std::{fs, io::ErrorKind, path::PathBuf};
 
 use anyhow::{Context as _, anyhow};
 use indoc::writedoc;
+use strum::EnumIter;
 use time::UtcDateTime;
 use time::format_description::well_known::Iso8601;
 
@@ -236,7 +237,7 @@ impl SnapshotShellCommand {
     }
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, EnumIter)]
 pub enum SnapshotShellCommandKind {
     Abort,
     AddServer,
@@ -286,6 +287,30 @@ impl FromStr for SnapshotShellCommandKind {
             "set-term" => Ok(Self::SetTerm),
             "set-timestamp" => Ok(Self::SetTimestamp),
             _ => Err(UnknownCommand.into()),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Cursor;
+
+    use googletest::expect_that;
+    use googletest::matchers::contains_substring;
+
+    use strum::IntoEnumIterator;
+
+    use super::*;
+
+    #[googletest::test]
+    fn test_all_commands_listed_in_help() {
+        let help_output = {
+            let mut help_output = Cursor::new(Vec::new());
+            SnapshotShell::help().write_to(&mut help_output).unwrap();
+            String::try_from(help_output.into_inner()).unwrap()
+        };
+        for command_kind in SnapshotShellCommandKind::iter() {
+            expect_that!(help_output, contains_substring(command_kind.name()));
         }
     }
 }

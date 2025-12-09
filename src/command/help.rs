@@ -280,23 +280,9 @@ mod tests {
     use std::io::Cursor;
 
     use googletest::expect_that;
-
-    use googletest::matchers::{anything, contains_substring, displays_as, err};
-    use strum::IntoEnumIterator;
+    use googletest::matchers::{anything, contains_substring, err};
 
     use super::*;
-
-    #[googletest::test]
-    fn test_all_commands_listed_in_help() {
-        let help_output = {
-            let mut help_output = Cursor::new(Vec::new());
-            HelpCommand::write_root_help(&mut help_output).unwrap();
-            String::try_from(help_output.into_inner()).unwrap()
-        };
-        for command_kind in RootCommandKind::iter() {
-            expect_that!(help_output, contains_substring(command_kind.name()));
-        }
-    }
 
     #[googletest::test]
     fn test_help_output() {
@@ -349,19 +335,31 @@ mod tests {
 
         const COMMAND_1: &str = "__COMMAND_1__";
         const COMMAND_2: &str = "__COMMAND_2__";
-        const COMMAND_1_HELP: &str = "__COMMAND_1_HELP__";
-        const COMMAND_2_HELP: &str = "__COMMAND_2_HELP__";
+        const COMMAND_1_SUMMARY: &str = "__COMMAND_1_SUMMARY__";
+        const COMMAND_2_SUMMARY: &str = "__COMMAND_2_SUMMARY__";
         Test::new("commands")
             .expect(COMMAND_1)
             .expect(COMMAND_2)
-            .expect(COMMAND_1_HELP)
-            .expect(COMMAND_2_HELP)
+            .expect(COMMAND_1_SUMMARY)
+            .expect(COMMAND_2_SUMMARY)
             .test(
                 Help::builder()
                     .name(NAME)
                     .summary(SUMMARY)
-                    .add_command(COMMAND_1, COMMAND_1_HELP)
-                    .add_command(COMMAND_2, COMMAND_2_HELP)
+                    .add_command(
+                        Help::builder()
+                            .name(COMMAND_1)
+                            .summary(COMMAND_1_SUMMARY)
+                            .build()
+                            .unwrap(),
+                    )
+                    .add_command(
+                        Help::builder()
+                            .name(COMMAND_2)
+                            .summary(COMMAND_2_SUMMARY)
+                            .build()
+                            .unwrap(),
+                    )
                     .build()
                     .unwrap(),
             );

@@ -7,7 +7,7 @@ pub(crate) mod status;
 use std::str::FromStr;
 
 use anyhow::{Error, anyhow};
-use strum::EnumIter;
+use strum::{EnumIter, IntoEnumIterator};
 
 use crate::{Context, Result, Shell};
 
@@ -99,8 +99,18 @@ impl CommandKind {
         match self {
             Self::Noop => panic!("cannot get help of noop command"),
             Self::Help => HelpCommand::help(),
-            Self::Root(cmd) => cmd.help(),
-            Self::Snapshot(cmd) => cmd.help(),
+            Self::Root(kind) => kind.help(),
+            Self::Snapshot(kind) => kind.help(),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn name(&self) -> &'static str {
+        match self {
+            Self::Noop => panic!("cannot get help of noop command"),
+            Self::Help => "help",
+            Self::Root(kind) => kind.name(),
+            Self::Snapshot(kind) => kind.name(),
         }
     }
 }
@@ -127,37 +137,37 @@ struct CommandUnavailable {
 
 #[derive(Debug)]
 pub enum RootCommand {
-    Quit(QuitCommand),
-    Status(StatusCommand),
     Log(LogCommand),
+    Quit(QuitCommand),
     Snapshot(SnapshotCommand),
+    Status(StatusCommand),
 }
 
 impl RootCommand {
     fn try_from_input(command: &str, args: &[String]) -> Result<Self> {
         match command.parse()? {
-            RootCommandKind::Status => Ok(Self::Status(StatusCommand::try_from_args(args)?)),
             RootCommandKind::Log => Ok(Self::Log(LogCommand::try_from_args(args)?)),
             RootCommandKind::Quit => Ok(Self::Quit(QuitCommand::try_from_args(args)?)),
             RootCommandKind::Snapshot => Ok(Self::Snapshot(SnapshotCommand::try_from_args(args)?)),
+            RootCommandKind::Status => Ok(Self::Status(StatusCommand::try_from_args(args)?)),
         }
     }
 
     pub fn run(self, ctx: &mut Context) -> Result<()> {
         match self {
-            Self::Quit(cmd) => cmd.run(ctx),
-            Self::Status(cmd) => cmd.run(ctx),
             Self::Log(cmd) => cmd.run(ctx),
+            Self::Quit(cmd) => cmd.run(ctx),
             Self::Snapshot(cmd) => cmd.run(ctx),
+            Self::Status(cmd) => cmd.run(ctx),
         }
     }
 
     fn kind(&self) -> RootCommandKind {
         match self {
-            Self::Quit(_) => RootCommandKind::Quit,
-            Self::Status(_) => RootCommandKind::Status,
             Self::Log(_) => RootCommandKind::Log,
+            Self::Quit(_) => RootCommandKind::Quit,
             Self::Snapshot(_) => RootCommandKind::Snapshot,
+            Self::Status(_) => RootCommandKind::Status,
         }
     }
 }
@@ -166,8 +176,8 @@ impl RootCommand {
 pub(crate) enum RootCommandKind {
     Log,
     Quit,
-    Status,
     Snapshot,
+    Status,
 }
 
 impl RootCommandKind {
@@ -175,8 +185,8 @@ impl RootCommandKind {
         match self {
             Self::Log => LogCommand::help(),
             Self::Quit => QuitCommand::help(),
-            Self::Status => StatusCommand::help(),
             Self::Snapshot => SnapshotCommand::help(),
+            Self::Status => StatusCommand::help(),
         }
     }
 
@@ -184,8 +194,8 @@ impl RootCommandKind {
         match self {
             Self::Log => "log",
             Self::Quit => "quit",
-            Self::Status => "status",
             Self::Snapshot => "snapshot",
+            Self::Status => "status",
         }
     }
 }
@@ -198,6 +208,7 @@ impl FromStr for RootCommandKind {
             "log" => Ok(Self::Log),
             "quit" => Ok(Self::Quit),
             "status" => Ok(Self::Status),
+            "snapshot" => Ok(Self::Snapshot),
             unknown => Err(anyhow!("unknown command '{unknown}'")),
         }
     }
@@ -221,23 +232,25 @@ mod tests {
 
     use googletest::expect_that;
     use googletest::matchers::{eq, lt, not};
-    use strum::IntoEnumIterator;
 
     #[googletest::test]
     fn test_command_kinds_sorted_by_name() {
-        // TODO(kcza): test commands for the different shells
-        let command_kinds: Vec<_> = RootCommandKind::iter().collect();
-        for window in command_kinds.windows(2) {
-            let (entry_1, entry_2) = match window {
-                [e_1, e_2] => (e_1, e_2),
-                _ => unreachable!(),
-            };
-            // Help must come last.
-            expect_that!(entry_1, not(eq(&RootCommandKind::Help)));
+        fn test_kinds(kinds: impl Iterator<Item = CommandKind>) {
+            let kinds: Vec<_> = kinds.collect();
+            for window in kinds.windows(2) {
+                let (entry_1, entry_2) = match window {
+                    [e_1, e_2] => (e_1, e_2),
+                    _ => unreachable!(),
+                };
+                // Help must come last.
+                expect_that!(entry_1, not(eq(&CommandKind::Help)));
 
-            if !matches!(entry_2, RootCommandKind::Help) {
-                expect_that!(entry_1.name(), lt(entry_2.name()));
+                if !matches!(entry_2, CommandKind::Help) {
+                    expect_that!(entry_1.name(), lt(entry_2.name()));
+                }
             }
         }
+        test_kinds(RootCommandKind::iter().map(CommandKind::Root));
+        test_kinds(SnapshotShellCommandKind::iter().map(CommandKind::Snapshot));
     }
 }
