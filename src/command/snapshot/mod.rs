@@ -173,9 +173,21 @@ impl Display for ShellSnapshotContext {
     }
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default)]
 struct ShellSnapshotRaftConfiguration {
     servers: Vec<RaftServer>,
+}
+
+impl ShellSnapshotRaftConfiguration {
+    pub(crate) fn check(&self) -> Result<()> {
+        let Self { servers } = self;
+        if servers.is_empty() {
+            return Err(anyhow!(
+                "cannot finish snapshot: at least one server required"
+            ));
+        }
+        Ok(())
+    }
 }
 
 impl From<ShellSnapshotRaftConfiguration> for RaftConfiguration {

@@ -44,6 +44,7 @@ impl FinishCommand {
         } = snapshot;
         let timestamp = SystemTime::from(*timestamp);
         let configuration = configuration.clone().unwrap_or_default();
+        configuration.check()?;
 
         DqliteDir::creator(path)
             .with_snapshot(move |s| {
