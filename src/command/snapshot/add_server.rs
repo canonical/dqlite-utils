@@ -28,14 +28,17 @@ impl AddServerCommand {
     }
 
     pub(crate) fn try_from_args(args: &[String]) -> Result<Self> {
-        let (role, id, address) = match args {
-            [] => return Err(MissingArgumentError("role").into()),
-            [_] => return Err(MissingArgumentError("id").into()),
-            [_, _] => return Err(MissingArgumentError("address").into()),
-            [role, id, address] => (role, id, address),
+        let (id, address, role) = match args {
+            [] => return Err(MissingArgumentError("id").into()),
+            [_] => return Err(MissingArgumentError("address").into()),
+            [id, address] => (id, address, None),
+            [id, address, role] => (id, address, Some(role)),
             [_, _, _, tail @ ..] => return Err(UnrecognizedArgumentsError(tail.to_vec()).into()),
         };
-        let role = role.parse()?;
+        let role = role
+            .map(|raw| raw.parse())
+            .transpose()?
+            .unwrap_or(RaftRole::Voter);
         let id = id.parse()?;
         let address = address.to_owned();
         Ok(Self { role, id, address })
