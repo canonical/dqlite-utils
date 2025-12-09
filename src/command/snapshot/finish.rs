@@ -7,7 +7,7 @@ use anyhow::anyhow;
 use crate::command::UnrecognizedArgumentsError;
 use crate::command::help::Help;
 use crate::command::snapshot::{ShellSnapshotContext, SnapshotShell};
-use crate::dqlite::{DqliteDatabaseWriter, DqliteDir};
+use crate::dqlite::{DqliteDatabaseWriter, DqliteDir, RaftConfiguration};
 use crate::prompt::Prompt;
 use crate::{Context, Result, Shell};
 

@@ -290,7 +290,6 @@ impl FromStr for SnapshotShellCommandKind {
     type Err = Error;
 
     fn from_str(raw: &str) -> Result<Self> {
-        println!("parsing {raw:?}");
         match raw {
             ".abort" => Ok(Self::Abort),
             ".add-server" => Ok(Self::AddServer),

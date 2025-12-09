@@ -6,8 +6,8 @@ pub(crate) mod status;
 
 use std::str::FromStr;
 
-use anyhow::{Error, anyhow};
-use strum::{EnumIter, IntoEnumIterator};
+use anyhow::Error;
+use strum::EnumIter;
 
 use crate::{Context, Result, Shell};
 
@@ -232,6 +232,7 @@ mod tests {
 
     use googletest::expect_that;
     use googletest::matchers::{eq, lt, not};
+    use strum::IntoEnumIterator;
 
     #[googletest::test]
     fn test_command_kinds_sorted_by_name() {
