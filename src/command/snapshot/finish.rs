@@ -43,15 +43,14 @@ impl FinishCommand {
             configuration,
         } = snapshot;
         let timestamp = SystemTime::from(*timestamp);
-        let configuration = configuration.clone().unwrap_or_default();
-        configuration.check()?;
+        let configuration = RaftConfiguration::try_from(configuration.clone().unwrap_or_default())?;
 
         DqliteDir::creator(path)
             .with_snapshot(move |s| {
                 s.with_term(*term)
                     .with_index(*index)
                     .with_timestamp(timestamp)
-                    .with_configuration(configuration.to_owned().into())
+                    .with_configuration(configuration)
                     .add_database(
                         CString::new("placeholder db".as_bytes().to_owned())
                             .expect("internal error: CString invalid"),

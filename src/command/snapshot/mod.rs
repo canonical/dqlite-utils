@@ -178,22 +178,19 @@ struct ShellSnapshotRaftConfiguration {
     servers: Vec<RaftServer>,
 }
 
-impl ShellSnapshotRaftConfiguration {
-    pub(crate) fn check(&self) -> Result<()> {
-        let Self { servers } = self;
+impl TryFrom<ShellSnapshotRaftConfiguration> for RaftConfiguration {
+    type Error = Error;
+
+    fn try_from(configuration: ShellSnapshotRaftConfiguration) -> Result<Self> {
+        let ShellSnapshotRaftConfiguration { servers } = configuration;
+
         if servers.is_empty() {
             return Err(anyhow!(
                 "cannot finish snapshot: at least one server required"
             ));
         }
-        Ok(())
-    }
-}
 
-impl From<ShellSnapshotRaftConfiguration> for RaftConfiguration {
-    fn from(configuration: ShellSnapshotRaftConfiguration) -> Self {
-        let ShellSnapshotRaftConfiguration { servers } = configuration;
-        Self { servers }
+        Ok(Self { servers })
     }
 }
 
