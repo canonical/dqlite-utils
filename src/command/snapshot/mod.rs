@@ -75,20 +75,13 @@ impl SnapshotCommand {
             }
         }
 
-        let dqlite = ctx.dqlite()?;
-        let term = dqlite.term();
-        let index = dqlite.first_index();
-        let timestamp = UtcDateTime::now();
-        let builder = ShellSnapshotContext {
-            term,
-            index,
-            timestamp,
+        let snapshot = ShellSnapshotContext {
+            term: 1,
+            index: 1,
+            timestamp: UtcDateTime::now(),
             configuration: None,
         };
-        ctx.shell = Shell::Snapshot(SnapshotShell {
-            path,
-            snapshot: builder,
-        });
+        ctx.shell = Shell::Snapshot(SnapshotShell { path, snapshot });
 
         ctx.prompt = Prompt::new("snapshot");
         Ok(())
