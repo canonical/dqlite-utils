@@ -5,7 +5,7 @@ use std::{
     cmp,
     ffi::{CStr, CString, OsStr, OsString, c_char, c_int, c_uint, c_void},
     fmt::{self, Debug, Display},
-    fs::File,
+    fs::{self, File},
     io::{self, Read, Seek, SeekFrom, Write},
     ops::{Deref, DerefMut, RangeInclusive},
     os::unix::{ffi::OsStrExt, fs::FileExt},
