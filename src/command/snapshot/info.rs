@@ -11,7 +11,7 @@ pub(crate) struct InfoCommand;
 impl InfoCommand {
     pub(crate) fn help() -> Help {
         Help::builder()
-            .name("info")
+            .name(".info")
             .summary("show info about the current snapshot")
             .build()
             .expect("internal error: help invalid")

@@ -12,7 +12,7 @@ pub(crate) struct SetIndexCommand {
 impl SetIndexCommand {
     pub(crate) fn help() -> Help {
         Help::builder()
-            .name("set-index")
+            .name(".set-index")
             .summary("set the index of the snapshot")
             .add_arg("index", "the new index")
             .build()

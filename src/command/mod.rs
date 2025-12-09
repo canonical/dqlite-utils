@@ -36,7 +36,7 @@ impl FromStr for Command {
         };
 
         match command.as_str() {
-            "help" => return Ok(Self::Help(HelpCommand::try_from_args(args)?)),
+            "help" | ".help" => return Ok(Self::Help(HelpCommand::try_from_args(args)?)),
             _ => {}
         }
 
@@ -209,7 +209,7 @@ impl FromStr for RootCommandKind {
             "quit" => Ok(Self::Quit),
             "status" => Ok(Self::Status),
             "snapshot" => Ok(Self::Snapshot),
-            unknown => Err(anyhow!("unknown command '{unknown}'")),
+            _ => Err(UnknownCommand.into()),
         }
     }
 }

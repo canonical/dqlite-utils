@@ -198,7 +198,7 @@ pub enum SnapshotShellCommand {
 impl SnapshotShellCommand {
     pub fn try_from_input(command: &str, args: &[String]) -> Result<Self> {
         use SnapshotShellCommandKind as Ssck;
-        match SnapshotShellCommandKind::from_str(command)? {
+        match command.parse()? {
             Ssck::Abort => Ok(Self::Abort(AbortCommand::try_from_args(args)?)),
             Ssck::AddServer => Ok(Self::AddServer(AddServerCommand::try_from_args(args)?)),
             Ssck::Finish => Ok(Self::Finish(FinishCommand::try_from_args(args)?)),
@@ -263,13 +263,13 @@ impl SnapshotShellCommandKind {
 
     pub(crate) fn name(&self) -> &'static str {
         match self {
-            Self::Abort => "abort",
-            Self::AddServer => "add-server",
-            Self::Finish => "finish",
-            Self::Info => "info",
-            Self::SetIndex => "set-index",
-            Self::SetTerm => "set-term",
-            Self::SetTimestamp => "set-timestamp",
+            Self::Abort => ".abort",
+            Self::AddServer => ".add-server",
+            Self::Finish => ".finish",
+            Self::Info => ".info",
+            Self::SetIndex => ".set-index",
+            Self::SetTerm => ".set-term",
+            Self::SetTimestamp => ".set-timestamp",
         }
     }
 }
@@ -278,14 +278,15 @@ impl FromStr for SnapshotShellCommandKind {
     type Err = Error;
 
     fn from_str(raw: &str) -> Result<Self> {
+        println!("parsing {raw:?}");
         match raw {
-            "abort" => Ok(Self::Abort),
-            "add-server" => Ok(Self::AddServer),
-            "finish" => Ok(Self::Finish),
-            "info" => Ok(Self::Info),
-            "set-index" => Ok(Self::SetIndex),
-            "set-term" => Ok(Self::SetTerm),
-            "set-timestamp" => Ok(Self::SetTimestamp),
+            ".abort" => Ok(Self::Abort),
+            ".add-server" => Ok(Self::AddServer),
+            ".finish" => Ok(Self::Finish),
+            ".info" => Ok(Self::Info),
+            ".set-index" => Ok(Self::SetIndex),
+            ".set-term" => Ok(Self::SetTerm),
+            ".set-timestamp" => Ok(Self::SetTimestamp),
             _ => Err(UnknownCommand.into()),
         }
     }

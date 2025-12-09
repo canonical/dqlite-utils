@@ -15,7 +15,7 @@ pub(crate) struct AddServerCommand {
 impl AddServerCommand {
     pub(crate) fn help() -> Help {
         Help::builder()
-            .name("add-server")
+            .name(".add-server")
             .summary("add a server to the snapshot")
             .add_arg(
                 "role",

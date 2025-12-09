@@ -15,7 +15,7 @@ pub(crate) struct FinishCommand;
 impl FinishCommand {
     pub(crate) fn help() -> Help {
         Help::builder()
-            .name("finish")
+            .name(".finish")
             .summary("validate snapshot and write to disk")
             .build()
             .expect("internal error: help invalid")

@@ -13,7 +13,7 @@ pub(crate) struct SetTimestampCommand {
 impl SetTimestampCommand {
     pub(crate) fn help() -> Help {
         Help::builder()
-            .name("set-timestamp")
+            .name(".set-timestamp")
             .summary("set the timestamp of the snapshot")
             .build()
             .expect("internal error: help invalid")

@@ -12,7 +12,7 @@ pub(crate) struct SetTermCommand {
 impl SetTermCommand {
     pub(crate) fn help() -> Help {
         Help::builder()
-            .name("set-term")
+            .name(".set-term")
             .summary("set the term of the snapshot")
             .build()
             .expect("internal error: help invalid")

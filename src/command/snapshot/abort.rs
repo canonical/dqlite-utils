@@ -9,7 +9,7 @@ pub(crate) struct AbortCommand;
 impl AbortCommand {
     pub(crate) fn help() -> Help {
         Help::builder()
-            .name("abort")
+            .name(".abort")
             .summary("exit the snapshot shell without writing to disk")
             .build()
             .expect("internal error: help invalid")
