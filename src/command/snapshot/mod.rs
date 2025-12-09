@@ -197,17 +197,17 @@ pub enum SnapshotShellCommand {
 
 impl SnapshotShellCommand {
     pub fn try_from_input(command: &str, args: &[String]) -> Result<Self> {
-        match command {
-            "abort" => Ok(Self::Abort(AbortCommand::try_from_args(args)?)),
-            "add-server" => Ok(Self::AddServer(AddServerCommand::try_from_args(args)?)),
-            "finish" => Ok(Self::Finish(FinishCommand::try_from_args(args)?)),
-            "info" => Ok(Self::Info(InfoCommand::try_from_args(args)?)),
-            "set-index" => Ok(Self::SetIndex(SetIndexCommand::try_from_args(args)?)),
-            "set-term" => Ok(Self::SetTerm(SetTermCommand::try_from_args(args)?)),
-            "set-timestamp" => Ok(Self::SetTimestamp(SetTimestampCommand::try_from_args(
+        use SnapshotShellCommandKind as Ssck;
+        match SnapshotShellCommandKind::from_str(command)? {
+            Ssck::Abort => Ok(Self::Abort(AbortCommand::try_from_args(args)?)),
+            Ssck::AddServer => Ok(Self::AddServer(AddServerCommand::try_from_args(args)?)),
+            Ssck::Finish => Ok(Self::Finish(FinishCommand::try_from_args(args)?)),
+            Ssck::Info => Ok(Self::Info(InfoCommand::try_from_args(args)?)),
+            Ssck::SetIndex => Ok(Self::SetIndex(SetIndexCommand::try_from_args(args)?)),
+            Ssck::SetTerm => Ok(Self::SetTerm(SetTermCommand::try_from_args(args)?)),
+            Ssck::SetTimestamp => Ok(Self::SetTimestamp(SetTimestampCommand::try_from_args(
                 args,
             )?)),
-            _ => Err(UnknownCommand.into()),
         }
     }
 

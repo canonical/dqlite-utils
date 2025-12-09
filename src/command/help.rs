@@ -2,7 +2,6 @@ use std::io::{self, ErrorKind, Write};
 
 use anyhow::Context as _;
 use owo_colors::Style;
-use strum::IntoEnumIterator;
 
 use crate::command::snapshot::SnapshotShell;
 use crate::utils::TerminalStylizeExt;
@@ -16,12 +15,10 @@ pub(crate) struct HelpCommand {
 }
 
 impl HelpCommand {
-    pub(crate) const SUMMARY: &'static str = "Print help and exit";
-
     pub(crate) fn help() -> Help {
         Help::builder()
             .name("help")
-            .summary(Self::SUMMARY)
+            .summary("Print help and exit")
             .add_optional_arg("command", "the command to get help for")
             .build()
             .expect("internal error: help invalid")
