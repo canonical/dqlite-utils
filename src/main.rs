@@ -10,7 +10,6 @@ use std::process::ExitCode;
 
 use anyhow::{Context as _, anyhow};
 use clap::Parser;
-use command::RootCommandKind;
 use command::help::HelpCommand;
 use command::log::LogCommand;
 use command::quit::QuitCommand;
@@ -20,7 +19,6 @@ use owo_colors::Style;
 use rustyline::Editor;
 use rustyline::error::ReadlineError;
 use rustyline::history::DefaultHistory;
-use strum::IntoEnumIterator;
 
 use self::args::Args;
 use self::command::Command;

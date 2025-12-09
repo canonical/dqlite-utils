@@ -61,23 +61,34 @@ impl Command {
             (Self::Root(cmd), Shell::Root(_)) => cmd.run(ctx),
             (Self::Root(cmd), _) => {
                 return Err(Error::from(CommandUnavailable {
-                    command_name: cmd.name(),
+                    command_name: cmd.kind().name(),
                     shell_name: ctx.shell.name(),
                 }));
             }
             (Self::Snapshot(cmd), Shell::Snapshot(_)) => cmd.run(ctx),
             (Self::Snapshot(cmd), _) => {
                 return Err(Error::from(CommandUnavailable {
-                    command_name: cmd.name(),
+                    command_name: cmd.kind().name(),
                     shell_name: ctx.shell.name(),
                 }));
             }
+        }
+    }
+
+    #[allow(unused)]
+    fn kind(&self) -> CommandKind {
+        match self {
+            Self::Noop => CommandKind::Noop,
+            Self::Help(_) => CommandKind::Help,
+            Self::Root(cmd) => CommandKind::Root(cmd.kind()),
+            Self::Snapshot(cmd) => CommandKind::Snapshot(cmd.kind()),
         }
     }
 }
 
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) enum CommandKind {
+    Noop,
     Help,
     Root(RootCommandKind),
     Snapshot(SnapshotShellCommandKind),
@@ -86,6 +97,7 @@ pub(crate) enum CommandKind {
 impl CommandKind {
     pub(crate) fn help(&self) -> Help {
         match self {
+            Self::Noop => panic!("cannot get help of noop command"),
             Self::Help => HelpCommand::help(),
             Self::Root(cmd) => cmd.help(),
             Self::Snapshot(cmd) => cmd.help(),
@@ -106,6 +118,50 @@ impl FromStr for CommandKind {
     }
 }
 
+#[derive(Debug, thiserror::Error)]
+#[error("{command_name} command unavailable in {shell_name} shell")]
+struct CommandUnavailable {
+    command_name: &'static str,
+    shell_name: &'static str,
+}
+
+#[derive(Debug)]
+pub enum RootCommand {
+    Quit(QuitCommand),
+    Status(StatusCommand),
+    Log(LogCommand),
+    Snapshot(SnapshotCommand),
+}
+
+impl RootCommand {
+    fn try_from_input(command: &str, args: &[String]) -> Result<Self> {
+        match command.parse()? {
+            RootCommandKind::Status => Ok(Self::Status(StatusCommand::try_from_args(args)?)),
+            RootCommandKind::Log => Ok(Self::Log(LogCommand::try_from_args(args)?)),
+            RootCommandKind::Quit => Ok(Self::Quit(QuitCommand::try_from_args(args)?)),
+            RootCommandKind::Snapshot => Ok(Self::Snapshot(SnapshotCommand::try_from_args(args)?)),
+        }
+    }
+
+    pub fn run(self, ctx: &mut Context) -> Result<()> {
+        match self {
+            Self::Quit(cmd) => cmd.run(ctx),
+            Self::Status(cmd) => cmd.run(ctx),
+            Self::Log(cmd) => cmd.run(ctx),
+            Self::Snapshot(cmd) => cmd.run(ctx),
+        }
+    }
+
+    fn kind(&self) -> RootCommandKind {
+        match self {
+            Self::Quit(_) => RootCommandKind::Quit,
+            Self::Status(_) => RootCommandKind::Status,
+            Self::Log(_) => RootCommandKind::Log,
+            Self::Snapshot(_) => RootCommandKind::Snapshot,
+        }
+    }
+}
+
 #[derive(Debug, Eq, PartialEq, EnumIter)]
 pub(crate) enum RootCommandKind {
     Log,
@@ -123,6 +179,15 @@ impl RootCommandKind {
             Self::Snapshot => SnapshotCommand::help(),
         }
     }
+
+    pub(crate) fn name(&self) -> &'static str {
+        match self {
+            Self::Log => "log",
+            Self::Quit => "quit",
+            Self::Status => "status",
+            Self::Snapshot => "snapshot",
+        }
+    }
 }
 
 impl FromStr for RootCommandKind {
@@ -134,53 +199,6 @@ impl FromStr for RootCommandKind {
             "quit" => Ok(Self::Quit),
             "status" => Ok(Self::Status),
             unknown => Err(anyhow!("unknown command '{unknown}'")),
-        }
-    }
-}
-
-#[derive(Debug, thiserror::Error)]
-#[error("{command_name} command unavailable in {shell_name} shell")]
-struct CommandUnavailable {
-    command_name: &'static str,
-    shell_name: &'static str,
-}
-
-#[derive(Debug)]
-pub enum RootCommand {
-    Quit(QuitCommand),
-    Status(StatusCommand),
-    Log(LogCommand),
-    Snapshot(SnapshotCommand),
-}
-
-impl RootCommand {
-    pub fn run(self, ctx: &mut Context) -> Result<()> {
-        match self {
-            Self::Quit(cmd) => cmd.run(ctx),
-            Self::Status(cmd) => cmd.run(ctx),
-            Self::Log(cmd) => cmd.run(ctx),
-            Self::Snapshot(cmd) => cmd.run(ctx),
-        }
-    }
-
-    fn name(&self) -> &'static str {
-        match self {
-            Self::Quit(_) => "quit",
-            Self::Status(_) => "status",
-            Self::Log(_) => "log",
-            Self::Snapshot(_) => "snapshot",
-        }
-    }
-}
-
-impl RootCommand {
-    fn try_from_input(command: &str, args: &[String]) -> Result<Self> {
-        match command {
-            "status" => Ok(Self::Status(StatusCommand::try_from_args(args)?)),
-            "log" => Ok(Self::Log(LogCommand::try_from_args(args)?)),
-            "quit" => Ok(Self::Quit(QuitCommand::try_from_args(args)?)),
-            "snapshot" => Ok(Self::Snapshot(SnapshotCommand::try_from_args(args)?)),
-            _ => Err(UnknownCommand.into()),
         }
     }
 }

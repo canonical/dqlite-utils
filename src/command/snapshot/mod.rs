@@ -12,7 +12,6 @@ use std::{fs, io::ErrorKind, path::PathBuf};
 
 use anyhow::{Context as _, anyhow};
 use indoc::writedoc;
-use strum::{EnumIter, IntoEnumIterator};
 use time::UtcDateTime;
 use time::format_description::well_known::Iso8601;
 
@@ -211,18 +210,6 @@ impl SnapshotShellCommand {
         }
     }
 
-    pub fn name(&self) -> &'static str {
-        match self {
-            Self::Abort(_) => "abort",
-            Self::AddServer(_) => "add-server",
-            Self::Finish(_) => "finish",
-            Self::Info(_) => "info",
-            Self::SetIndex(_) => "set-index",
-            Self::SetTerm(_) => "set-term",
-            Self::SetTimestamp(_) => "set-timestamp",
-        }
-    }
-
     pub fn run(self, ctx: &mut Context) -> Result<()> {
         match self {
             Self::Abort(cmd) => cmd.run(ctx),
@@ -232,6 +219,19 @@ impl SnapshotShellCommand {
             Self::SetIndex(cmd) => cmd.run(ctx),
             Self::SetTerm(cmd) => cmd.run(ctx),
             Self::SetTimestamp(cmd) => cmd.run(ctx),
+        }
+    }
+
+    pub fn kind(&self) -> SnapshotShellCommandKind {
+        use SnapshotShellCommandKind as Ssck;
+        match self {
+            Self::Abort(_) => Ssck::Abort,
+            Self::AddServer(_) => Ssck::AddServer,
+            Self::Finish(_) => Ssck::Finish,
+            Self::Info(_) => Ssck::Info,
+            Self::SetIndex(_) => Ssck::SetIndex,
+            Self::SetTerm(_) => Ssck::SetTerm,
+            Self::SetTimestamp(_) => Ssck::SetTimestamp,
         }
     }
 }
@@ -257,6 +257,18 @@ impl SnapshotShellCommandKind {
             Self::SetIndex => SetIndexCommand::help(),
             Self::SetTerm => SetTermCommand::help(),
             Self::SetTimestamp => SetTimestampCommand::help(),
+        }
+    }
+
+    pub(crate) fn name(&self) -> &'static str {
+        match self {
+            Self::Abort => "abort",
+            Self::AddServer => "add-server",
+            Self::Finish => "finish",
+            Self::Info => "info",
+            Self::SetIndex => "set-index",
+            Self::SetTerm => "set-term",
+            Self::SetTimestamp => "set-timestamp",
         }
     }
 }
