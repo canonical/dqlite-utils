@@ -35,7 +35,6 @@ impl FinishCommand {
         let SnapshotShell { path, snapshot } = shell;
         println!("writing snapshot to {}", path.display());
 
-        // TODO(kcza): just replicate the builder! No boomerangs, just &mut refs! todo!();
         let ShellSnapshotContext {
             term,
             index,
