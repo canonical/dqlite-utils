@@ -1226,6 +1226,7 @@ where
 
 impl DqliteDirCreator<Empty> {
     pub fn create(self) -> Result<()> {
+        self.create_dir()?;
         self.write_metadata()?;
         self.write_segments()?;
 
@@ -1238,6 +1239,7 @@ where
     T: DqliteDatabaseWriter,
 {
     pub fn create(self) -> Result<()> {
+        self.create_dir()?;
         self.write_metadata()?;
         self.write_segments()?;
         self.write_snapshots()?;
@@ -1246,6 +1248,11 @@ where
 }
 
 impl<T> DqliteDirCreator<T> {
+    fn create_dir(&self) -> Result<()> {
+        fs::create_dir_all(&self.dir)?;
+        Ok(())
+    }
+
     fn write_metadata(&self) -> Result<()> {
         let mut err = RaftErrorStr::new();
 
