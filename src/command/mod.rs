@@ -3,7 +3,6 @@ mod log;
 pub(crate) mod quit;
 mod status;
 
-use std::io::{self, Write};
 use std::str::FromStr;
 
 use anyhow::anyhow;
@@ -11,7 +10,7 @@ use strum::EnumIter;
 
 use crate::{Context, Error, Result};
 
-use self::help::HelpCommand;
+use self::help::{Help, HelpCommand};
 use self::log::LogCommand;
 use self::quit::QuitCommand;
 use self::status::StatusCommand;
@@ -66,33 +65,13 @@ pub(crate) enum CommandKind {
 }
 
 impl CommandKind {
-    pub(crate) fn name(&self) -> &'static str {
+    pub(crate) fn help(&self) -> Help {
         match self {
-            Self::Log => "log",
-            Self::Quit => "quit",
-            Self::Status => "status",
-            Self::Help => "help",
-        }
-    }
-
-    pub(crate) fn summary(&self) -> &'static str {
-        match self {
-            Self::Log => LogCommand::SUMMARY,
-            Self::Quit => QuitCommand::SUMMARY,
-            Self::Status => StatusCommand::SUMMARY,
-            Self::Help => HelpCommand::SUMMARY,
-        }
-    }
-
-    pub(crate) fn write_help(&self, writer: impl Write) -> io::Result<()> {
-        let help = match self {
             Self::Log => LogCommand::help(),
             Self::Quit => QuitCommand::help(),
             Self::Status => StatusCommand::help(),
             Self::Help => HelpCommand::help(),
-        };
-        help.write_to(writer)?;
-        Ok(())
+        }
     }
 }
 
