@@ -73,6 +73,16 @@ impl CommandKind {
             Self::Help => HelpCommand::help(),
         }
     }
+
+    #[cfg(test)]
+    pub(crate) fn name(&self) -> &'static str {
+        match self {
+            Self::Log => "log",
+            Self::Quit => "quit",
+            Self::Status => "status",
+            Self::Help => "help",
+        }
+    }
 }
 
 impl FromStr for CommandKind {

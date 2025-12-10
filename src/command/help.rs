@@ -292,7 +292,7 @@ mod tests {
 
     use googletest::expect_that;
 
-    use googletest::matchers::{anything, contains_substring, displays_as, err};
+    use googletest::matchers::{anything, contains_substring, err};
     use strum::IntoEnumIterator;
 
     use super::*;
@@ -301,11 +301,13 @@ mod tests {
     fn test_all_commands_listed_in_help() {
         let help_output = {
             let mut help_output = Cursor::new(Vec::new());
-            HelpCommand::write_general_help(&mut help_output).unwrap();
+            HelpCommand::general_help()
+                .write_to(&mut help_output)
+                .unwrap();
             String::try_from(help_output.into_inner()).unwrap()
         };
         for command_kind in CommandKind::iter() {
-            expect_that!(help_output, contains_substring(command_kind.help().name));
+            expect_that!(help_output, contains_substring(command_kind.name()));
         }
     }
 
