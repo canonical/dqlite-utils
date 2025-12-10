@@ -8,15 +8,15 @@ use std::io::{self, IsTerminal};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use anyhow::{Context as _, anyhow};
+use anyhow::{anyhow, Context as _};
 use clap::Parser;
 use owo_colors::Style;
-use rustyline::Editor;
 use rustyline::error::ReadlineError;
 use rustyline::history::DefaultHistory;
+use rustyline::Editor;
 
 use self::args::Args;
-use self::command::Command;
+use self::command::{Command, Help, RootShell, SnapshotShell};
 use self::dqlite::{DqliteDir, NoMetadataError};
 use self::prompt::Prompt;
 use self::utils::TerminalStylizeExt;
@@ -176,6 +176,7 @@ fn stdin_commands() -> impl Iterator<Item = Command> {
 #[derive(Debug, Default)]
 pub struct Context {
     pub dqlite: Option<DqliteDir>,
+    pub shell: Shell,
     pub prompt: Prompt,
 }
 
@@ -198,3 +199,31 @@ impl Context {
 #[derive(Debug, thiserror::Error)]
 #[error("no open dqlite directory")]
 struct NoOpenDqliteDir;
+
+#[derive(Debug)]
+pub enum Shell {
+    Root(RootShell),
+    Snapshot(SnapshotShell),
+}
+
+impl Shell {
+    fn name(&self) -> &'static str {
+        match self {
+            Self::Root(_) => "root",
+            Self::Snapshot(_) => "snapshot",
+        }
+    }
+
+    fn help(&self) -> Help {
+        match self {
+            Shell::Root(_) => RootShell::help(),
+            Shell::Snapshot(_) => SnapshotShell::help(),
+        }
+    }
+}
+
+impl Default for Shell {
+    fn default() -> Self {
+        Self::Root(RootShell::default())
+    }
+}

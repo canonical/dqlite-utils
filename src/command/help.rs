@@ -3,10 +3,6 @@ use std::io::{self, ErrorKind, Write};
 use anyhow::Context as _;
 use owo_colors::Style;
 
-use crate::command::log::LogCommand;
-use crate::command::quit::QuitCommand;
-use crate::command::snapshot::SnapshotCommand;
-use crate::command::status::StatusCommand;
 use crate::command::{CommandKind, UnrecognizedArgumentsError};
 use crate::utils::TerminalStylizeExt;
 use crate::{Context, Result};
@@ -44,10 +40,10 @@ impl HelpCommand {
         })
     }
 
-    pub(crate) fn run(self, _ctx: &Context) -> Result<()> {
+    pub(crate) fn run(self, ctx: &Context) -> Result<()> {
         let Self { command } = self;
         let help = match command {
-            None => Self::general_help(),
+            None => ctx.shell.help(),
             Some(command) => command.help(),
         };
         match help.write_to(io::stdout().lock()) {
@@ -56,20 +52,6 @@ impl HelpCommand {
             Err(e) => return Err(e.into()),
         }
         Ok(())
-    }
-
-    fn general_help() -> Help {
-        Help::builder()
-            .name("dqlite-utils")
-            .summary("an observability tool for inspecting the on-disk state of a dqlite node")
-            .skip_usage()
-            .add_command(HelpCommand::help())
-            .add_command(LogCommand::help())
-            .add_command(QuitCommand::help())
-            .add_command(SnapshotCommand::help())
-            .add_command(StatusCommand::help())
-            .build()
-            .expect("internal error: help invalid")
     }
 }
 
@@ -308,7 +290,7 @@ mod tests {
                 .unwrap();
             String::try_from(help_output.into_inner()).unwrap()
         };
-        for command_kind in CommandKind::iter() {
+        for command_kind in RootCommandKind::iter() {
             expect_that!(help_output, contains_substring(command_kind.name()));
         }
     }
