@@ -12,6 +12,7 @@ use std::str::FromStr;
 use anyhow::Error;
 use strum::EnumIter;
 
+use crate::prompt::Prompt;
 use crate::{Context, Result, Shell};
 
 use self::help::HelpCommand;
@@ -215,7 +216,9 @@ impl FromStr for RootCommandKind {
 struct UnrecognizedArgumentsError(Vec<String>);
 
 #[derive(Debug, Default)]
-pub struct RootShell;
+pub struct RootShell {
+    prompt: Prompt,
+}
 
 impl RootShell {
     pub(crate) fn help() -> Help {
@@ -230,6 +233,10 @@ impl RootShell {
             .add_command(StatusCommand::help())
             .build()
             .expect("internal error: help invalid")
+    }
+
+    pub(crate) fn prompt(&self) -> &Prompt {
+        &self.prompt
     }
 }
 

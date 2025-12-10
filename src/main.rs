@@ -8,12 +8,12 @@ use std::io::{self, IsTerminal};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use anyhow::{anyhow, Context as _};
+use anyhow::{Context as _, anyhow};
 use clap::Parser;
 use owo_colors::Style;
+use rustyline::Editor;
 use rustyline::error::ReadlineError;
 use rustyline::history::DefaultHistory;
-use rustyline::Editor;
 
 use self::args::Args;
 use self::command::{Command, Help, RootShell, SnapshotShell};
@@ -135,7 +135,7 @@ impl InteractiveCommandReader {
     }
 
     fn read(&mut self, ctx: &Context) -> Result<Option<Command>> {
-        let line = self.line_editor.readline(ctx.prompt.as_str())?;
+        let line = self.line_editor.readline(ctx.shell.prompt().as_str())?;
         let trimmed_line = line.trim();
         let ret = trimmed_line.parse().map(Some);
         self.line_editor.add_history_entry(line)?;
@@ -177,7 +177,6 @@ fn stdin_commands() -> impl Iterator<Item = Command> {
 pub struct Context {
     pub dqlite: Option<DqliteDir>,
     pub shell: Shell,
-    pub prompt: Prompt,
 }
 
 impl Context {
@@ -218,6 +217,13 @@ impl Shell {
         match self {
             Shell::Root(_) => RootShell::help(),
             Shell::Snapshot(_) => SnapshotShell::help(),
+        }
+    }
+
+    fn prompt(&self) -> &Prompt {
+        match self {
+            Self::Root(shell) => shell.prompt(),
+            Self::Snapshot(shell) => shell.prompt(),
         }
     }
 }

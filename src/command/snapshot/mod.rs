@@ -29,7 +29,6 @@ impl SnapshotCommand {
     pub(crate) fn run(self, ctx: &mut Context) -> Result<()> {
         let Self = self;
         ctx.shell = Shell::Snapshot(SnapshotShell::new());
-        ctx.prompt = Prompt::new("snapshot");
         Ok(())
     }
 }
@@ -38,6 +37,7 @@ impl SnapshotCommand {
 pub struct SnapshotShell {
     #[allow(unused)]
     snapshot: ShellSnapshotContext,
+    prompt: Prompt,
 }
 
 impl SnapshotShell {
@@ -50,10 +50,14 @@ impl SnapshotShell {
             .expect("internal error: help invalid")
     }
 
-    fn new() -> Self {
-        Self {
-            snapshot: ShellSnapshotContext::new(),
-        }
+    pub(crate) fn new() -> Self {
+        let snapshot = ShellSnapshotContext::new();
+        let prompt = Prompt::new("snapshot");
+        Self { snapshot, prompt }
+    }
+
+    pub(crate) fn prompt(&self) -> &Prompt {
+        &self.prompt
     }
 }
 
