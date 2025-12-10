@@ -5,6 +5,7 @@ use owo_colors::Style;
 
 use crate::command::log::LogCommand;
 use crate::command::quit::QuitCommand;
+use crate::command::snapshot::SnapshotCommand;
 use crate::command::status::StatusCommand;
 use crate::command::{CommandKind, UnrecognizedArgumentsError};
 use crate::utils::TerminalStylizeExt;
@@ -65,6 +66,7 @@ impl HelpCommand {
             .add_command(HelpCommand::help())
             .add_command(LogCommand::help())
             .add_command(QuitCommand::help())
+            .add_command(SnapshotCommand::help())
             .add_command(StatusCommand::help())
             .build()
             .expect("internal error: help invalid")

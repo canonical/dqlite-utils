@@ -1,6 +1,7 @@
 mod help;
 mod log;
 pub(crate) mod quit;
+mod snapshot;
 mod status;
 
 use std::str::FromStr;
@@ -13,6 +14,7 @@ use crate::{Context, Error, Result};
 use self::help::{Help, HelpCommand};
 use self::log::LogCommand;
 use self::quit::QuitCommand;
+use self::snapshot::SnapshotCommand;
 use self::status::StatusCommand;
 
 #[derive(Debug)]
@@ -22,6 +24,7 @@ pub enum Command {
     Status(StatusCommand),
     Help(HelpCommand),
     Log(LogCommand),
+    Snapshot(SnapshotCommand),
 
     Noop,
 }
@@ -34,6 +37,7 @@ impl Command {
             Self::Status(cmd) => cmd.run(ctx),
             Self::Help(cmd) => cmd.run(ctx),
             Self::Log(cmd) => cmd.run(ctx),
+            Self::Snapshot(cmd) => cmd.run(ctx),
         }
     }
 }
@@ -52,6 +56,7 @@ impl FromStr for Command {
             CommandKind::Log => Ok(Self::Log(LogCommand::try_from_args(args)?)),
             CommandKind::Help => Ok(Self::Help(HelpCommand::try_from_args(args)?)),
             CommandKind::Quit => Ok(Self::Quit(QuitCommand::try_from_args(args)?)),
+            CommandKind::Snapshot => Ok(Self::Snapshot(SnapshotCommand::try_from_args(args)?)),
         }
     }
 }
@@ -62,6 +67,7 @@ pub(crate) enum CommandKind {
     Quit,
     Status,
     Help,
+    Snapshot,
 }
 
 impl CommandKind {
@@ -71,6 +77,7 @@ impl CommandKind {
             Self::Quit => QuitCommand::help(),
             Self::Status => StatusCommand::help(),
             Self::Help => HelpCommand::help(),
+            Self::Snapshot => SnapshotCommand::help(),
         }
     }
 
@@ -81,6 +88,7 @@ impl CommandKind {
             Self::Quit => "quit",
             Self::Status => "status",
             Self::Help => "help",
+            Self::Snapshot => "snapshot",
         }
     }
 }
@@ -94,6 +102,7 @@ impl FromStr for CommandKind {
             "quit" => Ok(Self::Quit),
             "status" => Ok(Self::Status),
             "help" => Ok(Self::Help),
+            "snapshot" => Ok(Self::Snapshot),
             unknown => Err(anyhow!("unknown command '{unknown}'")),
         }
     }
