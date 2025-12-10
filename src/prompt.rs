@@ -18,10 +18,6 @@ impl Prompt {
         let content = Cow::from(format!("{text}> "));
         Self { content }
     }
-
-    pub(crate) fn as_str(&self) -> &str {
-        &self.content
-    }
 }
 
 impl Default for Prompt {
@@ -34,6 +30,6 @@ impl Default for Prompt {
 impl Display for Prompt {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let Self { content } = self;
-        write!(f, "{}", content.terminal_style(Self::STYLE).to_string())
+        write!(f, "{}", content.terminal_style(Self::STYLE))
     }
 }
