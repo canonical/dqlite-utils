@@ -14,7 +14,7 @@ impl Prompt {
 
     #[allow(unused)]
     pub(crate) fn new(text: impl Display) -> Self {
-        let content = format!("{text}> ").terminal_style(Self::STYLE).to_string();
+        let content = format!("{text}> ");
         Self { content }
     }
 
@@ -27,5 +27,12 @@ impl Default for Prompt {
     fn default() -> Self {
         let content = "> ".terminal_style(Self::STYLE).to_string();
         Self { content }
+    }
+}
+
+impl Display for Prompt {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let Self { content } = self;
+        write!(f, "{}", content.terminal_style(Self::STYLE).to_string())
     }
 }
