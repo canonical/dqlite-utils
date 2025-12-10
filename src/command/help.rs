@@ -161,7 +161,7 @@ impl Help {
             if arg.kind.optional {
                 write!(w, " [{name}]")?;
             } else {
-                write!(w, " {name}")?;
+                write!(w, " <{name}>")?;
             }
         }
         writeln!(w)?;
