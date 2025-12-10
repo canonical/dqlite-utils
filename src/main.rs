@@ -69,7 +69,7 @@ fn exec(args: Args) -> Result<()> {
 
 fn run_interactive(mut command_reader: InteractiveCommandReader, mut ctx: Context) -> Result<()> {
     loop {
-        let command = match command_reader.next_command(&ctx) {
+        let command = match command_reader.read(&ctx) {
             Ok(Some(command)) => command,
             Ok(None) => continue,
             Err(err) => match err.downcast_ref() {
@@ -134,7 +134,7 @@ impl InteractiveCommandReader {
         })
     }
 
-    fn next_command(&mut self, ctx: &Context) -> Result<Option<Command>> {
+    fn read(&mut self, ctx: &Context) -> Result<Option<Command>> {
         let line = self.line_editor.readline(ctx.prompt.as_str())?;
         let trimmed_line = line.trim();
         let ret = trimmed_line.parse().map(Some);
