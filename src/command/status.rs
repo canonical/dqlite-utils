@@ -11,12 +11,10 @@ use super::UnrecognizedArgumentsError;
 pub(crate) struct StatusCommand;
 
 impl StatusCommand {
-    pub(crate) const SUMMARY: &'static str = "Show brief summary of the current Raft state";
-
     pub(crate) fn help() -> Help {
         Help::builder()
             .name("status")
-            .summary(Self::SUMMARY)
+            .summary("Show brief summary of the current Raft state")
             .build()
             .expect("internal error: help invalid")
     }

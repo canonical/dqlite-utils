@@ -8,12 +8,10 @@ use crate::{Context, Result};
 pub(crate) struct QuitCommand;
 
 impl QuitCommand {
-    pub(crate) const SUMMARY: &'static str = "Exit";
-
     pub(crate) fn help() -> Help {
         Help::builder()
             .name("quit")
-            .summary(Self::SUMMARY)
+            .summary("Exit")
             .build()
             .expect("internal error: help invalid")
     }

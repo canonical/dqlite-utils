@@ -24,13 +24,10 @@ impl LogCommand {
     const ENTRY_TYPE_STYLE: Style = Style::new().cyan();
     const TAG_STYLE: Style = Style::new().bright_magenta();
 
-    pub(crate) const SUMMARY: &'static str =
-        "Show a list of all commands applied to the dqlite state machine";
-
     pub(crate) fn help() -> Help {
         Help::builder()
             .name("log")
-            .summary(Self::SUMMARY)
+            .summary("Show a list of all commands applied to the dqlite state machine")
             .add_flag("--compact", "output compactly")
             .build()
             .expect("internal error: help invalid")
