@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::fmt::Display;
 
 use owo_colors::Style;
@@ -6,7 +7,7 @@ use crate::utils::TerminalStylizeExt;
 
 #[derive(Debug)]
 pub struct Prompt {
-    content: String,
+    content: Cow<'static, str>,
 }
 
 impl Prompt {
@@ -14,7 +15,7 @@ impl Prompt {
 
     #[allow(unused)]
     pub(crate) fn new(text: impl Display) -> Self {
-        let content = format!("{text}> ");
+        let content = Cow::from(format!("{text}> "));
         Self { content }
     }
 
@@ -25,7 +26,7 @@ impl Prompt {
 
 impl Default for Prompt {
     fn default() -> Self {
-        let content = "> ".terminal_style(Self::STYLE).to_string();
+        let content = Cow::from("> ");
         Self { content }
     }
 }
