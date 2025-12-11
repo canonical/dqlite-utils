@@ -4,7 +4,7 @@ use std::{
     borrow::Cow,
     cmp,
     ffi::{CStr, CString, OsStr, OsString, c_char, c_int, c_uint, c_void},
-    fmt::Debug,
+    fmt::{Debug, Display},
     fs::{self, File},
     io::{self, Read, Seek, SeekFrom, Write},
     ops::{Deref, DerefMut, RangeInclusive},
@@ -382,6 +382,16 @@ impl RaftServer {
             address: unsafe { CStr::from_ptr(server.address).to_str()?.to_owned() },
             role,
         })
+    }
+}
+
+impl Display for RaftRole {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Standby => write!(f, "standby"),
+            Self::Voter => write!(f, "voter"),
+            Self::Spare => write!(f, "spare"),
+        }
     }
 }
 
