@@ -2,6 +2,7 @@ mod abort;
 mod info;
 mod set_index;
 mod set_term;
+mod set_timestamp;
 
 use std::str::FromStr;
 
@@ -18,6 +19,7 @@ use self::abort::AbortCommand;
 use self::info::InfoCommand;
 use self::set_index::SetIndexCommand;
 use self::set_term::SetTermCommand;
+use self::set_timestamp::SetTimestampCommand;
 
 #[derive(Debug)]
 pub(crate) struct SnapshotCommand;
@@ -62,6 +64,7 @@ impl SnapshotShell {
             .add_command(InfoCommand::help())
             .add_command(SetIndexCommand::help())
             .add_command(SetTermCommand::help())
+            .add_command(SetTimestampCommand::help())
             .build()
             .expect("internal error: help invalid")
     }
@@ -118,6 +121,7 @@ pub(crate) enum SnapshotShellCommand {
     Info(InfoCommand),
     SetIndex(SetIndexCommand),
     SetTerm(SetTermCommand),
+    SetTimestamp(SetTimestampCommand),
 }
 
 impl SnapshotShellCommand {
@@ -128,6 +132,7 @@ impl SnapshotShellCommand {
             Self::Info(_) => Ssck::Info,
             Self::SetIndex(_) => Ssck::SetIndex,
             Self::SetTerm(_) => Ssck::SetTerm,
+            Self::SetTimestamp(_) => Ssck::SetTimestamp,
         }
     }
 
@@ -138,6 +143,9 @@ impl SnapshotShellCommand {
             Ssck::Info => Ok(Self::Info(InfoCommand::try_from_args(args)?)),
             Ssck::SetIndex => Ok(Self::SetIndex(SetIndexCommand::try_from_args(args)?)),
             Ssck::SetTerm => Ok(Self::SetTerm(SetTermCommand::try_from_args(args)?)),
+            Ssck::SetTimestamp => Ok(Self::SetTimestamp(SetTimestampCommand::try_from_args(
+                args,
+            )?)),
         }
     }
 
@@ -147,6 +155,7 @@ impl SnapshotShellCommand {
             Self::Info(cmd) => cmd.run(ctx),
             Self::SetIndex(cmd) => cmd.run(ctx),
             Self::SetTerm(cmd) => cmd.run(ctx),
+            Self::SetTimestamp(cmd) => cmd.run(ctx),
         }
     }
 }
@@ -157,6 +166,7 @@ pub(crate) enum SnapshotShellCommandKind {
     Info,
     SetIndex,
     SetTerm,
+    SetTimestamp,
 }
 
 impl SnapshotShellCommandKind {
@@ -166,6 +176,7 @@ impl SnapshotShellCommandKind {
             Self::Info => InfoCommand::help(),
             Self::SetIndex => SetIndexCommand::help(),
             Self::SetTerm => SetTermCommand::help(),
+            Self::SetTimestamp => SetTimestampCommand::help(),
         }
     }
 
@@ -175,6 +186,7 @@ impl SnapshotShellCommandKind {
             Self::Info => ".info",
             Self::SetIndex => ".set-index",
             Self::SetTerm => ".set-term",
+            Self::SetTimestamp => ".set-timestamp",
         }
     }
 }
@@ -188,6 +200,7 @@ impl FromStr for SnapshotShellCommandKind {
             ".info" => Ok(Self::Info),
             ".set-index" => Ok(Self::SetIndex),
             ".set-term" => Ok(Self::SetTerm),
+            ".set-timestamp" => Ok(Self::SetTimestamp),
             _ => Err(UnknownCommand.into()),
         }
     }
