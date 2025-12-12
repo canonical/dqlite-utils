@@ -24,9 +24,10 @@ impl InfoCommand {
     }
 
     pub(crate) fn run(self, ctx: &mut Context) -> Result<()> {
-        let shell = ctx.shell.snapshot_mut().ok_or_else(|| {
-            anyhow!("internal error: finish command not called in snapshot shell")
-        })?;
+        let shell = ctx
+            .shell
+            .snapshot_mut()
+            .ok_or_else(|| anyhow!("internal error: .info command not called in snapshot shell"))?;
         print!("{}", shell.snapshot);
         Ok(())
     }
