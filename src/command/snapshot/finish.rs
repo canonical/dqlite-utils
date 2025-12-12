@@ -56,21 +56,22 @@ impl FinishCommand {
         // Heuristic to ensure clean directory. Clearly there's a TOCTOU issue here,
         // but if a user chooses to write a snapshot into an actively-changing
         // directory then on their head, be it.
-        match fs::read_dir(&dir) {
+        let dir_preexists = match fs::read_dir(&dir) {
             Ok(mut dir_reader) => {
                 if dir_reader.next().is_some() {
                     return Err(anyhow!("directory not empty"))
                         .with_context(|| anyhow!("cannot write snapshot into {}", dir.display()));
                 }
+                true
             }
-            Err(err) if err.kind() == ErrorKind::NotFound => {}
+            Err(err) if err.kind() == ErrorKind::NotFound => false,
             Err(err) => {
                 return Err(err)
                     .with_context(|| anyhow!("cannot write snapshot into {}", dir.display()));
             }
-        }
+        };
 
-        DqliteDir::creator(dir)
+        let res = DqliteDir::creator(&dir)
             .with_snapshot(move |s| {
                 s.with_term(term)
                     .with_index(index)
@@ -82,7 +83,13 @@ impl FinishCommand {
                         PlaceholderDb,
                     )
             })
-            .create()?;
+            .create();
+        if let Err(err) = res {
+            if !dir_preexists {
+                fs::remove_dir_all(dir).ok();
+            }
+            return Err(err);
+        }
 
         ctx.shell = Shell::default();
 
