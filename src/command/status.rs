@@ -13,7 +13,7 @@ pub(crate) struct StatusCommand;
 impl StatusCommand {
     pub(crate) fn help() -> Help {
         Help::builder()
-            .name("status")
+            .name(".status")
             .summary("Show brief summary of the current Raft state")
             .build()
             .expect("internal error: help invalid")
