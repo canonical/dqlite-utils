@@ -2,6 +2,7 @@ mod help;
 mod log;
 pub(crate) mod quit;
 mod snapshot;
+mod sql;
 mod status;
 
 pub(crate) use self::help::Help;
@@ -19,6 +20,7 @@ use self::help::HelpCommand;
 use self::log::LogCommand;
 use self::quit::QuitCommand;
 use self::snapshot::{SnapshotCommand, SnapshotShellCommand, SnapshotShellCommandKind};
+use self::sql::SqlCommand;
 use self::status::StatusCommand;
 
 #[derive(Debug)]
@@ -27,31 +29,38 @@ pub enum Command {
     Help(HelpCommand),
     Root(RootCommand),
     Snapshot(SnapshotShellCommand),
+    Sql(SqlCommand),
 }
 
 impl FromStr for Command {
     type Err = Error;
 
     fn from_str(raw: &str) -> Result<Self> {
-        let words = shell_words::split(raw)?;
-        let (command, args) = match words.split_first() {
-            Some((command, args)) => (command, args),
-            None => return Ok(Self::Noop),
-        };
         // NOTE: All commands share the same namespace, thereby allowing us to successfully
         // parse all commands ahead of time, without knowing their effect on the Context;
         // availability is checked later.
-        if command == ".help" {
-            return Ok(Self::Help(HelpCommand::try_from_args(args)?));
+        if raw.starts_with('.') {
+            let words = shell_words::split(raw)?;
+            let (command, args) = match words.split_first() {
+                Some((command, args)) => (command, args),
+                None => return Ok(Self::Noop),
+            };
+
+            if command == ".help" {
+                return Ok(Self::Help(HelpCommand::try_from_args(args)?));
+            }
+            match RootCommand::try_from_input(command, args) {
+                Ok(cmd) => return Ok(Self::Root(cmd)),
+                Err(err) if err.is::<UnknownCommand>() => {}
+                Err(err) => return Err(err),
+            }
+            match SnapshotShellCommand::try_from_input(command, args) {
+                Ok(cmd) => return Ok(Self::Snapshot(cmd)),
+                Err(err) if err.is::<UnknownCommand>() => {}
+                Err(err) => return Err(err),
+            }
         }
-        match RootCommand::try_from_input(command, args) {
-            Ok(cmd) => return Ok(Self::Root(cmd)),
-            Err(err) if err.is::<UnknownCommand>() => {}
-            Err(err) => return Err(err),
-        }
-        Ok(Self::Snapshot(SnapshotShellCommand::try_from_input(
-            command, args,
-        )?))
+        Ok(Self::Sql(SqlCommand::try_from_raw(raw)?))
     }
 }
 
@@ -62,6 +71,7 @@ impl Command {
             Self::Noop => CommandKind::Noop,
             Self::Root(cmd) => CommandKind::Root(cmd.kind()),
             Self::Snapshot(cmd) => CommandKind::Snapshot(cmd.kind()),
+            Self::Sql(_) => CommandKind::Sql,
         }
     }
 
@@ -73,6 +83,7 @@ impl Command {
             (cmd @ Self::Root(_), _) => Err(CommandUnavailable::new(&cmd, &ctx.shell).into()),
             (Self::Snapshot(cmd), Shell::Snapshot(_)) => cmd.run(ctx),
             (cmd @ Self::Snapshot(_), _) => Err(CommandUnavailable::new(&cmd, &ctx.shell).into()),
+            (Self::Sql(cmd), _) => cmd.run(ctx),
         }
     }
 }
@@ -136,6 +147,7 @@ pub(crate) enum CommandKind {
     Help,
     Root(RootCommandKind),
     Snapshot(SnapshotShellCommandKind),
+    Sql,
 }
 
 impl FromStr for CommandKind {
@@ -153,6 +165,7 @@ impl CommandKind {
             Self::Noop => "no-op",
             Self::Root(kind) => kind.name(),
             Self::Snapshot(kind) => kind.name(),
+            Self::Sql => "<sql>",
         }
     }
 
@@ -162,6 +175,7 @@ impl CommandKind {
             Self::Noop => panic!("cannot get help of no-op"),
             Self::Root(kind) => kind.help(),
             Self::Snapshot(kind) => kind.help(),
+            Self::Sql => SqlCommand::help(),
         }
     }
 }
