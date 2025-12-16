@@ -16,7 +16,7 @@ use rustyline::error::ReadlineError;
 use rustyline::history::DefaultHistory;
 
 use self::args::Args;
-use self::command::Command;
+use self::command::{Command, Help, RootShell, SnapshotShell};
 use self::dqlite::{DqliteDir, NoMetadataError};
 use self::prompt::Prompt;
 use self::utils::TerminalStylizeExt;
@@ -135,7 +135,7 @@ impl InteractiveCommandReader {
     }
 
     fn read(&mut self, ctx: &Context) -> Result<Option<Command>> {
-        let line = self.line_editor.readline(ctx.prompt.as_str())?;
+        let line = self.line_editor.readline(ctx.shell.prompt().as_str())?;
         let trimmed_line = line.trim();
         let ret = trimmed_line.parse().map(Some);
         self.line_editor.add_history_entry(line)?;
@@ -176,7 +176,7 @@ fn stdin_commands() -> impl Iterator<Item = Command> {
 #[derive(Debug, Default)]
 pub struct Context {
     pub dqlite: Option<DqliteDir>,
-    pub prompt: Prompt,
+    pub shell: Shell,
 }
 
 impl Context {
@@ -198,3 +198,38 @@ impl Context {
 #[derive(Debug, thiserror::Error)]
 #[error("no open dqlite directory")]
 struct NoOpenDqliteDir;
+
+#[derive(Debug)]
+pub enum Shell {
+    Root(RootShell),
+    Snapshot(SnapshotShell),
+}
+
+impl Shell {
+    fn name(&self) -> &'static str {
+        match self {
+            Self::Root(_) => "root",
+            Self::Snapshot(_) => "snapshot",
+        }
+    }
+
+    fn help(&self) -> Help {
+        match self {
+            Shell::Root(_) => RootShell::help(),
+            Shell::Snapshot(_) => SnapshotShell::help(),
+        }
+    }
+
+    fn prompt(&self) -> &Prompt {
+        match self {
+            Self::Root(shell) => shell.prompt(),
+            Self::Snapshot(shell) => shell.prompt(),
+        }
+    }
+}
+
+impl Default for Shell {
+    fn default() -> Self {
+        Self::Root(RootShell::default())
+    }
+}

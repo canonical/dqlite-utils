@@ -1,41 +1,31 @@
 mod help;
 mod log;
 pub(crate) mod quit;
+mod snapshot;
 mod status;
+
+pub(crate) use self::help::Help;
+pub(crate) use self::snapshot::SnapshotShell;
 
 use std::str::FromStr;
 
-use anyhow::anyhow;
+use anyhow::Error;
 use strum::EnumIter;
 
-use crate::{Context, Error, Result};
+use crate::prompt::Prompt;
+use crate::{Context, Result, Shell};
 
-use self::help::{Help, HelpCommand};
+use self::help::HelpCommand;
 use self::log::LogCommand;
 use self::quit::QuitCommand;
+use self::snapshot::{SnapshotCommand, SnapshotShellCommand, SnapshotShellCommandKind};
 use self::status::StatusCommand;
 
 #[derive(Debug)]
 pub enum Command {
-    // NOTE: when adding new commands, remember to add them to the general `help` output.
-    Quit(QuitCommand),
-    Status(StatusCommand),
-    Help(HelpCommand),
-    Log(LogCommand),
-
     Noop,
-}
-
-impl Command {
-    pub fn run(self, ctx: &mut Context) -> Result<()> {
-        match self {
-            Self::Noop => Ok(()),
-            Self::Quit(cmd) => cmd.run(ctx),
-            Self::Status(cmd) => cmd.run(ctx),
-            Self::Help(cmd) => cmd.run(ctx),
-            Self::Log(cmd) => cmd.run(ctx),
-        }
-    }
+    Root(RootCommand),
+    Snapshot(SnapshotShellCommand),
 }
 
 impl FromStr for Command {
@@ -47,45 +37,166 @@ impl FromStr for Command {
             Some((command, args)) => (command, args),
             None => return Ok(Self::Noop),
         };
-        match command.parse()? {
-            CommandKind::Status => Ok(Self::Status(StatusCommand::try_from_args(args)?)),
-            CommandKind::Log => Ok(Self::Log(LogCommand::try_from_args(args)?)),
-            CommandKind::Help => Ok(Self::Help(HelpCommand::try_from_args(args)?)),
-            CommandKind::Quit => Ok(Self::Quit(QuitCommand::try_from_args(args)?)),
+        // NOTE: All commands share the same namespace, thereby allowing us to successfully
+        // parse all commands ahead of time, without knowing their effect on the Context;
+        // availability is checked later.
+        match RootCommand::try_from_input(command, args) {
+            Ok(cmd) => return Ok(Self::Root(cmd)),
+            Err(err) if err.is::<UnknownCommand>() => {}
+            Err(err) => return Err(err),
+        }
+        Ok(Self::Snapshot(SnapshotShellCommand::try_from_input(
+            command, args,
+        )?))
+    }
+}
+
+impl Command {
+    fn kind(&self) -> CommandKind {
+        match self {
+            Self::Noop => CommandKind::Noop,
+            Self::Root(cmd) => CommandKind::Root(cmd.kind()),
+            Self::Snapshot(cmd) => CommandKind::Snapshot(cmd.kind()),
+        }
+    }
+
+    pub(crate) fn run(self, ctx: &mut Context) -> Result<()> {
+        match (self, &ctx.shell) {
+            (Self::Noop, _) => Ok(()),
+            (Self::Root(cmd), Shell::Root(_)) => cmd.run(ctx),
+            (cmd @ Self::Root(_), _) => Err(CommandUnavailable::new(&cmd, &ctx.shell).into()),
+            (Self::Snapshot(cmd), Shell::Snapshot(_)) => cmd.run(ctx),
+            (cmd @ Self::Snapshot(_), _) => Err(CommandUnavailable::new(&cmd, &ctx.shell).into()),
         }
     }
 }
 
-#[derive(Debug, Eq, PartialEq, EnumIter)]
+#[derive(Debug, thiserror::Error)]
+#[error("{} command unavailable in {shell_name} shell", kind.name())]
+struct CommandUnavailable {
+    kind: CommandKind,
+    shell_name: &'static str,
+}
+
+impl CommandUnavailable {
+    fn new(command: &Command, shell: &Shell) -> Self {
+        Self {
+            kind: command.kind(),
+            shell_name: shell.name(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum RootCommand {
+    Help(HelpCommand),
+    Log(LogCommand),
+    Quit(QuitCommand),
+    Snapshot(SnapshotCommand),
+    Status(StatusCommand),
+}
+
+impl RootCommand {
+    fn try_from_input(command: &str, args: &[String]) -> Result<Self> {
+        match command.parse()? {
+            RootCommandKind::Help => Ok(Self::Help(HelpCommand::try_from_args(args)?)),
+            RootCommandKind::Log => Ok(Self::Log(LogCommand::try_from_args(args)?)),
+            RootCommandKind::Quit => Ok(Self::Quit(QuitCommand::try_from_args(args)?)),
+            RootCommandKind::Snapshot => Ok(Self::Snapshot(SnapshotCommand::try_from_args(args)?)),
+            RootCommandKind::Status => Ok(Self::Status(StatusCommand::try_from_args(args)?)),
+        }
+    }
+
+    fn kind(&self) -> RootCommandKind {
+        match self {
+            Self::Help(_) => RootCommandKind::Help,
+            Self::Log(_) => RootCommandKind::Log,
+            Self::Quit(_) => RootCommandKind::Quit,
+            Self::Snapshot(_) => RootCommandKind::Snapshot,
+            Self::Status(_) => RootCommandKind::Status,
+        }
+    }
+
+    pub fn run(self, ctx: &mut Context) -> Result<()> {
+        match self {
+            Self::Quit(cmd) => cmd.run(ctx),
+            Self::Status(cmd) => cmd.run(ctx),
+            Self::Help(cmd) => cmd.run(ctx),
+            Self::Log(cmd) => cmd.run(ctx),
+            Self::Snapshot(cmd) => cmd.run(ctx),
+        }
+    }
+}
+
+#[derive(Debug)]
 pub(crate) enum CommandKind {
-    Log,
-    Quit,
-    Status,
-    Help,
+    Noop,
+    Root(RootCommandKind),
+    Snapshot(SnapshotShellCommandKind),
+}
+
+impl FromStr for CommandKind {
+    type Err = Error;
+
+    fn from_str(raw: &str) -> Result<Self> {
+        Ok(Self::Root(RootCommandKind::from_str(raw)?))
+    }
 }
 
 impl CommandKind {
+    fn name(&self) -> &'static str {
+        match self {
+            Self::Noop => "no-op",
+            Self::Root(kind) => kind.name(),
+            Self::Snapshot(kind) => kind.name(),
+        }
+    }
+
+    fn help(&self) -> Help {
+        match self {
+            Self::Noop => panic!("cannot get help of no-op"),
+            Self::Root(kind) => kind.help(),
+            Self::Snapshot(kind) => kind.help(),
+        }
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("unknown command")]
+struct UnknownCommand;
+
+#[derive(Debug, Eq, PartialEq, EnumIter)]
+pub(crate) enum RootCommandKind {
+    Help,
+    Log,
+    Quit,
+    Snapshot,
+    Status,
+}
+
+impl RootCommandKind {
     pub(crate) fn help(&self) -> Help {
         match self {
             Self::Log => LogCommand::help(),
             Self::Quit => QuitCommand::help(),
             Self::Status => StatusCommand::help(),
             Self::Help => HelpCommand::help(),
+            Self::Snapshot => SnapshotCommand::help(),
         }
     }
 
-    #[cfg(test)]
     pub(crate) fn name(&self) -> &'static str {
         match self {
             Self::Log => "log",
             Self::Quit => "quit",
             Self::Status => "status",
             Self::Help => "help",
+            Self::Snapshot => "snapshot",
         }
     }
 }
 
-impl FromStr for CommandKind {
+impl FromStr for RootCommandKind {
     type Err = Error;
 
     fn from_str(raw: &str) -> Result<Self> {
@@ -94,7 +205,8 @@ impl FromStr for CommandKind {
             "quit" => Ok(Self::Quit),
             "status" => Ok(Self::Status),
             "help" => Ok(Self::Help),
-            unknown => Err(anyhow!("unknown command '{unknown}'")),
+            "snapshot" => Ok(Self::Snapshot),
+            _ => Err(UnknownCommand.into()),
         }
     }
 }
@@ -103,28 +215,50 @@ impl FromStr for CommandKind {
 #[error("unrecognized arguments: {_0:?}")]
 struct UnrecognizedArgumentsError(Vec<String>);
 
+#[derive(Debug, Default)]
+pub struct RootShell {
+    prompt: Prompt,
+}
+
+impl RootShell {
+    pub(crate) fn help() -> Help {
+        Help::builder()
+            .name("dqlite-utils")
+            .summary("an observability tool for inspecting the on-disk state of a dqlite node")
+            .skip_usage()
+            .add_command(HelpCommand::help())
+            .add_command(LogCommand::help())
+            .add_command(QuitCommand::help())
+            .add_command(SnapshotCommand::help())
+            .add_command(StatusCommand::help())
+            .build()
+            .expect("internal error: help invalid")
+    }
+
+    pub(crate) fn prompt(&self) -> &Prompt {
+        &self.prompt
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    use std::io::Cursor;
+
     use googletest::expect_that;
-    use googletest::matchers::{eq, lt, not};
+    use googletest::matchers::contains_substring;
     use strum::IntoEnumIterator;
 
     #[googletest::test]
-    fn test_command_kinds_sorted_by_name() {
-        let command_kinds: Vec<_> = CommandKind::iter().collect();
-        for window in command_kinds.windows(2) {
-            let (entry_1, entry_2) = match window {
-                [e_1, e_2] => (e_1, e_2),
-                _ => unreachable!(),
-            };
-            // Help must come last.
-            expect_that!(entry_1, not(eq(&CommandKind::Help)));
-
-            if !matches!(entry_2, CommandKind::Help) {
-                expect_that!(entry_1.name(), lt(entry_2.name()));
-            }
+    fn test_all_commands_listed_in_help() {
+        let help_output = {
+            let mut help_output = Cursor::new(Vec::new());
+            RootShell::help().write_to(&mut help_output).unwrap();
+            String::try_from(help_output.into_inner()).unwrap()
+        };
+        for command_kind in RootCommandKind::iter() {
+            expect_that!(help_output, contains_substring(command_kind.name()));
         }
     }
 }
