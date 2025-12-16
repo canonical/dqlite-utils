@@ -135,7 +135,7 @@ impl InteractiveCommandReader {
     }
 
     fn read(&mut self, ctx: &Context) -> Result<Option<Command>> {
-        let line = self.line_editor.readline(&ctx.prompt.to_string())?;
+        let line = self.line_editor.readline(ctx.prompt.as_str())?;
         let trimmed_line = line.trim();
         let ret = trimmed_line.parse().map(Some);
         self.line_editor.add_history_entry(line)?;
