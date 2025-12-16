@@ -1,3 +1,7 @@
+mod abort;
+
+use std::str::FromStr;
+
 use strum::EnumIter;
 use time::UtcDateTime;
 
@@ -5,7 +9,9 @@ use crate::command::help::Help;
 use crate::command::{UnknownCommand, UnrecognizedArgumentsError};
 use crate::dqlite::RaftServer;
 use crate::prompt::Prompt;
-use crate::{Context, Result, Shell};
+use crate::{Context, Error, Result, Shell};
+
+use self::abort::AbortCommand;
 
 #[derive(Debug)]
 pub(crate) struct SnapshotCommand;
@@ -47,6 +53,7 @@ impl SnapshotShell {
             .name("snapshot shell")
             .summary("incrementally create a snapshot")
             .skip_usage()
+            .add_command(AbortCommand::help())
             .build()
             .expect("internal error: help invalid")
     }
@@ -98,32 +105,59 @@ impl ShellSnapshotRaftConfiguration {
 }
 
 #[derive(Debug)]
-pub(crate) enum SnapshotShellCommand {}
+pub(crate) enum SnapshotShellCommand {
+    Abort(AbortCommand),
+}
 
 impl SnapshotShellCommand {
     pub(crate) fn kind(&self) -> SnapshotShellCommandKind {
-        unimplemented!();
+        use SnapshotShellCommandKind as Ssck;
+        match self {
+            Self::Abort(_) => Ssck::Abort,
+        }
     }
 
-    pub(crate) fn try_from_input(_command: &str, _args: &[String]) -> Result<Self> {
-        Err(UnknownCommand.into())
+    pub(crate) fn try_from_input(command: &str, args: &[String]) -> Result<Self> {
+        use SnapshotShellCommandKind as Ssck;
+        match command.parse()? {
+            Ssck::Abort => Ok(Self::Abort(AbortCommand::try_from_args(args)?)),
+        }
     }
 
-    pub(crate) fn run(self, _ctx: &mut Context) -> Result<()> {
-        unimplemented!();
+    pub(crate) fn run(self, ctx: &mut Context) -> Result<()> {
+        match self {
+            Self::Abort(cmd) => cmd.run(ctx),
+        }
     }
 }
 
 #[derive(Debug, EnumIter)]
-pub(crate) enum SnapshotShellCommandKind {}
+pub(crate) enum SnapshotShellCommandKind {
+    Abort,
+}
 
 impl SnapshotShellCommandKind {
     pub(crate) fn help(&self) -> Help {
-        unimplemented!()
+        match self {
+            Self::Abort => AbortCommand::help(),
+        }
     }
 
     pub(crate) fn name(&self) -> &'static str {
-        unimplemented!();
+        match self {
+            Self::Abort => ".abort",
+        }
+    }
+}
+
+impl FromStr for SnapshotShellCommandKind {
+    type Err = Error;
+
+    fn from_str(raw: &str) -> Result<Self> {
+        match raw {
+            ".abort" => Ok(Self::Abort),
+            _ => Err(UnknownCommand.into()),
+        }
     }
 }
 
