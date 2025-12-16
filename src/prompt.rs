@@ -7,7 +7,8 @@ use crate::utils::TerminalStylizeExt;
 
 #[derive(Debug)]
 pub struct Prompt {
-    content: Cow<'static, str>,
+    _content: Cow<'static, str>,
+    pretty_content: String,
 }
 
 impl Prompt {
@@ -16,24 +17,32 @@ impl Prompt {
     #[allow(unused)]
     pub(crate) fn new(text: impl Display) -> Self {
         let content = Cow::from(format!("{text}> "));
-        Self { content }
+        let pretty_content = content.terminal_style(Self::STYLE).to_string();
+        Self {
+            _content: content,
+            pretty_content,
+        }
     }
 
     pub(crate) fn as_str(&self) -> &str {
-        &self.content
+        &self.pretty_content
     }
 }
 
 impl Default for Prompt {
     fn default() -> Self {
         let content = Cow::from("> ");
-        Self { content }
+        let pretty_content = content.terminal_style(Self::STYLE).to_string();
+        Self {
+            _content: content,
+            pretty_content,
+        }
     }
 }
 
 impl Display for Prompt {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let Self { content } = self;
-        write!(f, "{}", content.terminal_style(Self::STYLE).to_string())
+        let Self { pretty_content, .. } = self;
+        write!(f, "{pretty_content}")
     }
 }
