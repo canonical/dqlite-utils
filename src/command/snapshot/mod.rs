@@ -1,13 +1,10 @@
 mod abort;
 mod info;
 
-use std::fmt::{self, Display};
 use std::str::FromStr;
 
-use indoc::writedoc;
 use strum::EnumIter;
 use time::UtcDateTime;
-use time::format_description::well_known::Iso8601;
 
 use crate::command::help::Help;
 use crate::command::{UnknownCommand, UnrecognizedArgumentsError};
@@ -94,47 +91,6 @@ impl ShellSnapshotContext {
             timestamp: UtcDateTime::now(),
             configuration: ShellSnapshotRaftConfiguration::new(),
         }
-    }
-}
-
-impl Display for ShellSnapshotContext {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let ShellSnapshotContext {
-            term,
-            index,
-            timestamp,
-            configuration,
-        } = self;
-        let timestamp = timestamp
-            .format(&Iso8601::DEFAULT)
-            .map_err(|_| fmt::Error)?;
-        writedoc!(
-            f,
-            "
-                term: {term}
-                index: {index}
-                timestamp: {timestamp}
-            "
-        )?;
-
-        let ShellSnapshotRaftConfiguration { servers } = configuration;
-        if servers.is_empty() {
-            writeln!(f, "configuration: -")?;
-        } else {
-            writeln!(f, "configuration:")?;
-            for server in servers {
-                let RaftServer { id, address, role } = server;
-                writedoc!(
-                    f,
-                    "
-                        - id: {id}
-                          address: {address}
-                          role: {role}
-                    "
-                )?;
-            }
-        }
-        Ok(())
     }
 }
 

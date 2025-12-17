@@ -385,16 +385,6 @@ impl RaftServer {
     }
 }
 
-impl Display for RaftRole {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Standby => write!(f, "standby"),
-            Self::Voter => write!(f, "voter"),
-            Self::Spare => write!(f, "spare"),
-        }
-    }
-}
-
 pub trait DqliteSnapshotLoader {
     type DatabaseLoader<'a>: DqliteDatabaseLoader
     where
