@@ -235,7 +235,7 @@ pub trait Vfs: 'static {
 pub struct SyncOptions {
     /// True for Mac OS X style fullsync, false for Unix style fsync
     pub full: bool,
-    /// True to sync onlye the data of the file and not its inode (fdatasync)
+    /// True to sync only the data of the file and not its inode (fdatasync)
     pub data_only: bool,
 }
 
