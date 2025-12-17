@@ -1,8 +1,6 @@
 use std::fmt::Display;
 use std::io::{self, IsTerminal, StdoutLock, Write};
-use std::mem::ManuallyDrop;
 use std::process::{Child, Command, Stdio};
-use std::sync::LazyLock;
 
 use owo_colors::{OwoColorize, Stream, Style};
 
