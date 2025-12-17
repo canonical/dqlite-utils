@@ -3,7 +3,7 @@ mod sys;
 use std::{
     borrow::Cow,
     cmp,
-    ffi::{c_char, c_int, c_uint, c_void, CStr, CString, OsStr, OsString},
+    ffi::{CStr, CString, OsStr, OsString, c_char, c_int, c_uint, c_void},
     fmt::Debug,
     fs::{self, File},
     io::{self, Read, Seek, SeekFrom, Write},
@@ -11,24 +11,23 @@ use std::{
     os::unix::{ffi::OsStrExt, fs::FileExt},
     path::{Path, PathBuf},
     ptr,
-    str::FromStr,
     sync::Mutex,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use lz4_flex::frame::{BlockMode, FrameDecoder, FrameEncoder, FrameInfo};
 
 use crate::{
-    dqlite::sys::{cursor, dqlite_result},
     Error,
+    dqlite::sys::{cursor, dqlite_result},
 };
 
 use self::sys::{
-    command_checkpoint, command_frames, command_open, command_undo, frames_t, raft_buffer,
-    raft_command_type, raft_configuration, raft_entry, raft_entry_type, raft_result, raft_role,
-    raft_server, raft_snapshot, snapshotDatabase, snapshotHeader, uvMetadata, uvSegmentBuffer,
-    uvSegmentInfo, uvSnapshotInfo, uv_buf_t, RAFT_ERRMSG_BUF_SIZE,
+    RAFT_ERRMSG_BUF_SIZE, command_checkpoint, command_frames, command_open, command_undo, frames_t,
+    raft_buffer, raft_command_type, raft_configuration, raft_entry, raft_entry_type, raft_result,
+    raft_role, raft_server, raft_snapshot, snapshotDatabase, snapshotHeader, uv_buf_t, uvMetadata,
+    uvSegmentBuffer, uvSegmentInfo, uvSnapshotInfo,
 };
 
 #[derive(thiserror::Error)]
@@ -386,16 +385,6 @@ impl RaftServer {
             address: unsafe { CStr::from_ptr(server.address).to_str()?.to_owned() },
             role,
         })
-    }
-}
-
-impl Display for RaftRole {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Standby => write!(f, "standby"),
-            Self::Voter => write!(f, "voter"),
-            Self::Spare => write!(f, "spare"),
-        }
     }
 }
 

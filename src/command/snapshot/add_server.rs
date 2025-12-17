@@ -32,13 +32,16 @@ impl AddServerCommand {
             [] => return Err(MissingArgumentError("id").into()),
             [_] => return Err(MissingArgumentError("address").into()),
             [id, address] => (id, address, None),
-            [id, address, role] => (id, address, Some(role)),
+            [id, address, role] => (id, address, Some(role.as_str())),
             [_, _, _, tail @ ..] => return Err(UnrecognizedArgumentsError(tail.to_vec()).into()),
         };
-        let role = role
-            .map(|raw| raw.parse())
-            .transpose()?
-            .unwrap_or(RaftRole::Voter);
+        let role = match role {
+            Some("standby") => RaftRole::Standby,
+            Some("voter") => RaftRole::Voter,
+            Some("spare") => RaftRole::Spare,
+            Some(raw) => return Err(anyhow!("cannot parse {raw} as raft role")),
+            None => RaftRole::Voter,
+        };
         let id = id.parse()?;
         let address = address.to_owned();
         Ok(Self { role, id, address })
