@@ -1,4 +1,5 @@
 mod abort;
+mod info;
 
 use std::str::FromStr;
 
@@ -12,6 +13,7 @@ use crate::prompt::Prompt;
 use crate::{Context, Error, Result, Shell};
 
 use self::abort::AbortCommand;
+use self::info::InfoCommand;
 
 #[derive(Debug)]
 pub(crate) struct SnapshotCommand;
@@ -42,7 +44,6 @@ impl SnapshotCommand {
 
 #[derive(Debug)]
 pub struct SnapshotShell {
-    #[allow(unused)]
     snapshot: ShellSnapshotContext,
     prompt: Prompt,
 }
@@ -54,6 +55,7 @@ impl SnapshotShell {
             .summary("incrementally create a snapshot")
             .skip_usage()
             .add_command(AbortCommand::help())
+            .add_command(InfoCommand::help())
             .build()
             .expect("internal error: help invalid")
     }
@@ -107,6 +109,7 @@ impl ShellSnapshotRaftConfiguration {
 #[derive(Debug)]
 pub(crate) enum SnapshotShellCommand {
     Abort(AbortCommand),
+    Info(InfoCommand),
 }
 
 impl SnapshotShellCommand {
@@ -114,6 +117,7 @@ impl SnapshotShellCommand {
         use SnapshotShellCommandKind as Ssck;
         match self {
             Self::Abort(_) => Ssck::Abort,
+            Self::Info(_) => Ssck::Info,
         }
     }
 
@@ -121,12 +125,14 @@ impl SnapshotShellCommand {
         use SnapshotShellCommandKind as Ssck;
         match command.parse()? {
             Ssck::Abort => Ok(Self::Abort(AbortCommand::try_from_args(args)?)),
+            Ssck::Info => Ok(Self::Info(InfoCommand::try_from_args(args)?)),
         }
     }
 
     pub(crate) fn run(self, ctx: &mut Context) -> Result<()> {
         match self {
             Self::Abort(cmd) => cmd.run(ctx),
+            Self::Info(cmd) => cmd.run(ctx),
         }
     }
 }
@@ -134,18 +140,21 @@ impl SnapshotShellCommand {
 #[derive(Debug, EnumIter)]
 pub(crate) enum SnapshotShellCommandKind {
     Abort,
+    Info,
 }
 
 impl SnapshotShellCommandKind {
     pub(crate) fn help(&self) -> Help {
         match self {
             Self::Abort => AbortCommand::help(),
+            Self::Info => InfoCommand::help(),
         }
     }
 
     pub(crate) fn name(&self) -> &'static str {
         match self {
             Self::Abort => ".abort",
+            Self::Info => ".info",
         }
     }
 }
@@ -156,6 +165,7 @@ impl FromStr for SnapshotShellCommandKind {
     fn from_str(raw: &str) -> Result<Self> {
         match raw {
             ".abort" => Ok(Self::Abort),
+            ".info" => Ok(Self::Info),
             _ => Err(UnknownCommand.into()),
         }
     }

@@ -226,6 +226,13 @@ impl Shell {
             Self::Snapshot(shell) => shell.prompt(),
         }
     }
+
+    fn snapshot_mut(&mut self) -> Option<&mut SnapshotShell> {
+        match self {
+            Self::Snapshot(shell) => Some(shell),
+            _ => None,
+        }
+    }
 }
 
 impl Default for Shell {
