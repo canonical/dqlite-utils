@@ -1,4 +1,5 @@
-use libsqlite3_sys::*;
+use core::panic;
+use libsqlite3_sys::{self, *};
 use rand::RngCore;
 use std::{
     error,
@@ -29,7 +30,7 @@ impl Into<c_int> for SQLiteCode {
 
 impl fmt::Display for SQLiteCode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}({})", code_to_str(self.0), self.0,)
+        write!(f, "{} ({})", libsqlite3_sys::code_to_str(self.0), self.0,)
     }
 }
 
@@ -42,11 +43,7 @@ impl fmt::Display for SQLiteError {
     }
 }
 
-impl error::Error for SQLiteError {
-    fn description(&self) -> &str {
-        code_to_str(self.0.get())
-    }
-}
+impl error::Error for SQLiteError {}
 
 impl Into<c_int> for SQLiteError {
     fn into(self) -> c_int {
@@ -66,12 +63,12 @@ impl From<SQLiteCode> for Result<()> {
     }
 }
 
-trait AsCode {
-    fn as_code(self) -> SQLiteCode;
+trait ToCodeResultExt {
+    fn to_code_result(self) -> SQLiteCode;
 }
 
-impl AsCode for Result<()> {
-    fn as_code(self) -> SQLiteCode {
+impl ToCodeResultExt for Result<()> {
+    fn to_code_result(self) -> SQLiteCode {
         match self {
             Ok(_) => SQLiteCode(SQLITE_OK),
             Err(e) => SQLiteCode(e.0.get()),
@@ -79,12 +76,12 @@ impl AsCode for Result<()> {
     }
 }
 
-trait AsOutput<T> {
-    fn as_output(self, out: &mut impl From<T>) -> SQLiteCode;
+trait ToCodeOutputExt<T> {
+    fn to_code_output(self, out: &mut impl From<T>) -> SQLiteCode;
 }
 
-impl<T> AsOutput<T> for Result<T> {
-    fn as_output(self, out: &mut impl From<T>) -> SQLiteCode {
+impl<T> ToCodeOutputExt<T> for Result<T> {
+    fn to_code_output(self, out: &mut impl From<T>) -> SQLiteCode {
         match self {
             Ok(value) => {
                 *out = value.into();
@@ -232,140 +229,6 @@ pub trait Vfs: 'static {
     fn get_last_error(&self) -> SQLiteCode;
 }
 
-pub struct SyncOptions {
-    /// True for Mac OS X style fullsync, false for Unix style fsync
-    pub full: bool,
-    /// True to sync only the data of the file and not its inode (fdatasync)
-    pub data_only: bool,
-}
-
-pub enum LockLevel {
-    None,
-    Shared,
-    Reserved,
-    Pending,
-    Exclusive,
-}
-
-impl LockLevel {
-    fn from_raw(level: c_int) -> Option<Self> {
-        match level {
-            SQLITE_LOCK_NONE => Some(LockLevel::None),
-            SQLITE_LOCK_SHARED => Some(LockLevel::Shared),
-            SQLITE_LOCK_RESERVED => Some(LockLevel::Reserved),
-            SQLITE_LOCK_PENDING => Some(LockLevel::Pending),
-            SQLITE_LOCK_EXCLUSIVE => Some(LockLevel::Exclusive),
-            _ => None,
-        }
-    }
-
-    fn to_raw(&self) -> c_int {
-        match self {
-            LockLevel::None => SQLITE_LOCK_NONE,
-            LockLevel::Shared => SQLITE_LOCK_SHARED,
-            LockLevel::Reserved => SQLITE_LOCK_RESERVED,
-            LockLevel::Pending => SQLITE_LOCK_PENDING,
-            LockLevel::Exclusive => SQLITE_LOCK_EXCLUSIVE,
-        }
-    }
-}
-
-pub enum AtomicWrite {
-    Never,
-    Block {
-        _512: bool,
-        _1k: bool,
-        _2k: bool,
-        _4k: bool,
-        _8k: bool,
-        _16k: bool,
-        _32k: bool,
-        _64k: bool,
-    },
-    Always,
-}
-
-pub struct IoCap {
-    pub write_cap: AtomicWrite,
-    pub safe_append: bool,
-    pub sequential: bool,
-    pub undeletable_when_open: bool,
-    pub powersafe_overwrite: bool,
-    pub immutable: bool,
-    pub batch_atomic: bool,
-    pub subpage_read: bool,
-}
-
-impl Into<c_int> for IoCap {
-    fn into(self) -> c_int {
-        let mut flags = 0;
-
-        match self.write_cap {
-            AtomicWrite::Never => {}
-            AtomicWrite::Block {
-                _512,
-                _1k,
-                _2k,
-                _4k,
-                _8k,
-                _16k,
-                _32k,
-                _64k,
-            } => {
-                if _512 {
-                    flags |= SQLITE_IOCAP_ATOMIC512;
-                }
-                if _1k {
-                    flags |= SQLITE_IOCAP_ATOMIC1K;
-                }
-                if _2k {
-                    flags |= SQLITE_IOCAP_ATOMIC2K;
-                }
-                if _4k {
-                    flags |= SQLITE_IOCAP_ATOMIC4K;
-                }
-                if _8k {
-                    flags |= SQLITE_IOCAP_ATOMIC8K;
-                }
-                if _16k {
-                    flags |= SQLITE_IOCAP_ATOMIC16K;
-                }
-                if _32k {
-                    flags |= SQLITE_IOCAP_ATOMIC32K;
-                }
-                if _64k {
-                    flags |= SQLITE_IOCAP_ATOMIC64K;
-                }
-            }
-            AtomicWrite::Always => {
-                flags |= SQLITE_IOCAP_ATOMIC;
-            }
-        }
-        if self.safe_append {
-            flags |= SQLITE_IOCAP_SAFE_APPEND;
-        }
-        if self.sequential {
-            flags |= SQLITE_IOCAP_SEQUENTIAL;
-        }
-        if self.undeletable_when_open {
-            flags |= SQLITE_IOCAP_UNDELETABLE_WHEN_OPEN;
-        }
-        if self.powersafe_overwrite {
-            flags |= SQLITE_IOCAP_POWERSAFE_OVERWRITE;
-        }
-        if self.immutable {
-            flags |= SQLITE_IOCAP_IMMUTABLE;
-        }
-        if self.batch_atomic {
-            flags |= SQLITE_IOCAP_BATCH_ATOMIC;
-        }
-        if self.subpage_read {
-            flags |= SQLITE_IOCAP_SUBPAGE_READ;
-        }
-        flags
-    }
-}
-
 pub trait VfsFile: VfsFileControl + 'static {
     fn read_at(&mut self, buf: &mut [u8], offset: u64) -> Result<()>;
     fn write_at(&mut self, buf: &[u8], offset: u64) -> Result<()>;
@@ -383,9 +246,9 @@ pub trait VfsFile: VfsFileControl + 'static {
     fn sector_size(&mut self) -> u32 {
         4096
     }
-    fn device_characteristics(&mut self) -> IoCap {
-        IoCap {
-            write_cap: AtomicWrite::Never,
+    fn device_characteristics(&mut self) -> IoCapabilities {
+        IoCapabilities {
+            atomic_write: AtomicWrite::Never,
             safe_append: false,
             sequential: false,
             undeletable_when_open: false,
@@ -402,24 +265,30 @@ pub trait VfsFileControl {
 
     fn last_errno(&mut self) -> i32;
 
-    fn size_hint(&mut self, _size: i64) -> Result<()> {
+    fn size_hint(&mut self, size: i64) -> Result<()> {
+        let _ = size;
         Ok(())
     }
 
-    fn overwrite_hint(&mut self, _size: u64) -> Result<()> {
+    fn overwrite_hint(&mut self, size: u64) -> Result<()> {
+        let _ = size;
         Err(SQLiteError(NonZero::new(SQLITE_NOTFOUND).unwrap()))
     }
 
-    fn set_chunk_size(&mut self, _size: u32) -> Result<()> {
+    fn set_chunk_size(&mut self, size: u32) -> Result<()> {
+        let _ = size;
         Ok(())
     }
 
     // FIXME: this can also return a string both in case of error and in case of a result!
-    fn pragma(&mut self, _name: &OsStr, _arg: Option<&OsStr>) -> Result<()> {
+    fn pragma(&mut self, name: &OsStr, arg: Option<&OsStr>) -> Result<()> {
+        let _ = name;
+        let _ = arg;
         Err(SQLiteError(NonZero::new(SQLITE_NOTFOUND).unwrap()))
     }
 
-    fn set_mmap_size(&mut self, _size: u64) -> Result<()> {
+    fn set_mmap_size(&mut self, size: u64) -> Result<()> {
+        let _ = size;
         Ok(())
     }
 
@@ -431,7 +300,8 @@ pub trait VfsFileControl {
         false
     }
 
-    fn pre_sync(&mut self, _super_journal: Option<&OsStr>) -> Result<()> {
+    fn pre_sync(&mut self, super_journal: Option<&OsStr>) -> Result<()> {
+        let _ = super_journal;
         Ok(())
     }
 
@@ -439,7 +309,9 @@ pub trait VfsFileControl {
         Ok(())
     }
 
-    fn set_connection(&mut self, _conn: rusqlite::Connection) {}
+    fn set_connection(&mut self, conn: rusqlite::Connection) {
+        let _ = conn;
+    }
 
     fn begin_atomic(&mut self) -> Result<()> {
         Ok(())
@@ -455,8 +327,154 @@ pub trait VfsFileControl {
         Duration::from_millis(0)
     }
 
-    fn set_lock_timeout(&mut self, _timeout: Duration) -> Result<()> {
+    fn set_lock_timeout(&mut self, timeout: Duration) -> Result<()> {
+        let _ = timeout;
         Ok(())
+    }
+}
+
+pub struct SyncOptions {
+    /// True for Mac OS X style fullsync, false for Unix style fsync
+    pub full: bool,
+    /// True to sync only the data of the file and not its inode (fdatasync)
+    pub data_only: bool,
+}
+
+pub enum LockLevel {
+    None,
+    Shared,
+    Reserved,
+    Pending,
+    Exclusive,
+}
+
+impl LockLevel {
+    fn from_raw(level: c_int) -> Self {
+        match level {
+            SQLITE_LOCK_NONE => LockLevel::None,
+            SQLITE_LOCK_SHARED => LockLevel::Shared,
+            SQLITE_LOCK_RESERVED => LockLevel::Reserved,
+            SQLITE_LOCK_PENDING => LockLevel::Pending,
+            SQLITE_LOCK_EXCLUSIVE => LockLevel::Exclusive,
+            _ => panic!("invalid lock level"),
+        }
+    }
+
+    fn to_raw(&self) -> c_int {
+        match self {
+            LockLevel::None => SQLITE_LOCK_NONE,
+            LockLevel::Shared => SQLITE_LOCK_SHARED,
+            LockLevel::Reserved => SQLITE_LOCK_RESERVED,
+            LockLevel::Pending => SQLITE_LOCK_PENDING,
+            LockLevel::Exclusive => SQLITE_LOCK_EXCLUSIVE,
+        }
+    }
+}
+
+pub struct IoCapabilities {
+    pub atomic_write: AtomicWrite,
+    pub safe_append: bool,
+    pub sequential: bool,
+    pub undeletable_when_open: bool,
+    pub powersafe_overwrite: bool,
+    pub immutable: bool,
+    pub batch_atomic: bool,
+    pub subpage_read: bool,
+}
+
+pub enum AtomicWrite {
+    Never,
+    Block {
+        size_512: bool,
+        size_1k: bool,
+        size_2k: bool,
+        size_4k: bool,
+        size_8k: bool,
+        size_16k: bool,
+        size_32k: bool,
+        size_64k: bool,
+    },
+    Always,
+}
+
+impl Into<c_int> for IoCapabilities {
+    fn into(self) -> c_int {
+        let mut flags = 0;
+
+        let Self {
+            atomic_write: write_cap,
+            safe_append,
+            sequential,
+            undeletable_when_open,
+            powersafe_overwrite,
+            immutable,
+            batch_atomic,
+            subpage_read,
+        } = self;
+
+        match write_cap {
+            AtomicWrite::Never => {}
+            AtomicWrite::Block {
+                size_512,
+                size_1k,
+                size_2k,
+                size_4k,
+                size_8k,
+                size_16k,
+                size_32k,
+                size_64k,
+            } => {
+                if size_512 {
+                    flags |= SQLITE_IOCAP_ATOMIC512;
+                }
+                if size_1k {
+                    flags |= SQLITE_IOCAP_ATOMIC1K;
+                }
+                if size_2k {
+                    flags |= SQLITE_IOCAP_ATOMIC2K;
+                }
+                if size_4k {
+                    flags |= SQLITE_IOCAP_ATOMIC4K;
+                }
+                if size_8k {
+                    flags |= SQLITE_IOCAP_ATOMIC8K;
+                }
+                if size_16k {
+                    flags |= SQLITE_IOCAP_ATOMIC16K;
+                }
+                if size_32k {
+                    flags |= SQLITE_IOCAP_ATOMIC32K;
+                }
+                if size_64k {
+                    flags |= SQLITE_IOCAP_ATOMIC64K;
+                }
+            }
+            AtomicWrite::Always => {
+                flags |= SQLITE_IOCAP_ATOMIC;
+            }
+        }
+        if safe_append {
+            flags |= SQLITE_IOCAP_SAFE_APPEND;
+        }
+        if sequential {
+            flags |= SQLITE_IOCAP_SEQUENTIAL;
+        }
+        if undeletable_when_open {
+            flags |= SQLITE_IOCAP_UNDELETABLE_WHEN_OPEN;
+        }
+        if powersafe_overwrite {
+            flags |= SQLITE_IOCAP_POWERSAFE_OVERWRITE;
+        }
+        if immutable {
+            flags |= SQLITE_IOCAP_IMMUTABLE;
+        }
+        if batch_atomic {
+            flags |= SQLITE_IOCAP_BATCH_ATOMIC;
+        }
+        if subpage_read {
+            flags |= SQLITE_IOCAP_SUBPAGE_READ;
+        }
+        flags
     }
 }
 
@@ -527,7 +545,7 @@ struct VfsStorage<V> {
 }
 
 impl<T> VfsStorage<T> {
-    unsafe fn from_raw(ptr: *mut sqlite3_vfs) -> &'static Self {
+    unsafe fn from_raw<'a>(ptr: *mut sqlite3_vfs) -> &'a Self {
         unsafe {
             ptr.as_ref()
                 .and_then(|vfs| vfs.pAppData.cast::<VfsStorage<T>>().as_ref())
@@ -545,7 +563,7 @@ struct FileStorage<T: VfsFile> {
 impl<T: VfsFile> FileStorage<T> {
     const METHOD_TABLE: sqlite3_io_methods = sqlite3_io_methods {
         iVersion: 1,
-        xClose: Some(x_file_close::<T>),
+        xClose: Some(x_close::<T>),
         xRead: Some(x_read::<T>),
         xWrite: Some(x_write::<T>),
         xTruncate: Some(x_truncate::<T>),
@@ -565,7 +583,7 @@ impl<T: VfsFile> FileStorage<T> {
         xUnfetch: None,
     };
 
-    unsafe fn from_raw(ptr: *mut sqlite3_file) -> &'static mut Self {
+    unsafe fn from_raw<'a>(ptr: *mut sqlite3_file) -> &'a mut Self {
         unsafe {
             ptr.cast::<FileStorage<T>>()
                 .as_mut()
@@ -599,21 +617,22 @@ unsafe extern "C" fn x_open<T: Vfs>(
     };
 
     let storage = unsafe { VfsStorage::<T>::from_raw(vfs) };
-    match storage.vfs.open(path, OpenFlags::new(flags)) {
-        Ok((file, flags)) => {
-            unsafe {
-                out_flags.write(flags.bits);
-                out.cast::<FileStorage<T::File>>().write(FileStorage {
-                    base: sqlite3_file {
-                        pMethods: &FileStorage::<T::File>::METHOD_TABLE as *const _,
-                    },
-                    file: Some(file),
-                });
-            }
-            SQLITE_OK
-        }
-        Err(e) => e.into(),
+    let (file, flags) = match storage.vfs.open(path, OpenFlags::new(flags)) {
+        Ok(r) => r,
+        Err(e) => return e.into(),
+    };
+
+    unsafe {
+        out_flags.write(flags.bits);
+        out.cast::<FileStorage<T::File>>().write(FileStorage {
+            base: sqlite3_file {
+                pMethods: &FileStorage::<T::File>::METHOD_TABLE as *const _,
+            },
+            file: Some(file),
+        });
     }
+
+    SQLITE_OK
 }
 
 unsafe extern "C" fn x_delete<T: Vfs>(
@@ -623,7 +642,7 @@ unsafe extern "C" fn x_delete<T: Vfs>(
 ) -> c_int {
     let storage = unsafe { VfsStorage::<T>::from_raw(vfs) };
     let name = OsStr::from_bytes(unsafe { CStr::from_ptr(filename) }.to_bytes());
-    storage.vfs.delete(name, sync != 0).as_code().into()
+    storage.vfs.delete(name, sync != 0).to_code_result().into()
 }
 
 unsafe extern "C" fn x_access<T: Vfs>(
@@ -634,11 +653,12 @@ unsafe extern "C" fn x_access<T: Vfs>(
 ) -> c_int {
     let storage = unsafe { VfsStorage::<T>::from_raw(vfs) };
     let name = OsStr::from_bytes(unsafe { CStr::from_ptr(filename) }.to_bytes());
+    let out = unsafe { outcome.as_mut().unwrap() };
 
     storage
         .vfs
         .access(name, AccessFlags::from_raw(flags))
-        .as_output(unsafe { outcome.as_mut().unwrap() })
+        .to_code_output(out)
         .into()
 }
 
@@ -656,9 +676,15 @@ unsafe extern "C" fn x_full_pathname<T: Vfs>(
             std::mem::size_of::<c_char>() * n_out as usize,
         )
     };
-    storage.vfs.full_pathname(name, out_slice).as_code().into()
+    storage
+        .vfs
+        .full_pathname(name, out_slice)
+        .to_code_result()
+        .into()
 }
 
+// On linux, these function are available by default in libc. On other platforms `-ldl` is probably needed.
+// Also, this code is unix-only and does not work on windows.
 unsafe extern "C" {
     fn dlopen(filename: *const c_char, flags: c_int) -> *mut c_void;
     fn dlclose(handle: *mut c_void) -> c_int;
@@ -712,7 +738,7 @@ unsafe extern "C" fn x_randomness<T: Vfs>(
     storage
         .vfs
         .randomness(unsafe { slice::from_raw_parts_mut(out as *mut u8, n_out as usize) })
-        .as_code()
+        .to_code_result()
         .into()
 }
 
@@ -727,14 +753,14 @@ unsafe extern "C" fn x_sleep<T: Vfs>(vfs: *mut sqlite3_vfs, microseconds: c_int)
 }
 
 unsafe extern "C" fn x_get_current_time_deprecated(_: *mut sqlite3_vfs, _: *mut f64) -> c_int {
-    debug_assert!(false, "deprecated function called");
-    SQLITE_MISUSE
+    panic!("deprecated xCurrentTime called");
 }
 
-unsafe extern "C" fn x_get_current_time<T: Vfs>(vfs: *mut sqlite3_vfs, out: *mut i64) -> c_int {
+unsafe extern "C" fn x_get_current_time<T: Vfs>(vfs: *mut sqlite3_vfs, out_ptr: *mut i64) -> c_int {
     const UNIX_EPOCH: i64 = 24405875i64 * 8640000i64;
 
     let storage = unsafe { VfsStorage::<T>::from_raw(vfs) };
+    let out = unsafe { out_ptr.as_mut().unwrap() };
     storage
         .vfs
         .current_time()
@@ -744,7 +770,7 @@ unsafe extern "C" fn x_get_current_time<T: Vfs>(vfs: *mut sqlite3_vfs, out: *mut
                 .as_millis() as i64
                 + UNIX_EPOCH
         })
-        .as_output(unsafe { out.as_mut().unwrap() })
+        .to_code_output(out)
         .into()
 }
 
@@ -757,9 +783,9 @@ unsafe extern "C" fn x_get_last_error<T: Vfs>(
     storage.vfs.get_last_error().into()
 }
 
-unsafe extern "C" fn x_file_close<T: VfsFile>(file: *mut sqlite3_file) -> c_int {
+unsafe extern "C" fn x_close<T: VfsFile>(file: *mut sqlite3_file) -> c_int {
     let storage = unsafe { FileStorage::<T>::from_raw(file) };
-    std::mem::take(&mut storage.file);
+    Option::take(&mut storage.file);
     SQLITE_OK
 }
 
@@ -771,12 +797,8 @@ unsafe extern "C" fn x_read<T: VfsFile>(
 ) -> c_int {
     let storage = unsafe { FileStorage::<T>::from_raw(file) };
     let file = storage.file();
-    file.read_at(
-        unsafe { slice::from_raw_parts_mut(data as *mut u8, amount as usize) },
-        offset as u64,
-    )
-    .as_code()
-    .into()
+    let buf = unsafe { slice::from_raw_parts_mut(data as *mut u8, amount as usize) };
+    file.read_at(buf, offset as u64).to_code_result().into()
 }
 
 unsafe extern "C" fn x_write<T: VfsFile>(
@@ -787,18 +809,14 @@ unsafe extern "C" fn x_write<T: VfsFile>(
 ) -> c_int {
     let storage = unsafe { FileStorage::<T>::from_raw(file) };
     let file = storage.file();
-    file.write_at(
-        unsafe { slice::from_raw_parts(data as *const u8, amount as usize) },
-        offset as u64,
-    )
-    .as_code()
-    .into()
+    let buf = unsafe { slice::from_raw_parts(data as *const u8, amount as usize) };
+    file.write_at(buf, offset as u64).to_code_result().into()
 }
 
 unsafe extern "C" fn x_truncate<T: VfsFile>(file: *mut sqlite3_file, size: i64) -> c_int {
     let storage = unsafe { FileStorage::<T>::from_raw(file) };
     let file = storage.file();
-    file.truncate(size as u64).as_code().into()
+    file.truncate(size as u64).to_code_result().into()
 }
 
 unsafe extern "C" fn x_sync<T: VfsFile>(file: *mut sqlite3_file, flags: c_int) -> c_int {
@@ -808,59 +826,52 @@ unsafe extern "C" fn x_sync<T: VfsFile>(file: *mut sqlite3_file, flags: c_int) -
         full: (flags & SQLITE_SYNC_FULL) != 0,
         data_only: (flags & SQLITE_SYNC_DATAONLY) != 0,
     };
-    file.sync(options).as_code().into()
+    file.sync(options).to_code_result().into()
 }
 
 unsafe extern "C" fn x_file_size<T: VfsFile>(
     file: *mut sqlite3_file,
-    out: *mut sqlite3_int64,
+    out_ptr: *mut sqlite3_int64,
 ) -> c_int {
     let storage = unsafe { FileStorage::<T>::from_raw(file) };
     let file = storage.file();
+    let out = unsafe { out_ptr.as_mut().unwrap() };
     file.size()
         .map(|size| size as i64)
-        .as_output(unsafe { out.as_mut().unwrap() })
+        .to_code_output(out)
         .into()
 }
 
 unsafe extern "C" fn x_lock<T: VfsFile>(file: *mut sqlite3_file, level: c_int) -> c_int {
     let storage = unsafe { FileStorage::<T>::from_raw(file) };
     let file = storage.file();
-    let lock_level = match LockLevel::from_raw(level) {
-        Some(level) => level,
-        None => return SQLITE_MISUSE,
-    };
-    file.lock(lock_level).as_code().into()
+    let lock_level = LockLevel::from_raw(level);
+    file.lock(lock_level).to_code_result().into()
 }
 
 unsafe extern "C" fn x_unlock<T: VfsFile>(file: *mut sqlite3_file, level: c_int) -> c_int {
     let storage = unsafe { FileStorage::<T>::from_raw(file) };
     let file = storage.file();
-    let lock_level = match level {
-        SQLITE_LOCK_NONE => LockLevel::None,
-        SQLITE_LOCK_SHARED => LockLevel::Shared,
-        _ => return SQLITE_MISUSE,
-    };
-    file.unlock(lock_level).as_code().into()
+    let lock_level = LockLevel::from_raw(level);
+    file.unlock(lock_level).to_code_result().into()
 }
 
 unsafe extern "C" fn x_check_reserved_lock<T: VfsFile>(
     file: *mut sqlite3_file,
-    out: *mut c_int,
+    out_ptr: *mut c_int,
 ) -> c_int {
     let storage = unsafe { FileStorage::<T>::from_raw(file) };
     let file = storage.file();
-    file.check_reserved_lock()
-        .as_output(unsafe { out.as_mut().unwrap() })
-        .into()
+    let out = unsafe { out_ptr.as_mut().unwrap() };
+    file.check_reserved_lock().to_code_output(out).into()
 }
 
 unsafe extern "C" fn x_file_control<T: VfsFile>(
-    _file: *mut sqlite3_file,
+    file: *mut sqlite3_file,
     op: c_int,
     arg: *mut c_void,
 ) -> c_int {
-    let storage = unsafe { FileStorage::<T>::from_raw(_file) };
+    let storage = unsafe { FileStorage::<T>::from_raw(file) };
     let file = storage.file();
     match op {
         SQLITE_FCNTL_LOCKSTATE => {
@@ -875,15 +886,15 @@ unsafe extern "C" fn x_file_control<T: VfsFile>(
         }
         SQLITE_FCNTL_SIZE_HINT => {
             let size = unsafe { arg.cast::<i64>().read() };
-            file.size_hint(size).as_code().into()
+            file.size_hint(size).to_code_result().into()
         }
         SQLITE_FCNTL_CHUNK_SIZE => {
             let size = unsafe { arg.cast::<c_int>().read() } as u32;
-            file.set_chunk_size(size).as_code().into()
+            file.set_chunk_size(size).to_code_result().into()
         }
         SQLITE_FCNTL_OVERWRITE => {
             let size = unsafe { arg.cast::<sqlite3_int64>().read() } as u64;
-            file.overwrite_hint(size).as_code().into()
+            file.overwrite_hint(size).to_code_result().into()
         }
 
         SQLITE_FCNTL_VFSNAME => todo!(), // How? We don't have access to VFS name here unless we tie a File to its VFS
@@ -901,7 +912,7 @@ unsafe extern "C" fn x_file_control<T: VfsFile>(
                     unsafe { CStr::from_ptr(arg_raw) }.to_bytes(),
                 ))
             };
-            file.pragma(name, arg).as_code().into()
+            file.pragma(name, arg).to_code_result().into()
         }
         SQLITE_FCNTL_MMAP_SIZE => {
             let size = unsafe { arg.cast::<sqlite3_int64>().as_mut() }.unwrap();
@@ -909,7 +920,7 @@ unsafe extern "C" fn x_file_control<T: VfsFile>(
             let old_size = file.get_mmap_size();
             *size = old_size as i64;
             if new_size >= 0 {
-                file.set_mmap_size(new_size as u64).as_code().into()
+                file.set_mmap_size(new_size as u64).to_code_result().into()
             } else {
                 SQLITE_OK
             }
@@ -928,16 +939,16 @@ unsafe extern "C" fn x_file_control<T: VfsFile>(
                 ))
             };
 
-            file.pre_sync(super_journal).as_code().into()
+            file.pre_sync(super_journal).to_code_result().into()
         }
-        SQLITE_FCNTL_COMMIT_PHASETWO => file.commit_phase_two().as_code().into(),
+        SQLITE_FCNTL_COMMIT_PHASETWO => file.commit_phase_two().to_code_result().into(),
         SQLITE_FCNTL_PDB => {
             file.set_connection(unsafe { rusqlite::Connection::from_handle(arg.cast()) }.unwrap());
             SQLITE_OK
         }
         // FIXME: it would be nice to have a struct representing atomic write options.
-        SQLITE_FCNTL_BEGIN_ATOMIC_WRITE => file.begin_atomic().as_code().into(),
-        SQLITE_FCNTL_COMMIT_ATOMIC_WRITE => file.commit_atomic().as_code().into(),
+        SQLITE_FCNTL_BEGIN_ATOMIC_WRITE => file.begin_atomic().to_code_result().into(),
+        SQLITE_FCNTL_COMMIT_ATOMIC_WRITE => file.commit_atomic().to_code_result().into(),
         SQLITE_FCNTL_ROLLBACK_ATOMIC_WRITE => {
             file.rollback_atomic();
             SQLITE_OK
@@ -948,7 +959,7 @@ unsafe extern "C" fn x_file_control<T: VfsFile>(
             let new_timeout = Duration::from_millis(*timeout as u64);
             let old_timeout = file.get_lock_timeout();
             *timeout = old_timeout.as_millis() as i32;
-            file.set_lock_timeout(new_timeout).as_code().into()
+            file.set_lock_timeout(new_timeout).to_code_result().into()
         }
 
         // Not sure what to do with these
