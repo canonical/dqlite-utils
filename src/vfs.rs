@@ -496,14 +496,14 @@ impl<V> Drop for VfsRegisterToken<V> {
 // FIXME: the lifetime of the name is probably too restrictive. Maybe we can allocate a bit here?
 #[allow(unused)]
 pub fn register<T: Vfs>(name: &'static CStr, vfs: T) -> Result<VfsRegisterToken<T>> {
-    let storage = Arc::new(VfsStorage {
+    let storage = Arc::new_cyclic(|storage| VfsStorage {
         base: sqlite3_vfs {
             iVersion: 2,
-            szOsFile: std::mem::size_of::<FileStorage<T::File>>() as c_int,
+            szOsFile: std::mem::size_of::<VfsFileStorage<T>>() as c_int,
             mxPathname: 512,
             pNext: std::ptr::null_mut(),
             zName: name.as_ptr(),
-            pAppData: std::ptr::null_mut(),
+            pAppData: storage.as_ptr() as *mut c_void,
             xOpen: Some(x_open::<T>),
             xDelete: Some(x_delete::<T>),
             xAccess: Some(x_access::<T>),
@@ -524,19 +524,16 @@ pub fn register<T: Vfs>(name: &'static CStr, vfs: T) -> Result<VfsRegisterToken<
         },
         vfs,
     });
-    let storage_raw = Arc::into_raw(storage) as *mut VfsStorage<T>;
-    let rc = unsafe {
-        // FIXME: is this safe? We are assigning a *const that I casted to *mut...
-        (*storage_raw).base.pAppData = storage_raw as *mut c_void;
-        sqlite3_vfs_register(&mut (*storage_raw).base as *mut _, 1)
-    };
+
+    let storage_ptr = Arc::as_ptr(&storage) as *mut VfsStorage<T>;
+    let rc = unsafe { sqlite3_vfs_register(&mut (*storage_ptr).base as *mut _, 0) };
     if rc != SQLITE_OK {
-        // Make sure not to leak the storage
-        let _ = unsafe { Arc::from_raw(storage_raw) };
         return Err(SQLiteError(NonZero::new(rc).unwrap()));
+    } else {
+        unsafe { Arc::increment_strong_count(storage_ptr) };
     }
 
-    Ok(VfsRegisterToken(storage_raw))
+    Ok(VfsRegisterToken(storage_ptr))
 }
 
 struct VfsStorage<V> {
@@ -545,22 +542,30 @@ struct VfsStorage<V> {
 }
 
 impl<T> VfsStorage<T> {
-    unsafe fn from_raw<'a>(ptr: *mut sqlite3_vfs) -> &'a Self {
+    unsafe fn from_raw(ptr: *mut sqlite3_vfs) -> Arc<Self> {
         unsafe {
             ptr.as_ref()
-                .and_then(|vfs| vfs.pAppData.cast::<VfsStorage<T>>().as_ref())
+                .and_then(|vfs| {
+                    let storage_ptr = vfs.pAppData.cast::<VfsStorage<T>>();
+                    if storage_ptr.is_null() {
+                        return None;
+                    }
+                    Arc::increment_strong_count(storage_ptr);
+                    Some(Arc::from_raw(storage_ptr))
+                })
                 .expect("cannot get reference to empty vfs storage")
         }
     }
 }
 
 #[repr(C)]
-struct FileStorage<T: VfsFile> {
+struct VfsFileStorage<T: Vfs> {
     base: sqlite3_file,
-    file: Option<T>, // Will be None when closed
+    vfs: Arc<VfsStorage<T>>,
+    file: Option<T::File>, // Will be None when closed
 }
 
-impl<T: VfsFile> FileStorage<T> {
+impl<T: Vfs> VfsFileStorage<T> {
     const METHOD_TABLE: sqlite3_io_methods = sqlite3_io_methods {
         iVersion: 1,
         xClose: Some(x_close::<T>),
@@ -585,13 +590,13 @@ impl<T: VfsFile> FileStorage<T> {
 
     unsafe fn from_raw<'a>(ptr: *mut sqlite3_file) -> &'a mut Self {
         unsafe {
-            ptr.cast::<FileStorage<T>>()
+            ptr.cast::<VfsFileStorage<T>>()
                 .as_mut()
                 .expect("cannot get reference to empty file storage")
         }
     }
 
-    fn file(&mut self) -> &mut T {
+    fn file(&mut self) -> &mut T::File {
         self.file
             .as_mut()
             .expect("internal error: file already taken")
@@ -616,18 +621,19 @@ unsafe extern "C" fn x_open<T: Vfs>(
         ))
     };
 
-    let storage = unsafe { VfsStorage::<T>::from_raw(vfs) };
-    let (file, flags) = match storage.vfs.open(path, OpenFlags::new(flags)) {
+    let vfs_storage = unsafe { VfsStorage::<T>::from_raw(vfs) };
+    let (file, flags) = match vfs_storage.vfs.open(path, OpenFlags::new(flags)) {
         Ok(r) => r,
         Err(e) => return e.into(),
     };
 
     unsafe {
         out_flags.write(flags.bits);
-        out.cast::<FileStorage<T::File>>().write(FileStorage {
+        out.cast::<VfsFileStorage<T>>().write(VfsFileStorage {
             base: sqlite3_file {
-                pMethods: &FileStorage::<T::File>::METHOD_TABLE as *const _,
+                pMethods: &VfsFileStorage::<T>::METHOD_TABLE as *const _,
             },
+            vfs: vfs_storage,
             file: Some(file),
         });
     }
@@ -783,44 +789,44 @@ unsafe extern "C" fn x_get_last_error<T: Vfs>(
     storage.vfs.get_last_error().into()
 }
 
-unsafe extern "C" fn x_close<T: VfsFile>(file: *mut sqlite3_file) -> c_int {
-    let storage = unsafe { FileStorage::<T>::from_raw(file) };
+unsafe extern "C" fn x_close<T: Vfs>(file: *mut sqlite3_file) -> c_int {
+    let storage = unsafe { VfsFileStorage::<T>::from_raw(file) };
     Option::take(&mut storage.file);
     SQLITE_OK
 }
 
-unsafe extern "C" fn x_read<T: VfsFile>(
+unsafe extern "C" fn x_read<T: Vfs>(
     file: *mut sqlite3_file,
     data: *mut c_void,
     amount: i32,
     offset: i64,
 ) -> c_int {
-    let storage = unsafe { FileStorage::<T>::from_raw(file) };
+    let storage = unsafe { VfsFileStorage::<T>::from_raw(file) };
     let file = storage.file();
     let buf = unsafe { slice::from_raw_parts_mut(data as *mut u8, amount as usize) };
     file.read_at(buf, offset as u64).to_code_result().into()
 }
 
-unsafe extern "C" fn x_write<T: VfsFile>(
+unsafe extern "C" fn x_write<T: Vfs>(
     file: *mut sqlite3_file,
     data: *const c_void,
     amount: i32,
     offset: i64,
 ) -> c_int {
-    let storage = unsafe { FileStorage::<T>::from_raw(file) };
+    let storage = unsafe { VfsFileStorage::<T>::from_raw(file) };
     let file = storage.file();
     let buf = unsafe { slice::from_raw_parts(data as *const u8, amount as usize) };
     file.write_at(buf, offset as u64).to_code_result().into()
 }
 
-unsafe extern "C" fn x_truncate<T: VfsFile>(file: *mut sqlite3_file, size: i64) -> c_int {
-    let storage = unsafe { FileStorage::<T>::from_raw(file) };
+unsafe extern "C" fn x_truncate<T: Vfs>(file: *mut sqlite3_file, size: i64) -> c_int {
+    let storage = unsafe { VfsFileStorage::<T>::from_raw(file) };
     let file = storage.file();
     file.truncate(size as u64).to_code_result().into()
 }
 
-unsafe extern "C" fn x_sync<T: VfsFile>(file: *mut sqlite3_file, flags: c_int) -> c_int {
-    let storage = unsafe { FileStorage::<T>::from_raw(file) };
+unsafe extern "C" fn x_sync<T: Vfs>(file: *mut sqlite3_file, flags: c_int) -> c_int {
+    let storage = unsafe { VfsFileStorage::<T>::from_raw(file) };
     let file = storage.file();
     let options = SyncOptions {
         full: (flags & SQLITE_SYNC_FULL) != 0,
@@ -829,11 +835,11 @@ unsafe extern "C" fn x_sync<T: VfsFile>(file: *mut sqlite3_file, flags: c_int) -
     file.sync(options).to_code_result().into()
 }
 
-unsafe extern "C" fn x_file_size<T: VfsFile>(
+unsafe extern "C" fn x_file_size<T: Vfs>(
     file: *mut sqlite3_file,
     out_ptr: *mut sqlite3_int64,
 ) -> c_int {
-    let storage = unsafe { FileStorage::<T>::from_raw(file) };
+    let storage = unsafe { VfsFileStorage::<T>::from_raw(file) };
     let file = storage.file();
     let out = unsafe { out_ptr.as_mut().unwrap() };
     file.size()
@@ -842,36 +848,36 @@ unsafe extern "C" fn x_file_size<T: VfsFile>(
         .into()
 }
 
-unsafe extern "C" fn x_lock<T: VfsFile>(file: *mut sqlite3_file, level: c_int) -> c_int {
-    let storage = unsafe { FileStorage::<T>::from_raw(file) };
+unsafe extern "C" fn x_lock<T: Vfs>(file: *mut sqlite3_file, level: c_int) -> c_int {
+    let storage = unsafe { VfsFileStorage::<T>::from_raw(file) };
     let file = storage.file();
     let lock_level = LockLevel::from_raw(level);
     file.lock(lock_level).to_code_result().into()
 }
 
-unsafe extern "C" fn x_unlock<T: VfsFile>(file: *mut sqlite3_file, level: c_int) -> c_int {
-    let storage = unsafe { FileStorage::<T>::from_raw(file) };
+unsafe extern "C" fn x_unlock<T: Vfs>(file: *mut sqlite3_file, level: c_int) -> c_int {
+    let storage = unsafe { VfsFileStorage::<T>::from_raw(file) };
     let file = storage.file();
     let lock_level = LockLevel::from_raw(level);
     file.unlock(lock_level).to_code_result().into()
 }
 
-unsafe extern "C" fn x_check_reserved_lock<T: VfsFile>(
+unsafe extern "C" fn x_check_reserved_lock<T: Vfs>(
     file: *mut sqlite3_file,
     out_ptr: *mut c_int,
 ) -> c_int {
-    let storage = unsafe { FileStorage::<T>::from_raw(file) };
+    let storage = unsafe { VfsFileStorage::<T>::from_raw(file) };
     let file = storage.file();
     let out = unsafe { out_ptr.as_mut().unwrap() };
     file.check_reserved_lock().to_code_output(out).into()
 }
 
-unsafe extern "C" fn x_file_control<T: VfsFile>(
+unsafe extern "C" fn x_file_control<T: Vfs>(
     file: *mut sqlite3_file,
     op: c_int,
     arg: *mut c_void,
 ) -> c_int {
-    let storage = unsafe { FileStorage::<T>::from_raw(file) };
+    let storage = unsafe { VfsFileStorage::<T>::from_raw(file) };
     let file = storage.file();
     match op {
         SQLITE_FCNTL_LOCKSTATE => {
@@ -896,11 +902,17 @@ unsafe extern "C" fn x_file_control<T: VfsFile>(
             let size = unsafe { arg.cast::<sqlite3_int64>().read() } as u64;
             file.overwrite_hint(size).to_code_result().into()
         }
-
-        SQLITE_FCNTL_VFSNAME => todo!(), // How? We don't have access to VFS name here unless we tie a File to its VFS
-
+        SQLITE_FCNTL_VFSNAME => {
+            let name_ptr = arg.cast::<*mut c_char>();
+            let vfs_name = storage.vfs.base.zName;
+            unsafe {
+                name_ptr
+                    .write(sqlite3_mprintf(b"%s\0".as_ptr() as *const c_char, vfs_name));
+            }
+            SQLITE_OK
+        }
         SQLITE_FCNTL_PRAGMA => {
-            let args = unsafe { arg.cast::<*mut c_char>() };
+            let args = arg.cast::<*mut c_char>();
             let name = OsStr::from_bytes(
                 unsafe { CStr::from_ptr(*args.add(1)) }.to_bytes(),
             );
@@ -953,7 +965,6 @@ unsafe extern "C" fn x_file_control<T: VfsFile>(
             file.rollback_atomic();
             SQLITE_OK
         }
-
         SQLITE_FCNTL_LOCK_TIMEOUT => {
             let timeout = unsafe { arg.cast::<i32>().as_mut() }.unwrap();
             let new_timeout = Duration::from_millis(*timeout as u64);
@@ -1006,14 +1017,14 @@ unsafe extern "C" fn x_file_control<T: VfsFile>(
     }
 }
 
-unsafe extern "C" fn x_sector_size<T: VfsFile>(file: *mut sqlite3_file) -> c_int {
-    let storage = unsafe { FileStorage::<T>::from_raw(file) };
+unsafe extern "C" fn x_sector_size<T: Vfs>(file: *mut sqlite3_file) -> c_int {
+    let storage = unsafe { VfsFileStorage::<T>::from_raw(file) };
     let file = storage.file();
     file.sector_size() as c_int
 }
 
-unsafe extern "C" fn x_device_characteristics<T: VfsFile>(file: *mut sqlite3_file) -> c_int {
-    let storage = unsafe { FileStorage::<T>::from_raw(file) };
+unsafe extern "C" fn x_device_characteristics<T: Vfs>(file: *mut sqlite3_file) -> c_int {
+    let storage = unsafe { VfsFileStorage::<T>::from_raw(file) };
     let file = storage.file();
     file.device_characteristics().into()
 }
