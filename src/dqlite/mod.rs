@@ -4,7 +4,7 @@ use std::{
     borrow::Cow,
     cmp,
     ffi::{CStr, CString, OsStr, OsString, c_char, c_int, c_uint, c_void},
-    fmt::{Debug, Display},
+    fmt::Debug,
     fs::{self, File},
     io::{self, Read, Seek, SeekFrom, Write},
     ops::{Deref, DerefMut, RangeInclusive},
