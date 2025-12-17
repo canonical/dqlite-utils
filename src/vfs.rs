@@ -340,6 +340,19 @@ pub struct SyncOptions {
     pub data_only: bool,
 }
 
+impl SyncOptions {
+    fn to_raw(&self) -> c_int {
+        let mut flags = 0;
+        if self.full {
+            flags |= SQLITE_SYNC_FULL;
+        }
+        if self.data_only {
+            flags |= SQLITE_SYNC_DATAONLY;
+        }
+        flags
+    }
+}
+
 pub enum LockLevel {
     None,
     Shared,
