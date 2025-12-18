@@ -32,10 +32,10 @@ impl AddServerCommand {
             [] => return Err(MissingArgumentError("id").into()),
             [_] => return Err(MissingArgumentError("address").into()),
             [id, address] => (id, address, None),
-            [id, address, role] => (id, address, Some(role.as_str())),
+            [id, address, role] => (id, address, Some(role.to_lowercase())),
             [_, _, _, tail @ ..] => return Err(UnrecognizedArgumentsError(tail.to_vec()).into()),
         };
-        let role = match role {
+        let role = match role.as_ref().map(|r| r.as_str()) {
             Some("standby") => RaftRole::Standby,
             Some("voter") => RaftRole::Voter,
             Some("spare") => RaftRole::Spare,
