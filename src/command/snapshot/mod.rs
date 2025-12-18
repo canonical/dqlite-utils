@@ -9,7 +9,6 @@ mod set_timestamp;
 use std::str::FromStr;
 
 use anyhow::anyhow;
-use indoc::writedoc;
 use strum::EnumIter;
 use time::UtcDateTime;
 
