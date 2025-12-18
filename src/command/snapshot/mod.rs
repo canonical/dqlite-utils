@@ -1,5 +1,6 @@
 mod abort;
 mod info;
+mod set_index;
 
 use std::str::FromStr;
 
@@ -14,6 +15,7 @@ use crate::{Context, Error, Result, Shell};
 
 use self::abort::AbortCommand;
 use self::info::InfoCommand;
+use self::set_index::SetIndexCommand;
 
 #[derive(Debug)]
 pub(crate) struct SnapshotCommand;
@@ -56,6 +58,7 @@ impl SnapshotShell {
             .skip_usage()
             .add_command(AbortCommand::help())
             .add_command(InfoCommand::help())
+            .add_command(SetIndexCommand::help())
             .build()
             .expect("internal error: help invalid")
     }
@@ -110,6 +113,7 @@ impl ShellSnapshotRaftConfiguration {
 pub(crate) enum SnapshotShellCommand {
     Abort(AbortCommand),
     Info(InfoCommand),
+    SetIndex(SetIndexCommand),
 }
 
 impl SnapshotShellCommand {
@@ -118,6 +122,7 @@ impl SnapshotShellCommand {
         match self {
             Self::Abort(_) => Ssck::Abort,
             Self::Info(_) => Ssck::Info,
+            Self::SetIndex(_) => Ssck::SetIndex,
         }
     }
 
@@ -126,6 +131,7 @@ impl SnapshotShellCommand {
         match command.parse()? {
             Ssck::Abort => Ok(Self::Abort(AbortCommand::try_from_args(args)?)),
             Ssck::Info => Ok(Self::Info(InfoCommand::try_from_args(args)?)),
+            Ssck::SetIndex => Ok(Self::SetIndex(SetIndexCommand::try_from_args(args)?)),
         }
     }
 
@@ -133,6 +139,7 @@ impl SnapshotShellCommand {
         match self {
             Self::Abort(cmd) => cmd.run(ctx),
             Self::Info(cmd) => cmd.run(ctx),
+            Self::SetIndex(cmd) => cmd.run(ctx),
         }
     }
 }
@@ -141,6 +148,7 @@ impl SnapshotShellCommand {
 pub(crate) enum SnapshotShellCommandKind {
     Abort,
     Info,
+    SetIndex,
 }
 
 impl SnapshotShellCommandKind {
@@ -148,6 +156,7 @@ impl SnapshotShellCommandKind {
         match self {
             Self::Abort => AbortCommand::help(),
             Self::Info => InfoCommand::help(),
+            Self::SetIndex => SetIndexCommand::help(),
         }
     }
 
@@ -155,6 +164,7 @@ impl SnapshotShellCommandKind {
         match self {
             Self::Abort => ".abort",
             Self::Info => ".info",
+            Self::SetIndex => ".set-index",
         }
     }
 }
@@ -166,6 +176,7 @@ impl FromStr for SnapshotShellCommandKind {
         match raw {
             ".abort" => Ok(Self::Abort),
             ".info" => Ok(Self::Info),
+            ".set-index" => Ok(Self::SetIndex),
             _ => Err(UnknownCommand.into()),
         }
     }

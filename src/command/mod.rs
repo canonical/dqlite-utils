@@ -212,6 +212,10 @@ impl FromStr for RootCommandKind {
 }
 
 #[derive(Debug, thiserror::Error)]
+#[error("missing argument '{_0}'")]
+struct MissingArgumentError(&'static str);
+
+#[derive(Debug, thiserror::Error)]
 #[error("unrecognized arguments: {_0:?}")]
 struct UnrecognizedArgumentsError(Vec<String>);
 
