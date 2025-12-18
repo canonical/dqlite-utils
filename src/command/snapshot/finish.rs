@@ -99,27 +99,20 @@ impl FinishCommand {
 
 struct PlaceholderDb;
 
-impl PlaceholderDb {
-    const MAIN_CONTENT: &str = "placeholder main";
-    const WAL_CONTENT: &str = "placeholder wal";
-}
-
 impl DqliteDatabaseWriter for PlaceholderDb {
     fn main_size(&self) -> usize {
-        Self::MAIN_CONTENT.len()
+        0
     }
 
     fn wal_size(&self) -> usize {
-        Self::WAL_CONTENT.len()
+        0
     }
 
-    fn write_main(&self, out: &mut impl Write) -> Result<()> {
-        write!(out, "{}", Self::MAIN_CONTENT)?;
+    fn write_main(&self, _out: &mut impl Write) -> Result<()> {
         Ok(())
     }
 
-    fn write_wal(&self, out: &mut impl Write) -> Result<()> {
-        write!(out, "{}", Self::WAL_CONTENT)?;
+    fn write_wal(&self, _out: &mut impl Write) -> Result<()> {
         Ok(())
     }
 }
