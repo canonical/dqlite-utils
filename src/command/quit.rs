@@ -10,7 +10,7 @@ pub(crate) struct QuitCommand;
 impl QuitCommand {
     pub(crate) fn help() -> Help {
         Help::builder()
-            .name("quit")
+            .name(".quit")
             .summary("Exit")
             .build()
             .expect("internal error: help invalid")

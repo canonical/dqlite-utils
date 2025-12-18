@@ -33,7 +33,7 @@ pub(crate) struct SnapshotCommand;
 impl SnapshotCommand {
     pub(crate) fn help() -> Help {
         Help::builder()
-            .name("snapshot")
+            .name(".snapshot")
             .summary("Enter snapshot-creation shell")
             .add_arg("dir", "the directory to save the snapshot into")
             .build()
