@@ -2,12 +2,10 @@ use std::io::{self, ErrorKind, Write};
 
 use anyhow::Context as _;
 use owo_colors::Style;
-use strum::IntoEnumIterator;
 
+use crate::command::{CommandKind, UnrecognizedArgumentsError};
 use crate::utils::TerminalStylizeExt;
 use crate::{Context, Result};
-
-use super::{CommandKind, UnrecognizedArgumentsError};
 
 #[derive(Debug)]
 pub(crate) struct HelpCommand {
@@ -15,12 +13,10 @@ pub(crate) struct HelpCommand {
 }
 
 impl HelpCommand {
-    pub(crate) const SUMMARY: &'static str = "Print help and exit";
-
     pub(crate) fn help() -> Help {
         Help::builder()
             .name("help")
-            .summary(Self::SUMMARY)
+            .summary("Print help and exit")
             .add_optional_arg("command", "the command to get help for")
             .build()
             .expect("internal error: help invalid")
@@ -44,33 +40,18 @@ impl HelpCommand {
         })
     }
 
-    pub(crate) fn run(self, _ctx: &Context) -> Result<()> {
+    pub(crate) fn run(self, ctx: &Context) -> Result<()> {
         let Self { command } = self;
-        let stdout = io::stdout().lock();
-        let res = match command {
-            None => Self::write_general_help(stdout),
-            Some(command) => command.write_help(stdout),
+        let help = match command {
+            None => ctx.shell.help(),
+            Some(command) => command.help(),
         };
-        match res {
+        match help.write_to(io::stdout().lock()) {
             Ok(()) => {}
             Err(e) if e.kind() == ErrorKind::BrokenPipe => return Ok(()),
             Err(e) => return Err(e.into()),
         }
         Ok(())
-    }
-
-    fn write_general_help(w: impl Write) -> io::Result<()> {
-        let help = {
-            let mut help = Help::builder()
-                .name("dqlite-utils")
-                .summary("an observability tool for inspecting the on-disk state of a dqlite node")
-                .skip_usage();
-            for command in CommandKind::iter() {
-                help = help.add_command(command.name(), command.summary());
-            }
-            help.build().expect("internal error: help invalid")
-        };
-        help.write_to(w)
     }
 }
 
@@ -161,7 +142,7 @@ impl Help {
             if arg.kind.optional {
                 write!(w, " [{name}]")?;
             } else {
-                write!(w, " {name}")?;
+                write!(w, " <{name}>")?;
             }
         }
         writeln!(w)?;
@@ -257,11 +238,11 @@ impl HelpBuilder {
         self
     }
 
-    pub(crate) fn add_command(mut self, name: &'static str, summary: &'static str) -> Self {
+    pub(crate) fn add_command(mut self, command_help: Help) -> Self {
         self.commands.push(HelpEntry {
-            name,
+            name: command_help.name,
             kind: Cmd,
-            summary,
+            summary: command_help.summary,
         });
         self
     }
@@ -295,22 +276,9 @@ mod tests {
 
     use googletest::expect_that;
 
-    use googletest::matchers::{anything, contains_substring, displays_as, err};
-    use strum::IntoEnumIterator;
+    use googletest::matchers::{anything, contains_substring, err};
 
     use super::*;
-
-    #[googletest::test]
-    fn test_all_commands_listed_in_help() {
-        let help_output = {
-            let mut help_output = Cursor::new(Vec::new());
-            HelpCommand::write_general_help(&mut help_output).unwrap();
-            String::try_from(help_output.into_inner()).unwrap()
-        };
-        for command_kind in CommandKind::iter() {
-            expect_that!(help_output, contains_substring(command_kind.name()));
-        }
-    }
 
     #[googletest::test]
     fn test_help_output() {
@@ -363,19 +331,31 @@ mod tests {
 
         const COMMAND_1: &str = "__COMMAND_1__";
         const COMMAND_2: &str = "__COMMAND_2__";
-        const COMMAND_1_HELP: &str = "__COMMAND_1_HELP__";
-        const COMMAND_2_HELP: &str = "__COMMAND_2_HELP__";
+        const COMMAND_1_SUMMARY: &str = "__COMMAND_1_SUMMARY__";
+        const COMMAND_2_SUMMARY: &str = "__COMMAND_2_SUMMARY__";
         Test::new("commands")
             .expect(COMMAND_1)
             .expect(COMMAND_2)
-            .expect(COMMAND_1_HELP)
-            .expect(COMMAND_2_HELP)
+            .expect(COMMAND_1_SUMMARY)
+            .expect(COMMAND_2_SUMMARY)
             .test(
                 Help::builder()
                     .name(NAME)
                     .summary(SUMMARY)
-                    .add_command(COMMAND_1, COMMAND_1_HELP)
-                    .add_command(COMMAND_2, COMMAND_2_HELP)
+                    .add_command(
+                        Help::builder()
+                            .name(COMMAND_1)
+                            .summary(COMMAND_1_SUMMARY)
+                            .build()
+                            .unwrap(),
+                    )
+                    .add_command(
+                        Help::builder()
+                            .name(COMMAND_2)
+                            .summary(COMMAND_2_SUMMARY)
+                            .build()
+                            .unwrap(),
+                    )
                     .build()
                     .unwrap(),
             );

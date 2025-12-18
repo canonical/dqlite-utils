@@ -1,17 +1,15 @@
-use std::process;
-
 use crate::command::UnrecognizedArgumentsError;
 use crate::command::help::Help;
-use crate::{Context, Result};
+use crate::{Context, Result, Shell};
 
-#[derive(Debug, Default)]
-pub(crate) struct QuitCommand;
+#[derive(Debug)]
+pub(crate) struct AbortCommand;
 
-impl QuitCommand {
+impl AbortCommand {
     pub(crate) fn help() -> Help {
         Help::builder()
-            .name("quit")
-            .summary("Exit")
+            .name(".abort")
+            .summary("exit the snapshot shell without writing to disk")
             .build()
             .expect("internal error: help invalid")
     }
@@ -23,7 +21,8 @@ impl QuitCommand {
         Ok(Self)
     }
 
-    pub(crate) fn run(&self, _ctx: &Context) -> ! {
-        process::exit(0);
+    pub(crate) fn run(self, ctx: &mut Context) -> Result<()> {
+        ctx.shell = Shell::default();
+        Ok(())
     }
 }

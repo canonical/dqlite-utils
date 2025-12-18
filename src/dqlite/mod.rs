@@ -5,7 +5,7 @@ use std::{
     cmp,
     ffi::{CStr, CString, OsStr, OsString, c_char, c_int, c_uint, c_void},
     fmt::Debug,
-    fs::File,
+    fs::{self, File},
     io::{self, Read, Seek, SeekFrom, Write},
     ops::{Deref, DerefMut, RangeInclusive},
     os::unix::{ffi::OsStrExt, fs::FileExt},
@@ -1135,6 +1135,7 @@ where
 
 impl DqliteDirCreator<Empty> {
     pub fn create(self) -> Result<()> {
+        self.create_dir()?;
         self.write_metadata()?;
         self.write_segments()?;
 
@@ -1147,6 +1148,7 @@ where
     T: DqliteDatabaseWriter,
 {
     pub fn create(self) -> Result<()> {
+        self.create_dir()?;
         self.write_metadata()?;
         self.write_segments()?;
         self.write_snapshots()?;
@@ -1155,6 +1157,11 @@ where
 }
 
 impl<T> DqliteDirCreator<T> {
+    fn create_dir(&self) -> Result<()> {
+        fs::create_dir_all(&self.dir)?;
+        Ok(())
+    }
+
     fn write_metadata(&self) -> Result<()> {
         let mut err = RaftErrorStr::new();
 
@@ -1708,7 +1715,8 @@ mod tests {
                     .unwrap()
                     .as_millis() as u64,
             );
-        DqliteDir::creator(dir.path())
+        let new_dir_path = dir.path().join("new-dir");
+        DqliteDir::creator(&new_dir_path)
             .with_snapshot(|s| {
                 s.with_configuration(configuration.clone())
                     .with_term(3)
@@ -1721,7 +1729,7 @@ mod tests {
             .create()
             .unwrap();
 
-        let state = DqliteDir::open(dir.path()).unwrap();
+        let state = DqliteDir::open(new_dir_path).unwrap();
 
         let snapshots = state.snapshots();
         assert_eq!(snapshots.len(), 1);
