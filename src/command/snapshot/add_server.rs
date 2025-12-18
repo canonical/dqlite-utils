@@ -1,0 +1,71 @@
+use anyhow::anyhow;
+
+use crate::command::help::Help;
+use crate::command::{MissingArgumentError, UnrecognizedArgumentsError};
+use crate::dqlite::{RaftRole, RaftServer};
+use crate::{Context, Result};
+
+#[derive(Debug)]
+pub(crate) struct AddServerCommand {
+    role: RaftRole,
+    id: u64,
+    address: String,
+}
+
+impl AddServerCommand {
+    pub(crate) fn help() -> Help {
+        Help::builder()
+            .name(".add-server")
+            .summary("add a server to the snapshot")
+            .add_arg("id", "the raft ID of the server")
+            .add_arg("address", "the server's address")
+            .add_optional_arg(
+                "role",
+                "the role of the new server (standby, voter or spare, default: voter)",
+            )
+            .build()
+            .expect("internal error: help invalid")
+    }
+
+    pub(crate) fn try_from_args(args: &[String]) -> Result<Self> {
+        let (id, address, role) = match args {
+            [] => return Err(MissingArgumentError("id").into()),
+            [_] => return Err(MissingArgumentError("address").into()),
+            [id, address] => (id, address, None),
+            [id, address, role] => (id, address, Some(role.to_lowercase())),
+            [_, _, _, tail @ ..] => return Err(UnrecognizedArgumentsError(tail.to_vec()).into()),
+        };
+        let id = id.parse()?;
+        let address = address.to_owned();
+        let role = match role.as_ref().map(|r| r.as_str()) {
+            Some("standby") => RaftRole::Standby,
+            Some("voter") => RaftRole::Voter,
+            Some("spare") => RaftRole::Spare,
+            Some(raw) => return Err(anyhow!("cannot parse {raw} as raft role")),
+            None => RaftRole::Voter,
+        };
+        Ok(Self { role, id, address })
+    }
+
+    pub(crate) fn run(self, ctx: &mut Context) -> Result<()> {
+        let Self { role, id, address } = self;
+        let shell = ctx.shell.snapshot_mut().ok_or_else(|| {
+            anyhow!("internal error: .add-server command not called in snapshot shell")
+        })?;
+
+        let configuration = &mut shell.snapshot.configuration;
+
+        if configuration.servers.iter().any(|s| s.id == id) {
+            return Err(anyhow!("cannot add server with id {id}: already used"));
+        }
+        if configuration.servers.iter().any(|s| s.address == address) {
+            return Err(anyhow!(
+                "cannot add server with address '{address}': already used"
+            ));
+        }
+
+        let server = RaftServer { id, address, role };
+        configuration.servers.push(server);
+        Ok(())
+    }
+}

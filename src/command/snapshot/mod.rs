@@ -1,4 +1,5 @@
 mod abort;
+mod add_server;
 mod info;
 mod set_index;
 mod set_term;
@@ -16,6 +17,7 @@ use crate::prompt::Prompt;
 use crate::{Context, Error, Result, Shell};
 
 use self::abort::AbortCommand;
+use self::add_server::AddServerCommand;
 use self::info::InfoCommand;
 use self::set_index::SetIndexCommand;
 use self::set_term::SetTermCommand;
@@ -61,6 +63,7 @@ impl SnapshotShell {
             .summary("incrementally create a snapshot")
             .skip_usage()
             .add_command(AbortCommand::help())
+            .add_command(AddServerCommand::help())
             .add_command(InfoCommand::help())
             .add_command(SetIndexCommand::help())
             .add_command(SetTermCommand::help())
@@ -118,6 +121,7 @@ impl ShellSnapshotRaftConfiguration {
 #[derive(Debug)]
 pub(crate) enum SnapshotShellCommand {
     Abort(AbortCommand),
+    AddServer(AddServerCommand),
     Info(InfoCommand),
     SetIndex(SetIndexCommand),
     SetTerm(SetTermCommand),
@@ -129,6 +133,7 @@ impl SnapshotShellCommand {
         use SnapshotShellCommandKind as Ssck;
         match self {
             Self::Abort(_) => Ssck::Abort,
+            Self::AddServer(_) => Ssck::AddServer,
             Self::Info(_) => Ssck::Info,
             Self::SetIndex(_) => Ssck::SetIndex,
             Self::SetTerm(_) => Ssck::SetTerm,
@@ -140,6 +145,7 @@ impl SnapshotShellCommand {
         use SnapshotShellCommandKind as Ssck;
         match command.parse()? {
             Ssck::Abort => Ok(Self::Abort(AbortCommand::try_from_args(args)?)),
+            Ssck::AddServer => Ok(Self::AddServer(AddServerCommand::try_from_args(args)?)),
             Ssck::Info => Ok(Self::Info(InfoCommand::try_from_args(args)?)),
             Ssck::SetIndex => Ok(Self::SetIndex(SetIndexCommand::try_from_args(args)?)),
             Ssck::SetTerm => Ok(Self::SetTerm(SetTermCommand::try_from_args(args)?)),
@@ -152,6 +158,7 @@ impl SnapshotShellCommand {
     pub(crate) fn run(self, ctx: &mut Context) -> Result<()> {
         match self {
             Self::Abort(cmd) => cmd.run(ctx),
+            Self::AddServer(cmd) => cmd.run(ctx),
             Self::Info(cmd) => cmd.run(ctx),
             Self::SetIndex(cmd) => cmd.run(ctx),
             Self::SetTerm(cmd) => cmd.run(ctx),
@@ -163,6 +170,7 @@ impl SnapshotShellCommand {
 #[derive(Debug, EnumIter)]
 pub(crate) enum SnapshotShellCommandKind {
     Abort,
+    AddServer,
     Info,
     SetIndex,
     SetTerm,
@@ -173,6 +181,7 @@ impl SnapshotShellCommandKind {
     pub(crate) fn help(&self) -> Help {
         match self {
             Self::Abort => AbortCommand::help(),
+            Self::AddServer => AddServerCommand::help(),
             Self::Info => InfoCommand::help(),
             Self::SetIndex => SetIndexCommand::help(),
             Self::SetTerm => SetTermCommand::help(),
@@ -183,6 +192,7 @@ impl SnapshotShellCommandKind {
     pub(crate) fn name(&self) -> &'static str {
         match self {
             Self::Abort => ".abort",
+            Self::AddServer => ".abort",
             Self::Info => ".info",
             Self::SetIndex => ".set-index",
             Self::SetTerm => ".set-term",
@@ -197,6 +207,7 @@ impl FromStr for SnapshotShellCommandKind {
     fn from_str(raw: &str) -> Result<Self> {
         match raw {
             ".abort" => Ok(Self::Abort),
+            ".add-server" => Ok(Self::AddServer),
             ".info" => Ok(Self::Info),
             ".set-index" => Ok(Self::SetIndex),
             ".set-term" => Ok(Self::SetTerm),
