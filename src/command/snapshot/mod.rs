@@ -1,6 +1,7 @@
 mod abort;
 mod info;
 mod set_index;
+mod set_term;
 
 use std::str::FromStr;
 
@@ -16,6 +17,7 @@ use crate::{Context, Error, Result, Shell};
 use self::abort::AbortCommand;
 use self::info::InfoCommand;
 use self::set_index::SetIndexCommand;
+use self::set_term::SetTermCommand;
 
 #[derive(Debug)]
 pub(crate) struct SnapshotCommand;
@@ -59,6 +61,7 @@ impl SnapshotShell {
             .add_command(AbortCommand::help())
             .add_command(InfoCommand::help())
             .add_command(SetIndexCommand::help())
+            .add_command(SetTermCommand::help())
             .build()
             .expect("internal error: help invalid")
     }
@@ -114,6 +117,7 @@ pub(crate) enum SnapshotShellCommand {
     Abort(AbortCommand),
     Info(InfoCommand),
     SetIndex(SetIndexCommand),
+    SetTerm(SetTermCommand),
 }
 
 impl SnapshotShellCommand {
@@ -123,6 +127,7 @@ impl SnapshotShellCommand {
             Self::Abort(_) => Ssck::Abort,
             Self::Info(_) => Ssck::Info,
             Self::SetIndex(_) => Ssck::SetIndex,
+            Self::SetTerm(_) => Ssck::SetTerm,
         }
     }
 
@@ -132,6 +137,7 @@ impl SnapshotShellCommand {
             Ssck::Abort => Ok(Self::Abort(AbortCommand::try_from_args(args)?)),
             Ssck::Info => Ok(Self::Info(InfoCommand::try_from_args(args)?)),
             Ssck::SetIndex => Ok(Self::SetIndex(SetIndexCommand::try_from_args(args)?)),
+            Ssck::SetTerm => Ok(Self::SetTerm(SetTermCommand::try_from_args(args)?)),
         }
     }
 
@@ -140,6 +146,7 @@ impl SnapshotShellCommand {
             Self::Abort(cmd) => cmd.run(ctx),
             Self::Info(cmd) => cmd.run(ctx),
             Self::SetIndex(cmd) => cmd.run(ctx),
+            Self::SetTerm(cmd) => cmd.run(ctx),
         }
     }
 }
@@ -149,6 +156,7 @@ pub(crate) enum SnapshotShellCommandKind {
     Abort,
     Info,
     SetIndex,
+    SetTerm,
 }
 
 impl SnapshotShellCommandKind {
@@ -157,6 +165,7 @@ impl SnapshotShellCommandKind {
             Self::Abort => AbortCommand::help(),
             Self::Info => InfoCommand::help(),
             Self::SetIndex => SetIndexCommand::help(),
+            Self::SetTerm => SetTermCommand::help(),
         }
     }
 
@@ -165,6 +174,7 @@ impl SnapshotShellCommandKind {
             Self::Abort => ".abort",
             Self::Info => ".info",
             Self::SetIndex => ".set-index",
+            Self::SetTerm => ".set-term",
         }
     }
 }
@@ -177,6 +187,7 @@ impl FromStr for SnapshotShellCommandKind {
             ".abort" => Ok(Self::Abort),
             ".info" => Ok(Self::Info),
             ".set-index" => Ok(Self::SetIndex),
+            ".set-term" => Ok(Self::SetTerm),
             _ => Err(UnknownCommand.into()),
         }
     }
