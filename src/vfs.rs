@@ -22,9 +22,9 @@ impl From<c_int> for SQLiteCode {
     }
 }
 
-impl Into<c_int> for SQLiteCode {
-    fn into(self) -> c_int {
-        self.0
+impl From<SQLiteCode> for c_int {
+    fn from(code: SQLiteCode) -> Self {
+        code.0
     }
 }
 
@@ -45,9 +45,9 @@ impl fmt::Display for SQLiteError {
 
 impl error::Error for SQLiteError {}
 
-impl Into<c_int> for SQLiteError {
-    fn into(self) -> c_int {
-        self.0.get()
+impl From<SQLiteError> for c_int {
+    fn from(error: SQLiteError) -> Self {
+        error.0.get()
     }
 }
 
@@ -410,11 +410,11 @@ pub enum AtomicWrite {
     Always,
 }
 
-impl Into<c_int> for IoCapabilities {
-    fn into(self) -> c_int {
+impl From<IoCapabilities> for c_int {
+    fn from(capabilities: IoCapabilities) -> c_int {
         let mut flags = 0;
 
-        let Self {
+        let IoCapabilities {
             atomic_write: write_cap,
             safe_append,
             sequential,
@@ -423,7 +423,7 @@ impl Into<c_int> for IoCapabilities {
             immutable,
             batch_atomic,
             subpage_read,
-        } = self;
+        } = capabilities;
 
         match write_cap {
             AtomicWrite::Never => {}
