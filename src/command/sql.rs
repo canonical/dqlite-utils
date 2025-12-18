@@ -28,8 +28,13 @@ impl SqlCommand {
         Ok(Self { raw })
     }
 
-    pub(crate) fn run(&self, _ctx: &Context) -> Result<()> {
+    pub(crate) fn run(self, ctx: &Context) -> Result<()> {
         let Self { raw } = self;
-        todo!("execute {raw}");
+        let conn = ctx.connection()?;
+        match conn.execute(&raw, ()) {
+            Ok(updated) => println!("{updated} rows were updated"),
+            Err(err) => return Err(err.into()),
+        }
+        Ok(())
     }
 }

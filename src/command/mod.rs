@@ -54,11 +54,8 @@ impl FromStr for Command {
                 Err(err) if err.is::<UnknownCommand>() => {}
                 Err(err) => return Err(err),
             }
-            match SnapshotShellCommand::try_from_input(command, args) {
-                Ok(cmd) => return Ok(Self::Snapshot(cmd)),
-                Err(err) if err.is::<UnknownCommand>() => {}
-                Err(err) => return Err(err),
-            }
+            let snapshot_command = SnapshotShellCommand::try_from_input(command, args)?;
+            return Ok(Self::Snapshot(snapshot_command));
         }
         Ok(Self::Sql(SqlCommand::try_from_raw(raw)?))
     }

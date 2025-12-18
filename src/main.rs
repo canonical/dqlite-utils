@@ -13,6 +13,7 @@ use std::process::ExitCode;
 use anyhow::{Context as _, anyhow};
 use clap::Parser;
 use owo_colors::Style;
+use rusqlite::{Connection, OpenFlags};
 use rustyline::Editor;
 use rustyline::error::ReadlineError;
 use rustyline::history::DefaultHistory;
@@ -183,6 +184,7 @@ fn stdin_commands() -> impl Iterator<Item = Command> {
 #[derive(Debug, Default)]
 pub struct Context {
     pub dqlite: Option<DqliteDir>,
+    pub connection: Option<Connection>,
     pub shell: Shell,
 }
 
@@ -191,14 +193,24 @@ impl Context {
         Self::default()
     }
 
-    fn open(&mut self, dir_path: impl Into<PathBuf>) -> Result<&DqliteDir> {
-        let dir = DqliteDir::open(dir_path)?;
-        let ret = self.dqlite.insert(dir);
+    fn open(&mut self, dir_path: impl Into<PathBuf>) -> Result<&mut Connection> {
+        let dir_path = dir_path.into();
+        self.dqlite = Some(DqliteDir::open(&dir_path)?);
+
+        let open_flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_PRIVATE_CACHE;
+        let ret = self.connection.insert(
+            Connection::open_with_flags(&dir_path, open_flags)
+                .with_context(|| anyhow!("cannot connect to {}", dir_path.display()))?,
+        );
         Ok(ret)
     }
 
     fn dqlite(&self) -> Result<&DqliteDir> {
         Ok(self.dqlite.as_ref().ok_or(NoOpenDqliteDir)?)
+    }
+
+    fn connection(&self) -> Result<&Connection> {
+        Ok(self.connection.as_ref().ok_or(NoOpenDqliteDir)?)
     }
 }
 
