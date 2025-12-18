@@ -1,8 +1,9 @@
+use anyhow::anyhow;
 use sqlparser::dialect::SQLiteDialect;
 use sqlparser::parser::Parser;
 
 use crate::command::help::Help;
-use crate::{Context, Result};
+use crate::{Context, Result, Shell};
 
 #[derive(Debug)]
 pub(crate) struct SqlCommand {
@@ -30,6 +31,10 @@ impl SqlCommand {
 
     pub(crate) fn run(self, ctx: &Context) -> Result<()> {
         let Self { raw } = self;
+        if !matches!(ctx.shell, Shell::Snapshot(_)) {
+            return Err(anyhow!("sql not available in {} shell", ctx.shell.name()));
+        }
+
         let conn = ctx.connection()?;
         match conn.execute(&raw, ()) {
             Ok(updated) => println!("{updated} rows were updated"),
