@@ -35,6 +35,8 @@ impl AddServerCommand {
             [id, address, role] => (id, address, Some(role.to_lowercase())),
             [_, _, _, tail @ ..] => return Err(UnrecognizedArgumentsError(tail.to_vec()).into()),
         };
+        let id = id.parse()?;
+        let address = address.to_owned();
         let role = match role.as_ref().map(|r| r.as_str()) {
             Some("standby") => RaftRole::Standby,
             Some("voter") => RaftRole::Voter,
@@ -42,8 +44,6 @@ impl AddServerCommand {
             Some(raw) => return Err(anyhow!("cannot parse {raw} as raft role")),
             None => RaftRole::Voter,
         };
-        let id = id.parse()?;
-        let address = address.to_owned();
         Ok(Self { role, id, address })
     }
 
