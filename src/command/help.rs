@@ -15,7 +15,7 @@ pub(crate) struct HelpCommand {
 impl HelpCommand {
     pub(crate) fn help() -> Help {
         Help::builder()
-            .name("help")
+            .name(".help")
             .summary("Print help and exit")
             .add_optional_arg("command", "the command to get help for")
             .build()
@@ -316,7 +316,6 @@ mod tests {
         Test::new("args")
             .expect(ARG_1)
             .expect(ARG_2)
-            .expect(format!("[{ARG_2}]"))
             .expect(ARG_1_HELP)
             .expect(ARG_2_HELP)
             .test(

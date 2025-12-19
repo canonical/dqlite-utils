@@ -24,6 +24,7 @@ use self::status::StatusCommand;
 #[derive(Debug)]
 pub enum Command {
     Noop,
+    Help(HelpCommand),
     Root(RootCommand),
     Snapshot(SnapshotShellCommand),
 }
@@ -40,6 +41,9 @@ impl FromStr for Command {
         // NOTE: All commands share the same namespace, thereby allowing us to successfully
         // parse all commands ahead of time, without knowing their effect on the Context;
         // availability is checked later.
+        if command == ".help" {
+            return Ok(Self::Help(HelpCommand::try_from_args(args)?));
+        }
         match RootCommand::try_from_input(command, args) {
             Ok(cmd) => return Ok(Self::Root(cmd)),
             Err(err) if err.is::<UnknownCommand>() => {}
@@ -54,6 +58,7 @@ impl FromStr for Command {
 impl Command {
     fn kind(&self) -> CommandKind {
         match self {
+            Self::Help(_) => CommandKind::Help,
             Self::Noop => CommandKind::Noop,
             Self::Root(cmd) => CommandKind::Root(cmd.kind()),
             Self::Snapshot(cmd) => CommandKind::Snapshot(cmd.kind()),
@@ -63,6 +68,7 @@ impl Command {
     pub(crate) fn run(self, ctx: &mut Context) -> Result<()> {
         match (self, &ctx.shell) {
             (Self::Noop, _) => Ok(()),
+            (Self::Help(cmd), _) => cmd.run(ctx),
             (Self::Root(cmd), Shell::Root(_)) => cmd.run(ctx),
             (cmd @ Self::Root(_), _) => Err(CommandUnavailable::new(&cmd, &ctx.shell).into()),
             (Self::Snapshot(cmd), Shell::Snapshot(_)) => cmd.run(ctx),
@@ -89,7 +95,6 @@ impl CommandUnavailable {
 
 #[derive(Debug)]
 pub enum RootCommand {
-    Help(HelpCommand),
     Log(LogCommand),
     Quit(QuitCommand),
     Snapshot(SnapshotCommand),
@@ -99,7 +104,6 @@ pub enum RootCommand {
 impl RootCommand {
     fn try_from_input(command: &str, args: &[String]) -> Result<Self> {
         match command.parse()? {
-            RootCommandKind::Help => Ok(Self::Help(HelpCommand::try_from_args(args)?)),
             RootCommandKind::Log => Ok(Self::Log(LogCommand::try_from_args(args)?)),
             RootCommandKind::Quit => Ok(Self::Quit(QuitCommand::try_from_args(args)?)),
             RootCommandKind::Snapshot => Ok(Self::Snapshot(SnapshotCommand::try_from_args(args)?)),
@@ -109,7 +113,6 @@ impl RootCommand {
 
     fn kind(&self) -> RootCommandKind {
         match self {
-            Self::Help(_) => RootCommandKind::Help,
             Self::Log(_) => RootCommandKind::Log,
             Self::Quit(_) => RootCommandKind::Quit,
             Self::Snapshot(_) => RootCommandKind::Snapshot,
@@ -121,7 +124,6 @@ impl RootCommand {
         match self {
             Self::Quit(cmd) => cmd.run(ctx),
             Self::Status(cmd) => cmd.run(ctx),
-            Self::Help(cmd) => cmd.run(ctx),
             Self::Log(cmd) => cmd.run(ctx),
             Self::Snapshot(cmd) => cmd.run(ctx),
         }
@@ -131,6 +133,7 @@ impl RootCommand {
 #[derive(Debug)]
 pub(crate) enum CommandKind {
     Noop,
+    Help,
     Root(RootCommandKind),
     Snapshot(SnapshotShellCommandKind),
 }
@@ -146,6 +149,7 @@ impl FromStr for CommandKind {
 impl CommandKind {
     fn name(&self) -> &'static str {
         match self {
+            Self::Help => ".help",
             Self::Noop => "no-op",
             Self::Root(kind) => kind.name(),
             Self::Snapshot(kind) => kind.name(),
@@ -154,6 +158,7 @@ impl CommandKind {
 
     fn help(&self) -> Help {
         match self {
+            Self::Help => HelpCommand::help(),
             Self::Noop => panic!("cannot get help of no-op"),
             Self::Root(kind) => kind.help(),
             Self::Snapshot(kind) => kind.help(),
@@ -167,7 +172,6 @@ struct UnknownCommand;
 
 #[derive(Debug, Eq, PartialEq, EnumIter)]
 pub(crate) enum RootCommandKind {
-    Help,
     Log,
     Quit,
     Snapshot,
@@ -180,18 +184,16 @@ impl RootCommandKind {
             Self::Log => LogCommand::help(),
             Self::Quit => QuitCommand::help(),
             Self::Status => StatusCommand::help(),
-            Self::Help => HelpCommand::help(),
             Self::Snapshot => SnapshotCommand::help(),
         }
     }
 
     pub(crate) fn name(&self) -> &'static str {
         match self {
-            Self::Log => "log",
-            Self::Quit => "quit",
-            Self::Status => "status",
-            Self::Help => "help",
-            Self::Snapshot => "snapshot",
+            Self::Log => ".log",
+            Self::Quit => ".quit",
+            Self::Status => ".status",
+            Self::Snapshot => ".snapshot",
         }
     }
 }
@@ -201,15 +203,18 @@ impl FromStr for RootCommandKind {
 
     fn from_str(raw: &str) -> Result<Self> {
         match raw {
-            "log" => Ok(Self::Log),
-            "quit" => Ok(Self::Quit),
-            "status" => Ok(Self::Status),
-            "help" => Ok(Self::Help),
-            "snapshot" => Ok(Self::Snapshot),
+            ".log" => Ok(Self::Log),
+            ".quit" => Ok(Self::Quit),
+            ".status" => Ok(Self::Status),
+            ".snapshot" => Ok(Self::Snapshot),
             _ => Err(UnknownCommand.into()),
         }
     }
 }
+
+#[derive(Debug, thiserror::Error)]
+#[error("missing argument '{_0}'")]
+struct MissingArgumentError(&'static str);
 
 #[derive(Debug, thiserror::Error)]
 #[error("unrecognized arguments: {_0:?}")]

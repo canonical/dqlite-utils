@@ -26,7 +26,7 @@ impl LogCommand {
 
     pub(crate) fn help() -> Help {
         Help::builder()
-            .name("log")
+            .name(".log")
             .summary("Show a list of all commands applied to the dqlite state machine")
             .add_flag("--compact", "output compactly")
             .build()
