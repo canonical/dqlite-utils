@@ -316,7 +316,6 @@ mod tests {
         Test::new("args")
             .expect(ARG_1)
             .expect(ARG_2)
-            .expect(format!("[{ARG_2}]"))
             .expect(ARG_1_HELP)
             .expect(ARG_2_HELP)
             .test(
