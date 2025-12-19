@@ -12,7 +12,7 @@ pub struct Prompt {
 }
 
 impl Prompt {
-    const STYLE: Style = Style::new().bright_green().bold();
+    pub(crate) const STYLE: Style = Style::new().bright_green().bold();
 
     #[allow(unused)]
     pub(crate) fn new(text: impl Display) -> Self {
