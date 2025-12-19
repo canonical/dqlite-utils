@@ -287,7 +287,7 @@ impl WalLock {
     const WAL_READ_LOCK_0: usize = 3;
 
     pub fn new(offset: usize, n: usize) -> Self {
-        let mask: u16 = (1<<(offset+n)) - (1<<offset);
+        let mask: u16 = (1 << (offset + n)) - (1 << offset);
         WalLock { mask }
     }
 
@@ -1334,10 +1334,7 @@ where
     file.shm_barrier();
 }
 
-unsafe extern "C" fn x_shm_unmap<T, F>(
-    file: *mut sqlite3_file,
-    delete: c_int,
-) -> c_int
+unsafe extern "C" fn x_shm_unmap<T, F>(file: *mut sqlite3_file, delete: c_int) -> c_int
 where
     F: VfsWalFile,
     T: Vfs<File = F>,
@@ -1491,18 +1488,23 @@ mod tests {
     }
 
     impl VfsWalFile for DummyFile {
-        fn shm_map(&mut self, page_number: i32, page_size: usize, extend: bool) -> Result<&mut [u8]> {
+        fn shm_map(
+            &mut self,
+            page_number: i32,
+            page_size: usize,
+            extend: bool,
+        ) -> Result<&mut [u8]> {
             todo!()
         }
-    
+
         fn shm_lock(&mut self, locks: &super::WalLock, exclusive: bool) -> Result<()> {
             todo!()
         }
-    
+
         fn shm_unlock(&mut self, locks: &super::WalLock, exclusive: bool) -> Result<()> {
             todo!()
         }
-    
+
         fn shm_unmap(&mut self, delete: bool) -> Result<()> {
             todo!()
         }
@@ -1697,7 +1699,6 @@ mod tests {
         assert!(methods.xUnfetch.is_none());
         drop(token);
     }
-
 
     #[test]
     fn test_complete_file_methods() {
