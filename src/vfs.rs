@@ -3,12 +3,17 @@ use libsqlite3_sys::{self, *};
 use rand::RngCore;
 use std::{
     error,
-    ffi::{CStr, OsStr, c_char, c_int},
+    ffi::{CStr, CString, OsStr, c_char, c_int},
     fmt,
+    marker::PhantomData,
     num::NonZero,
     os::{raw::c_void, unix::ffi::OsStrExt},
+    ptr::{self, NonNull},
     result, slice,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{Ordering, fence},
+    },
     thread,
     time::{Duration, SystemTime},
 };
@@ -204,7 +209,7 @@ impl AccessFlags {
     }
 }
 
-pub trait Vfs: 'static {
+pub trait Vfs {
     type File: VfsFile;
 
     fn open(&self, name: Option<&OsStr>, flags: OpenFlags) -> Result<(Self::File, OpenFlags)>;
@@ -229,7 +234,7 @@ pub trait Vfs: 'static {
     fn get_last_error(&self) -> SQLiteCode;
 }
 
-pub trait VfsFile: VfsFileControl + 'static {
+pub trait VfsFile: VfsFileControl {
     fn read_at(&mut self, buf: &mut [u8], offset: u64) -> Result<()>;
     fn write_at(&mut self, buf: &[u8], offset: u64) -> Result<()>;
     fn truncate(&mut self, size: u64) -> Result<()>;
@@ -258,6 +263,58 @@ pub trait VfsFile: VfsFileControl + 'static {
             subpage_read: false,
         }
     }
+}
+
+pub trait VfsWalFile: VfsFile {
+    // TODO: lock/unlock
+    fn shm_map(&mut self, page_number: i32, page_size: usize, extend: bool) -> Result<&mut [u8]>;
+    fn shm_lock(&mut self, locks: &WalLock, exclusive: bool) -> Result<()>;
+    fn shm_unlock(&mut self, locks: &WalLock, exclusive: bool) -> Result<()>;
+    fn shm_unmap(&mut self, delete: bool) -> Result<()>;
+    fn shm_barrier(&mut self) {
+        fence(Ordering::SeqCst);
+    }
+}
+
+pub struct WalLock {
+    mask: u16,
+}
+
+impl WalLock {
+    const WAL_WRITE_LOCK: usize = 0;
+    const WAL_CKPT_LOCK: usize = 1;
+    const WAL_RECOVER_LOCK: usize = 2;
+    const WAL_READ_LOCK_0: usize = 3;
+
+    pub fn new(offset: usize, n: usize) -> Self {
+        let mask: u16 = (1<<(offset+n)) - (1<<offset);
+        WalLock { mask }
+    }
+
+    pub fn write(&self) -> bool {
+        self.mask & (1 << Self::WAL_WRITE_LOCK) != 0
+    }
+
+    pub fn checkpoint(&self) -> bool {
+        self.mask & (1 << Self::WAL_CKPT_LOCK) != 0
+    }
+
+    pub fn recover(&self) -> bool {
+        self.mask & (1 << Self::WAL_RECOVER_LOCK) != 0
+    }
+
+    pub fn read(&self, index: usize) -> bool {
+        if index > 5 {
+            return false;
+        }
+        self.mask & (1 << (Self::WAL_READ_LOCK_0 + index)) != 0
+    }
+}
+
+pub trait VfsFetchFile: VfsFile {
+    fn fetch(&mut self, offset: i64, amount: i32) -> Result<&mut [u8]>;
+
+    fn unfetch(&mut self, offset: i64, ptr: NonNull<u8>) -> Result<()>;
 }
 
 pub trait VfsFileControl {
@@ -491,66 +548,274 @@ impl From<IoCapabilities> for c_int {
     }
 }
 
-pub struct VfsRegisterToken<V>(*const VfsStorage<V>);
+pub struct VfsRegisterToken<V>(Arc<VfsStorage<V>>);
 
 impl<V> Drop for VfsRegisterToken<V> {
     fn drop(&mut self) {
-        let rc = unsafe { sqlite3_vfs_unregister(&(*self.0).base as *const _ as *mut _) };
+        let rc = unsafe { sqlite3_vfs_unregister(&self.0.base as *const sqlite3_vfs as *mut _) };
         if rc != rusqlite::ffi::SQLITE_OK {
             panic!("cannot unregister VFS: {}", rc);
         }
-
-        // Reclaim the storage
-        let _ = unsafe { Arc::from_raw(self.0) };
     }
 }
 
-// TODO: add options
-// FIXME: the lifetime of the name is probably too restrictive. Maybe we can allocate a bit here?
-#[allow(unused)]
-pub fn register<T: Vfs>(name: &'static CStr, vfs: T) -> Result<VfsRegisterToken<T>> {
-    let storage = Arc::new_cyclic(|storage| VfsStorage {
-        base: sqlite3_vfs {
-            iVersion: 2,
-            szOsFile: std::mem::size_of::<VfsFileStorage<T>>() as c_int,
-            mxPathname: 512,
-            pNext: std::ptr::null_mut(),
-            zName: name.as_ptr(),
-            pAppData: storage.as_ptr() as *mut c_void,
-            xOpen: Some(x_open::<T>),
-            xDelete: Some(x_delete::<T>),
-            xAccess: Some(x_access::<T>),
-            xFullPathname: Some(x_full_pathname::<T>),
-            xDlOpen: Some(x_dlopen),
-            xDlError: Some(x_dlerror),
-            xDlSym: Some(x_dlsym),
-            xDlClose: Some(x_dlclose),
-            xRandomness: Some(x_randomness::<T>),
-            xSleep: Some(x_sleep::<T>),
-            xCurrentTime: Some(x_get_current_time_deprecated),
-            xGetLastError: Some(x_get_last_error::<T>),
-            xCurrentTimeInt64: Some(x_get_current_time::<T>),
-            // TODO: implement these and bump to v3? Maybe not...
-            xSetSystemCall: None,
-            xGetSystemCall: None,
-            xNextSystemCall: None,
-        },
-        vfs,
-    });
+pub struct NoSupport;
 
-    let storage_ptr = Arc::as_ptr(&storage) as *mut VfsStorage<T>;
-    let rc = unsafe { sqlite3_vfs_register(&mut (*storage_ptr).base as *mut _, 0) };
-    if rc != SQLITE_OK {
-        return Err(SQLiteError(NonZero::new(rc).unwrap()));
-    } else {
-        unsafe { Arc::increment_strong_count(storage_ptr) };
+pub struct VfsSupport<T, W = NoSupport, F = NoSupport> {
+    _base: PhantomData<T>,
+    _wal_support: PhantomData<W>,
+    _fetch_support: PhantomData<F>,
+}
+
+pub trait VfsMethodTable {
+    const METHODS: sqlite3_io_methods;
+}
+
+// Base implementation without WAL and Fetch support
+impl<T> VfsSupport<T, NoSupport, NoSupport>
+where
+    T: Vfs,
+{
+    const fn methods() -> sqlite3_io_methods {
+        sqlite3_io_methods {
+            iVersion: 1,
+            xClose: Some(x_close::<T>),
+            xRead: Some(x_read::<T>),
+            xWrite: Some(x_write::<T>),
+            xTruncate: Some(x_truncate::<T>),
+            xSync: Some(x_sync::<T>),
+            xFileSize: Some(x_file_size::<T>),
+            xLock: Some(x_lock::<T>),
+            xUnlock: Some(x_unlock::<T>),
+            xCheckReservedLock: Some(x_check_reserved_lock::<T>),
+            xFileControl: Some(x_file_control::<T>),
+            xSectorSize: Some(x_sector_size::<T>),
+            xDeviceCharacteristics: Some(x_device_characteristics::<T>),
+
+            // No WAL support
+            xShmMap: None,
+            xShmLock: None,
+            xShmBarrier: None,
+            xShmUnmap: None,
+
+            // No Fetch support
+            xFetch: None,
+            xUnfetch: None,
+        }
+    }
+}
+
+impl<T> VfsMethodTable for VfsSupport<T, NoSupport, NoSupport>
+where
+    T: Vfs,
+{
+    const METHODS: sqlite3_io_methods = Self::methods();
+}
+
+// Wal support implementation
+impl<F, T> VfsSupport<T, F, NoSupport>
+where
+    F: VfsWalFile,
+    T: Vfs<File = F>,
+{
+    const fn methods() -> sqlite3_io_methods {
+        let mut methods = VfsSupport::<T>::methods();
+        methods.iVersion = 2;
+        methods.xShmMap = Some(x_shm_map::<T, F>);
+        methods.xShmLock = Some(x_shm_lock::<T, F>);
+        methods.xShmBarrier = Some(x_shm_barrier::<T, F>);
+        methods.xShmUnmap = Some(x_shm_unmap::<T, F>);
+        methods
+    }
+}
+
+impl<F, T> VfsMethodTable for VfsSupport<T, F, NoSupport>
+where
+    F: VfsWalFile,
+    T: Vfs<File = F>,
+{
+    const METHODS: sqlite3_io_methods = Self::methods();
+}
+
+// Fetch support implementation
+impl<T, F> VfsSupport<T, NoSupport, F>
+where
+    F: VfsFetchFile,
+    T: Vfs<File = F>,
+{
+    const fn methods() -> sqlite3_io_methods {
+        let mut methods = VfsSupport::<T>::methods();
+        methods.iVersion = 3;
+        methods.xFetch = Some(x_fetch::<T, F>);
+        methods.xUnfetch = Some(x_unfetch::<T, F>);
+        methods
+    }
+}
+
+impl<T, F> VfsMethodTable for VfsSupport<T, NoSupport, F>
+where
+    F: VfsFetchFile,
+    T: Vfs<File = F>,
+{
+    const METHODS: sqlite3_io_methods = Self::methods();
+}
+
+impl<F, T> VfsSupport<T, F, F>
+where
+    F: VfsFetchFile + VfsWalFile,
+    T: Vfs<File = F>,
+{
+    const fn methods() -> sqlite3_io_methods {
+        let mut methods = VfsSupport::<T, F>::methods();
+        methods.iVersion = 3;
+        methods.xFetch = Some(x_fetch::<T, F>);
+        methods.xUnfetch = Some(x_unfetch::<T, F>);
+        methods
+    }
+}
+
+impl<T, F> VfsMethodTable for VfsSupport<T, F, F>
+where
+    F: VfsFetchFile + VfsWalFile,
+    T: Vfs<File = F>,
+{
+    const METHODS: sqlite3_io_methods = Self::methods();
+}
+
+pub struct VfsRegistration<T, M> {
+    vfs: T,
+    max_pathlen: usize,
+    make_default: bool,
+    method_table: std::marker::PhantomData<M>,
+}
+
+impl<T: Vfs> VfsRegistration<T, VfsSupport<T>> {
+    pub fn new(vfs: T) -> Self {
+        Self {
+            vfs,
+            max_pathlen: 512,
+            make_default: false,
+            method_table: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<T: Vfs, M: VfsMethodTable> VfsRegistration<T, M> {
+    pub fn register(self, name: &str) -> Result<VfsRegisterToken<T>> {
+        if name.len() == 0 {
+            return Err(SQLiteError(NonZero::new(SQLITE_MISUSE).unwrap()));
+        }
+
+        let Self {
+            vfs,
+            max_pathlen,
+            make_default,
+            method_table: _,
+        } = self;
+
+        let storage = Arc::new_cyclic(move |storage| {
+            let name = CString::new(name).unwrap();
+            let base = sqlite3_vfs {
+                iVersion: 2,
+                szOsFile: std::mem::size_of::<VfsFileStorage<T>>() as c_int,
+                mxPathname: max_pathlen as c_int,
+                pNext: ptr::null_mut(),
+                zName: name.as_ptr(),
+                pAppData: storage.as_ptr() as *mut c_void,
+                xOpen: Some(x_open::<T, M>),
+                xDelete: Some(x_delete::<T>),
+                xAccess: Some(x_access::<T>),
+                xFullPathname: Some(x_full_pathname::<T>),
+
+                // FIXME: support for non-unix systems
+                xDlOpen: Some(x_dlopen),
+                xDlError: Some(x_dlerror),
+                xDlSym: Some(x_dlsym),
+                xDlClose: Some(x_dlclose),
+
+                xRandomness: Some(x_randomness::<T>),
+                xSleep: Some(x_sleep::<T>),
+                xCurrentTime: Some(x_get_current_time_deprecated),
+                xGetLastError: Some(x_get_last_error::<T>),
+                xCurrentTimeInt64: Some(x_get_current_time::<T>),
+
+                // NOTE: nice to have, but not strictly needed
+                xSetSystemCall: None,
+                xGetSystemCall: None,
+                xNextSystemCall: None,
+            };
+            VfsStorage { base, name, vfs }
+        });
+
+        let rc = unsafe {
+            sqlite3_vfs_register(
+                &storage.base as *const sqlite3_vfs as *mut _,
+                make_default as c_int,
+            )
+        };
+        if rc != SQLITE_OK {
+            Err(SQLiteError(NonZero::new(rc).unwrap()))
+        } else {
+            Ok(VfsRegisterToken(storage))
+        }
+    }
+}
+
+impl<T, M> VfsRegistration<T, M> {
+    pub fn max_pathlen(mut self, len: usize) -> Self {
+        self.max_pathlen = len;
+        self
     }
 
-    Ok(VfsRegisterToken(storage_ptr))
+    pub fn as_default(mut self) -> Self {
+        self.make_default = true;
+        self
+    }
+}
+
+impl<T: Vfs, Wal> VfsRegistration<T, VfsSupport<T, Wal, NoSupport>>
+where
+    T::File: VfsFetchFile,
+{
+    pub fn with_fetch(self) -> VfsRegistration<T, VfsSupport<T, Wal, T::File>> {
+        let Self {
+            vfs,
+            max_pathlen,
+            make_default,
+            method_table: _,
+        } = self;
+        VfsRegistration {
+            vfs,
+            max_pathlen,
+            make_default,
+            method_table: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<T: Vfs, Fetch> VfsRegistration<T, VfsSupport<T, NoSupport, Fetch>>
+where
+    T::File: VfsWalFile,
+{
+    pub fn with_wal(self) -> VfsRegistration<T, VfsSupport<T, T::File, Fetch>> {
+        let Self {
+            vfs,
+            max_pathlen,
+            make_default,
+            method_table: _,
+        } = self;
+        VfsRegistration {
+            vfs,
+            max_pathlen,
+            make_default,
+            method_table: std::marker::PhantomData,
+        }
+    }
 }
 
 struct VfsStorage<V> {
     base: sqlite3_vfs,
+    name: CString,
     vfs: V,
 }
 
@@ -579,28 +844,6 @@ struct VfsFileStorage<T: Vfs> {
 }
 
 impl<T: Vfs> VfsFileStorage<T> {
-    const METHOD_TABLE: sqlite3_io_methods = sqlite3_io_methods {
-        iVersion: 1,
-        xClose: Some(x_close::<T>),
-        xRead: Some(x_read::<T>),
-        xWrite: Some(x_write::<T>),
-        xTruncate: Some(x_truncate::<T>),
-        xSync: Some(x_sync::<T>),
-        xFileSize: Some(x_file_size::<T>),
-        xLock: Some(x_lock::<T>),
-        xUnlock: Some(x_unlock::<T>),
-        xCheckReservedLock: Some(x_check_reserved_lock::<T>),
-        xFileControl: Some(x_file_control::<T>),
-        xSectorSize: Some(x_sector_size::<T>),
-        xDeviceCharacteristics: Some(x_device_characteristics::<T>),
-        xShmMap: None,
-        xShmLock: None,
-        xShmBarrier: None,
-        xShmUnmap: None,
-        xFetch: None,
-        xUnfetch: None,
-    };
-
     unsafe fn from_raw<'a>(ptr: *mut sqlite3_file) -> &'a mut Self {
         unsafe {
             ptr.cast::<VfsFileStorage<T>>()
@@ -616,7 +859,7 @@ impl<T: Vfs> VfsFileStorage<T> {
     }
 }
 
-unsafe extern "C" fn x_open<T: Vfs>(
+unsafe extern "C" fn x_open<T: Vfs, M: VfsMethodTable>(
     vfs: *mut sqlite3_vfs,
     filename: sqlite3_filename,
     out: *mut sqlite3_file,
@@ -640,11 +883,12 @@ unsafe extern "C" fn x_open<T: Vfs>(
         Err(e) => return e.into(),
     };
 
+    let methods: &'static sqlite3_io_methods = &M::METHODS;
     unsafe {
         out_flags.write(flags.bits);
         out.cast::<VfsFileStorage<T>>().write(VfsFileStorage {
             base: sqlite3_file {
-                pMethods: &VfsFileStorage::<T>::METHOD_TABLE as *const _,
+                pMethods: methods as *const _,
             },
             vfs: vfs_storage,
             file: Some(file),
@@ -733,6 +977,7 @@ unsafe extern "C" fn x_dlerror(_: *mut sqlite3_vfs, n: c_int, out: *mut c_char) 
 //  - either it should be a pointer to a function with generic signature in C like void(*)()
 //  - or it should be the only actual use this function is used for:
 //      unsafe extern "C" fn(*mut sqlite3, *mut *mut char, *const sqlite3_api_routines) -> c_int.
+// See https://github.com/rust-lang/rust-bindgen/issues/2713
 unsafe extern "C" fn x_dlsym(
     _: *mut sqlite3_vfs,
     p: *mut c_void,
@@ -968,7 +1213,10 @@ unsafe extern "C" fn x_file_control<T: Vfs>(
         }
         SQLITE_FCNTL_COMMIT_PHASETWO => file.commit_phase_two().to_code_result().into(),
         SQLITE_FCNTL_PDB => {
-            file.set_connection(unsafe { rusqlite::Connection::from_handle(arg.cast()) }.unwrap());
+            // let pdb = unsafe { arg.cast::<*mut sqlite3>().read() };
+            // let connection = unsafe { rusqlite::Connection::from_handle(pdb) }.unwrap();
+            // file.set_connection(connection);
+            // TODO: this is blocked on rusqlite as a non-owning connection still changes the connection (it unregisters all hooks on drop)
             SQLITE_OK
         }
         // FIXME: it would be nice to have a struct representing atomic write options.
@@ -1041,4 +1289,463 @@ unsafe extern "C" fn x_device_characteristics<T: Vfs>(file: *mut sqlite3_file) -
     let storage = unsafe { VfsFileStorage::<T>::from_raw(file) };
     let file = storage.file();
     file.device_characteristics().into()
+}
+
+unsafe extern "C" fn x_shm_map<T, F>(
+    file: *mut sqlite3_file,
+    region: c_int,
+    size: c_int,
+    extend: c_int,
+    out_ptr: *mut *mut c_void,
+) -> c_int
+where
+    F: VfsWalFile,
+    T: Vfs<File = F>,
+{
+    let storage = unsafe { VfsFileStorage::<T>::from_raw(file) };
+    let file = storage.file();
+    let out = unsafe { out_ptr.cast::<*mut u8>().as_mut().unwrap() };
+    file.shm_map(region, size as usize, extend != 0)
+        .map(|s| s.as_mut_ptr())
+        .to_code_output(out)
+        .into()
+}
+
+unsafe extern "C" fn x_shm_lock<T, F>(
+    file: *mut sqlite3_file,
+    offset: c_int,
+    n: c_int,
+    flags: c_int,
+) -> c_int
+where
+    F: VfsWalFile,
+    T: Vfs<File = F>,
+{
+    SQLITE_MISUSE
+}
+
+unsafe extern "C" fn x_shm_barrier<T, F>(file: *mut sqlite3_file)
+where
+    F: VfsWalFile,
+    T: Vfs<File = F>,
+{
+    let storage = unsafe { VfsFileStorage::<T>::from_raw(file) };
+    let file = storage.file();
+    file.shm_barrier();
+}
+
+unsafe extern "C" fn x_shm_unmap<T, F>(
+    file: *mut sqlite3_file,
+    delete: c_int,
+) -> c_int
+where
+    F: VfsWalFile,
+    T: Vfs<File = F>,
+{
+    let storage = unsafe { VfsFileStorage::<T>::from_raw(file) };
+    let file = storage.file();
+    file.shm_unmap(delete != 0).to_code_result().into()
+}
+
+unsafe extern "C" fn x_fetch<T, F>(
+    file: *mut sqlite3_file,
+    offset: i64,
+    amount: i32,
+    out_ptr: *mut *mut c_void,
+) -> c_int
+where
+    F: VfsFetchFile,
+    T: Vfs<File = F>,
+{
+    let storage = unsafe { VfsFileStorage::<T>::from_raw(file) };
+    let file = storage.file();
+    let out = unsafe { out_ptr.cast::<*mut u8>().as_mut().unwrap() };
+    file.fetch(offset, amount)
+        .map(|s| s.as_mut_ptr())
+        .to_code_output(out)
+        .into()
+}
+
+unsafe extern "C" fn x_unfetch<T, F>(
+    file: *mut sqlite3_file,
+    offset: i64,
+    ptr: *mut c_void,
+) -> c_int
+where
+    F: VfsFetchFile,
+    T: Vfs<File = F>,
+{
+    let storage = unsafe { VfsFileStorage::<T>::from_raw(file) };
+    let file = storage.file();
+    file.unfetch(offset, NonNull::new(ptr as *mut u8).unwrap())
+        .to_code_result()
+        .into()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        ffi::{CStr, CString, OsStr},
+        num::NonZero,
+        os::unix::ffi::OsStrExt,
+        ptr::NonNull,
+        time::{Duration, SystemTime},
+    };
+
+    use libsqlite3_sys::SQLITE_IOERR_SHORT_READ;
+
+    use crate::vfs::{VfsFetchFile, VfsWalFile};
+
+    use super::{
+        AccessFlags, OpenFlags, Result, SQLiteCode, SQLiteError, Vfs, VfsFile, VfsFileControl,
+        VfsRegistration,
+    };
+
+    struct DummyVfs;
+    struct DummyFile;
+
+    impl Vfs for DummyVfs {
+        type File = DummyFile;
+
+        fn open(
+            &self,
+            _path: Option<&OsStr>,
+            _flags: OpenFlags,
+        ) -> Result<(Self::File, OpenFlags)> {
+            Ok((DummyFile, _flags))
+        }
+
+        fn delete(&self, _path: &OsStr, _sync: bool) -> Result<()> {
+            unimplemented!()
+        }
+
+        fn access(&self, _path: &OsStr, _flags: AccessFlags) -> Result<bool> {
+            unimplemented!()
+        }
+
+        fn full_pathname(&self, _path: &OsStr, _out: &mut [u8]) -> Result<()> {
+            _out[.._path.as_bytes().len()].copy_from_slice(_path.as_bytes());
+            Ok(())
+        }
+
+        fn randomness(&self, _out: &mut [u8]) -> Result<()> {
+            unimplemented!()
+        }
+
+        fn sleep(&self, _duration: Duration) {
+            unimplemented!()
+        }
+
+        fn current_time(&self) -> Result<SystemTime> {
+            unimplemented!()
+        }
+
+        fn get_last_error(&self) -> SQLiteCode {
+            unimplemented!()
+        }
+    }
+
+    impl VfsFile for DummyFile {
+        fn read_at(&mut self, buf: &mut [u8], offset: u64) -> Result<()> {
+            buf.fill(0);
+            Err(SQLiteError(NonZero::new(SQLITE_IOERR_SHORT_READ).unwrap()))
+        }
+
+        fn write_at(&mut self, buf: &[u8], offset: u64) -> Result<()> {
+            Ok(())
+        }
+
+        fn truncate(&mut self, size: u64) -> Result<()> {
+            Ok(())
+        }
+
+        fn sync(&mut self, op: super::SyncOptions) -> Result<()> {
+            Ok(())
+        }
+
+        fn size(&mut self) -> Result<u64> {
+            Ok(0)
+        }
+
+        fn lock(&mut self, level: super::LockLevel) -> Result<()> {
+            Ok(())
+        }
+
+        fn unlock(&mut self, level: super::LockLevel) -> Result<()> {
+            Ok(())
+        }
+
+        fn check_reserved_lock(&mut self) -> Result<bool> {
+            Ok(false)
+        }
+    }
+
+    impl VfsFileControl for DummyFile {
+        fn lockstate(&mut self) -> super::LockLevel {
+            unimplemented!()
+        }
+
+        fn last_errno(&mut self) -> i32 {
+            unimplemented!()
+        }
+    }
+
+    impl VfsWalFile for DummyFile {
+        fn shm_map(&mut self, page_number: i32, page_size: usize, extend: bool) -> Result<&mut [u8]> {
+            todo!()
+        }
+    
+        fn shm_lock(&mut self, locks: &super::WalLock, exclusive: bool) -> Result<()> {
+            todo!()
+        }
+    
+        fn shm_unlock(&mut self, locks: &super::WalLock, exclusive: bool) -> Result<()> {
+            todo!()
+        }
+    
+        fn shm_unmap(&mut self, delete: bool) -> Result<()> {
+            todo!()
+        }
+    }
+
+    impl VfsFetchFile for DummyFile {
+        fn fetch(&mut self, _offset: i64, _amount: i32) -> Result<&mut [u8]> {
+            Ok(&mut [])
+        }
+
+        fn unfetch(&mut self, _offset: i64, _ptr: NonNull<u8>) -> Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn test_registration() {
+        let token = VfsRegistration::new(DummyVfs)
+            .as_default()
+            .max_pathlen(16)
+            .register("dummy")
+            .unwrap();
+
+        let default_vfs_ptr = unsafe { rusqlite::ffi::sqlite3_vfs_find(std::ptr::null()) };
+        assert!(!default_vfs_ptr.is_null());
+        let vfs_ptr = unsafe {
+            rusqlite::ffi::sqlite3_vfs_find(
+                CStr::from_bytes_with_nul_unchecked(b"dummy\0").as_ptr(),
+            )
+        };
+
+        assert!(!vfs_ptr.is_null());
+        assert!(vfs_ptr == default_vfs_ptr);
+        assert!(unsafe {
+            CStr::from_ptr((*vfs_ptr).zName)
+                .to_str()
+                .unwrap()
+                .eq("dummy")
+        });
+        assert!(unsafe { (*vfs_ptr).mxPathname } == 16);
+        assert!(unsafe { (*vfs_ptr).iVersion } == 2);
+        drop(token);
+
+        let vfs_ptr = unsafe {
+            rusqlite::ffi::sqlite3_vfs_find(
+                CStr::from_bytes_with_nul_unchecked(b"dummy\0").as_ptr(),
+            )
+        };
+        assert!(vfs_ptr.is_null());
+    }
+
+    #[test]
+    fn test_base_file_methods() {
+        let token = VfsRegistration::new(DummyVfs).register("base").unwrap();
+
+        let conn = rusqlite::Connection::open_with_flags_and_vfs(
+            "test",
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE | rusqlite::OpenFlags::SQLITE_OPEN_CREATE,
+            "base",
+        )
+        .unwrap();
+
+        let methods = unsafe {
+            let db_handle = conn.handle();
+            let mut file_ptr: *mut rusqlite::ffi::sqlite3_file = std::ptr::null_mut();
+            let rc = rusqlite::ffi::sqlite3_file_control(
+                db_handle,
+                std::ptr::null(),
+                rusqlite::ffi::SQLITE_FCNTL_FILE_POINTER,
+                &mut file_ptr as *mut _ as *mut std::ffi::c_void,
+            );
+            assert_eq!(rc, rusqlite::ffi::SQLITE_OK);
+            assert!(!file_ptr.is_null());
+            &*(*file_ptr).pMethods
+        };
+        assert_eq!(methods.iVersion, 1);
+        assert!(methods.xClose.is_some());
+        assert!(methods.xRead.is_some());
+        assert!(methods.xWrite.is_some());
+        assert!(methods.xTruncate.is_some());
+        assert!(methods.xSync.is_some());
+        assert!(methods.xFileSize.is_some());
+        assert!(methods.xLock.is_some());
+        assert!(methods.xUnlock.is_some());
+        assert!(methods.xCheckReservedLock.is_some());
+        assert!(methods.xFileControl.is_some());
+        assert!(methods.xSectorSize.is_some());
+        assert!(methods.xDeviceCharacteristics.is_some());
+        assert!(methods.xShmMap.is_none());
+        assert!(methods.xShmLock.is_none());
+        assert!(methods.xShmBarrier.is_none());
+        assert!(methods.xShmUnmap.is_none());
+        assert!(methods.xFetch.is_none());
+        assert!(methods.xUnfetch.is_none());
+        drop(token);
+    }
+
+    #[test]
+    fn test_fetch_file_methods() {
+        let token = VfsRegistration::new(DummyVfs)
+            .with_fetch()
+            .register("fetch")
+            .unwrap();
+
+        let conn = rusqlite::Connection::open_with_flags_and_vfs(
+            "test",
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE | rusqlite::OpenFlags::SQLITE_OPEN_CREATE,
+            "fetch",
+        )
+        .unwrap();
+
+        let methods = unsafe {
+            let db_handle = conn.handle();
+            let mut file_ptr: *mut rusqlite::ffi::sqlite3_file = std::ptr::null_mut();
+            let rc = rusqlite::ffi::sqlite3_file_control(
+                db_handle,
+                std::ptr::null(),
+                rusqlite::ffi::SQLITE_FCNTL_FILE_POINTER,
+                &mut file_ptr as *mut _ as *mut std::ffi::c_void,
+            );
+            assert_eq!(rc, rusqlite::ffi::SQLITE_OK);
+            assert!(!file_ptr.is_null());
+            &*(*file_ptr).pMethods
+        };
+        assert_eq!(methods.iVersion, 3);
+        assert!(methods.xClose.is_some());
+        assert!(methods.xRead.is_some());
+        assert!(methods.xWrite.is_some());
+        assert!(methods.xTruncate.is_some());
+        assert!(methods.xSync.is_some());
+        assert!(methods.xFileSize.is_some());
+        assert!(methods.xLock.is_some());
+        assert!(methods.xUnlock.is_some());
+        assert!(methods.xCheckReservedLock.is_some());
+        assert!(methods.xFileControl.is_some());
+        assert!(methods.xSectorSize.is_some());
+        assert!(methods.xDeviceCharacteristics.is_some());
+        assert!(methods.xShmMap.is_none());
+        assert!(methods.xShmLock.is_none());
+        assert!(methods.xShmBarrier.is_none());
+        assert!(methods.xShmUnmap.is_none());
+        assert!(methods.xFetch.is_some());
+        assert!(methods.xUnfetch.is_some());
+        drop(token);
+    }
+
+    #[test]
+    fn test_wal_file_methods() {
+        let token = VfsRegistration::new(DummyVfs)
+            .with_wal()
+            .register("wal")
+            .unwrap();
+
+        let conn = rusqlite::Connection::open_with_flags_and_vfs(
+            "test",
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE | rusqlite::OpenFlags::SQLITE_OPEN_CREATE,
+            "wal",
+        )
+        .unwrap();
+
+        let methods = unsafe {
+            let db_handle = conn.handle();
+            let mut file_ptr: *mut rusqlite::ffi::sqlite3_file = std::ptr::null_mut();
+            let rc = rusqlite::ffi::sqlite3_file_control(
+                db_handle,
+                std::ptr::null(),
+                rusqlite::ffi::SQLITE_FCNTL_FILE_POINTER,
+                &mut file_ptr as *mut _ as *mut std::ffi::c_void,
+            );
+            assert_eq!(rc, rusqlite::ffi::SQLITE_OK);
+            assert!(!file_ptr.is_null());
+            &*(*file_ptr).pMethods
+        };
+        assert_eq!(methods.iVersion, 2);
+        assert!(methods.xClose.is_some());
+        assert!(methods.xRead.is_some());
+        assert!(methods.xWrite.is_some());
+        assert!(methods.xTruncate.is_some());
+        assert!(methods.xSync.is_some());
+        assert!(methods.xFileSize.is_some());
+        assert!(methods.xLock.is_some());
+        assert!(methods.xUnlock.is_some());
+        assert!(methods.xCheckReservedLock.is_some());
+        assert!(methods.xFileControl.is_some());
+        assert!(methods.xSectorSize.is_some());
+        assert!(methods.xDeviceCharacteristics.is_some());
+        assert!(methods.xShmMap.is_some());
+        assert!(methods.xShmLock.is_some());
+        assert!(methods.xShmBarrier.is_some());
+        assert!(methods.xShmUnmap.is_some());
+        assert!(methods.xFetch.is_none());
+        assert!(methods.xUnfetch.is_none());
+        drop(token);
+    }
+
+
+    #[test]
+    fn test_complete_file_methods() {
+        let token = VfsRegistration::new(DummyVfs)
+            .with_wal()
+            .with_fetch()
+            .register("full")
+            .unwrap();
+
+        let conn = rusqlite::Connection::open_with_flags_and_vfs(
+            "test",
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE | rusqlite::OpenFlags::SQLITE_OPEN_CREATE,
+            "full",
+        )
+        .unwrap();
+
+        let methods = unsafe {
+            let db_handle = conn.handle();
+            let mut file_ptr: *mut rusqlite::ffi::sqlite3_file = std::ptr::null_mut();
+            let rc = rusqlite::ffi::sqlite3_file_control(
+                db_handle,
+                std::ptr::null(),
+                rusqlite::ffi::SQLITE_FCNTL_FILE_POINTER,
+                &mut file_ptr as *mut _ as *mut std::ffi::c_void,
+            );
+            assert_eq!(rc, rusqlite::ffi::SQLITE_OK);
+            assert!(!file_ptr.is_null());
+            &*(*file_ptr).pMethods
+        };
+        assert_eq!(methods.iVersion, 3);
+        assert!(methods.xClose.is_some());
+        assert!(methods.xRead.is_some());
+        assert!(methods.xWrite.is_some());
+        assert!(methods.xTruncate.is_some());
+        assert!(methods.xSync.is_some());
+        assert!(methods.xFileSize.is_some());
+        assert!(methods.xLock.is_some());
+        assert!(methods.xUnlock.is_some());
+        assert!(methods.xCheckReservedLock.is_some());
+        assert!(methods.xFileControl.is_some());
+        assert!(methods.xSectorSize.is_some());
+        assert!(methods.xDeviceCharacteristics.is_some());
+        assert!(methods.xShmMap.is_some());
+        assert!(methods.xShmLock.is_some());
+        assert!(methods.xShmBarrier.is_some());
+        assert!(methods.xShmUnmap.is_some());
+        assert!(methods.xFetch.is_some());
+        assert!(methods.xUnfetch.is_some());
+        drop(token);
+    }
 }
