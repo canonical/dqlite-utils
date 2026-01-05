@@ -62,6 +62,7 @@ impl FromStr for Command {
                 Err(err) if err.is::<UnknownCommand>() => {}
                 Err(err) => return Err(err),
             }
+            return Err(UnknownCommand.into());
         }
         Ok(Self::Sql(SqlCommand::try_from_raw(raw)?))
     }
