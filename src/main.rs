@@ -4,6 +4,7 @@ mod dqlite;
 mod prompt;
 mod utils;
 
+use std::fmt::Display;
 use std::io::{self, IsTerminal};
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -68,6 +69,7 @@ fn exec(args: Args) -> Result<()> {
 }
 
 fn run_interactive(mut command_reader: InteractiveCommandReader, mut ctx: Context) -> Result<()> {
+    println!("{}", command_reader.banner());
     loop {
         let command = match command_reader.read(&ctx) {
             Ok(Some(command)) => command,
@@ -132,6 +134,10 @@ impl InteractiveCommandReader {
             history_path,
             line_editor,
         })
+    }
+
+    fn banner(&self) -> impl Display {
+        r#"enter ".help" for usage hints"#
     }
 
     fn read(&mut self, ctx: &Context) -> Result<Option<Command>> {
