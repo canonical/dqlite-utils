@@ -77,7 +77,6 @@ fn run_interactive(
     println!("{}", command_reader.banner());
     loop {
         command_reader.helper_mut().command_helper = ctx.shell.kind();
-        // command_reader.set_shell(ctx.shell.kind());
         let command = match command_reader.read(&ctx) {
             Ok(Some(command)) => command,
             Ok(None) => continue,
