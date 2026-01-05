@@ -10,8 +10,6 @@ use rustyline::hint::{Hinter, HistoryHinter};
 use rustyline::history::DefaultHistory;
 use rustyline::validate::{ValidationContext, ValidationResult, Validator};
 use rustyline::{CompletionType, Config, Editor, Helper as RustylineHelper};
-use sqlparser::dialect::SQLiteDialect;
-use sqlparser::parser::Parser;
 
 use crate::command::{Command, UnknownCommand};
 use crate::prompt::Prompt;
@@ -67,7 +65,9 @@ impl<T: CommandHelper + Default> InteractiveCommandReader<T> {
     }
 
     pub(crate) fn helper_mut(&mut self) -> &mut Helper<T> {
-        self.line_editor.helper_mut().expect("internal error: no helper set")
+        self.line_editor
+            .helper_mut()
+            .expect("internal error: no helper set")
     }
 }
 
@@ -95,19 +95,20 @@ impl<T: CommandHelper> RustylineHelper for Helper<T> {}
 
 impl<T: CommandHelper> Completer for Helper<T> {
     type Candidate = &'static str;
-    // TODO(kcza): completions
     fn complete(
-        &self, // FIXME should be `&mut self`
+        &self,
         line: &str,
         pos: usize,
         _ctx: &rustyline::Context<'_>,
     ) -> rustyline::Result<(usize, Vec<Self::Candidate>)> {
         let command_prefix = &line[..pos];
         if command_prefix.contains(' ') {
+            // NOTE: For now, only command-names are completed.
             return Ok((0, Vec::new()));
         }
 
-        let candidates = self.command_helper
+        let candidates = self
+            .command_helper
             .known_commands()
             .filter(|name| name.starts_with(command_prefix))
             .collect();
@@ -138,14 +139,16 @@ impl<T: CommandHelper> Highlighter for Helper<T> {
 
     fn highlight<'l>(&self, line: &'l str, _pos: usize) -> Cow<'l, str> {
         if line.starts_with('.') {
-            let (first_word, separator, remainder) = if let Some((first_word, remainder)) = line.split_once(' ') {
-                (first_word, " ", remainder)
-            } else {
-                (line, "", "")
-            };
+            let (first_word, separator, remainder) =
+                if let Some((first_word, remainder)) = line.split_once(' ') {
+                    (first_word, " ", remainder)
+                } else {
+                    (line, "", "")
+                };
 
             let mut ret = String::with_capacity(first_word.len() + remainder.len() + 20);
-            let command_known = self.command_helper
+            let command_known = self
+                .command_helper
                 .known_commands()
                 .any(|command| command == first_word);
             let first_word_style = if command_known {
@@ -175,52 +178,22 @@ impl<T: CommandHelper> Validator for Helper<T> {
     fn validate(&self, ctx: &mut ValidationContext) -> rustyline::Result<ValidationResult> {
         let input = ctx.input();
         if input.is_empty() {
-            Ok(ValidationResult::Valid(None))
-        } else if input.starts_with('.')
-            && let Some(command) = input.split_whitespace().next()
-        {
-            self.validate_command(command)
-        } else {
-            self.validate_sql(input)
+            return Ok(ValidationResult::Valid(None));
         }
+        if input.starts_with('.') {
+            // Commands are validated later.
+            return Ok(ValidationResult::Valid(None));
+        }
+        self.validate_sql(input)
     }
 }
 
-impl<T: CommandHelper> Helper<T> {
-    fn validate_command(&self, to_validate: &str) -> rustyline::Result<ValidationResult> {
-        let command_name = match to_validate.split_whitespace().next() {
-            Some(command) => command,
-            None => return Ok(ValidationResult::Valid(None)),
-        };
-
-        let command_candidate = self.command_helper.known_commands()
-            .filter(|name| name.starts_with(command_name))
-            .next();
-        if let Some(name) = command_candidate
-            && name == command_name
-        {
-            Ok(ValidationResult::Valid(None))
-        } else {
-            Ok(ValidationResult::Invalid(Some(UnknownCommand.to_string())))
-        }
-    }
-
+impl<T> Helper<T> {
     fn validate_sql(&self, to_validate: &str) -> rustyline::Result<ValidationResult> {
-        let parser = Parser::new(&SQLiteDialect {})
-            .with_recursion_limit(100)
-            .try_with_sql(to_validate);
-        let mut parser = match parser {
-            Ok(parser) => parser,
-            Err(err) => return Ok(ValidationResult::Invalid(Some(err.to_string()))),
-        };
-
-        if let Some(err) = parser.try_parse(|parser| parser.parse_statements()).err() {
-            Ok(ValidationResult::Invalid(Some(err.to_string())))
-        } else if !to_validate.trim_end().ends_with(';') {
-            Ok(ValidationResult::Incomplete)
-        } else {
-            Ok(ValidationResult::Valid(None))
+        if !to_validate.trim_end().ends_with(';') {
+            return Ok(ValidationResult::Incomplete);
         }
+        Ok(ValidationResult::Valid(None))
     }
 }
 
