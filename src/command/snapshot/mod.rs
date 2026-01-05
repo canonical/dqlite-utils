@@ -11,7 +11,6 @@ use std::str::FromStr;
 use anyhow::anyhow;
 use strum::EnumIter;
 use time::UtcDateTime;
-use time::format_description::well_known::Iso8601;
 
 use crate::command::help::{Help, HelpCommand};
 use crate::command::{UnknownCommand, UnrecognizedArgumentsError};
