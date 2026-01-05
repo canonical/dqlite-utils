@@ -192,6 +192,10 @@ impl Help {
     pub(crate) fn commands(&self) -> &[HelpEntry<Cmd>] {
         &self.commands
     }
+
+    pub(crate) fn into_commands(self) -> Vec<HelpEntry<Cmd>> {
+        self.commands
+    }
 }
 
 #[derive(Default)]

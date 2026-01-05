@@ -223,8 +223,7 @@ impl ShellKind {
 impl CommandHelper for ShellKind {
     fn known_commands(&self) -> impl Iterator<Item = &'static str> {
         self.help()
-            .commands()
-            .to_owned() // Ew
+            .into_commands()
             .into_iter()
             .map(|kind| kind.name())
     }
