@@ -95,6 +95,7 @@ impl<T: CommandHelper> RustylineHelper for Helper<T> {}
 
 impl<T: CommandHelper> Completer for Helper<T> {
     type Candidate = &'static str;
+
     fn complete(
         &self,
         line: &str,
