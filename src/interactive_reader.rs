@@ -5,13 +5,13 @@ use std::path::PathBuf;
 use owo_colors::Style;
 use rustyline::completion::Completer;
 use rustyline::config::BellStyle;
-use rustyline::highlight::Highlighter;
+use rustyline::highlight::{CmdKind, Highlighter};
 use rustyline::hint::{Hinter, HistoryHinter};
 use rustyline::history::DefaultHistory;
 use rustyline::validate::{ValidationContext, ValidationResult, Validator};
 use rustyline::{CompletionType, Config, Editor, Helper as RustylineHelper};
 
-use crate::command::{Command, UnknownCommand};
+use crate::command::Command;
 use crate::prompt::Prompt;
 use crate::utils::TerminalStylizeExt;
 use crate::{Context, Result};
@@ -167,6 +167,17 @@ impl<T: CommandHelper> Highlighter for Helper<T> {
 
         // Unhighlighted.
         Cow::from(line)
+    }
+
+    fn highlight_char(&self, line: &str, pos: usize, kind: CmdKind) -> bool {
+        if line[..pos].contains(' ') {
+            return false;
+        }
+        match kind {
+            CmdKind::MoveCursor => false,
+            CmdKind::ForcedRefresh => true,
+            CmdKind::Other => true,
+        }
     }
 }
 
