@@ -37,7 +37,7 @@ impl SqlCommand {
 
         let conn = ctx.connection()?;
         match conn.execute(&raw, ()) {
-            Ok(updated) => println!("{updated} rows were updated"),
+            Ok(updated) => println!("{updated} rows affected"),
             Err(err) => return Err(err.into()),
         }
         Ok(())
