@@ -1,21 +1,11 @@
 use core::panic;
-use libsqlite3_sys::{self, *};
+use libsqlite3_sys::{self, *, SQLITE_SHM_SHARED, SQLITE_SHM_EXCLUSIVE};
 use rand::RngCore;
 use std::{
-    error::{self, Error},
-    ffi::{CStr, CString, OsStr, c_char, c_int},
-    fmt,
-    marker::PhantomData,
-    num::{NonZero, NonZeroUsize},
-    os::{raw::c_void, unix::ffi::OsStrExt},
-    ptr::{self, NonNull},
-    result, slice,
-    sync::{
-        Arc, Mutex,
+    borrow::Cow, error::{self, Error}, ffi::{CStr, CString, OsStr, c_char, c_int}, fmt, marker::PhantomData, num::{NonZero, NonZeroUsize}, ops::{Deref, DerefMut}, os::{raw::c_void, unix::ffi::OsStrExt}, ptr::{self, NonNull}, result, slice, sync::{
+        Arc,
         atomic::{self, Ordering},
-    },
-    thread,
-    time::{Duration, SystemTime},
+    }, thread, time::{Duration, SystemTime}
 };
 
 #[derive(Debug)]
@@ -248,16 +238,11 @@ pub trait VfsFile {
         Ok(())
     }
 
-    // FIXME: this can also return a string both in case of error and in case of a result!
-    // char* pragma[3];
-    // pragma[0] = result string (optional) <- write only
-    // pragma[1] = name of pragma <- read only
-    // pragma[2] = arg (optional) <- read only
     fn pragma(
         &mut self,
         name: &str,
         arg: Option<&str>,
-    ) -> core::result::Result<Option<String>, PragmaError> {
+    ) -> PragmaResult {
         let _ = name;
         let _ = arg;
         Err(PragmaError::from(SQLiteError(
@@ -287,15 +272,14 @@ pub trait VfsFile {
         Ok(())
     }
 
-    // MARK: Ed and me arrived here with the review.
-
     fn commit_phase_two(&mut self) -> Result<()> {
         Ok(())
     }
 
-    fn set_connection(&mut self, conn: rusqlite::Connection) {
-        let _ = conn;
-    }
+    // TODO: Link to SQLITE_FCNTL_PDB doc
+    // fn set_parent_connection<'a>(&'a mut self, conn: Connection<'a>) {
+    //     let _ = conn;
+    // }
 
     fn begin_atomic(&mut self) -> Result<()> {
         Ok(())
@@ -317,16 +301,19 @@ pub trait VfsFile {
     }
 }
 
+pub type PragmaResult = std::result::Result<Option<Cow<'static, str>>, PragmaError>;
+
 pub struct PragmaError {
     pub code: SQLiteError,
-    pub message: Option<String>,
+    pub message: Option<Cow<'static, str>>,
 }
 
 impl PragmaError {
-    pub fn new(code: SQLiteError, message: String) -> Self {
+    #[allow(unused)]
+    pub fn new(code: SQLiteError, message: impl Into<Cow<'static, str>>) -> Self {
         PragmaError {
             code,
-            message: Some(message),
+            message: Some(message.into()),
         }
     }
 }
@@ -377,9 +364,30 @@ pub trait VfsWalFile: VfsFile {
 }
 
 #[derive(Copy, Clone, Debug)]
+#[allow(unused)]
 pub enum WalLockMode {
     Shared,
     Exclusive,
+}
+
+impl WalLockMode {
+    pub fn from_raw(raw: c_int) -> Self {
+        if raw & SQLITE_SHM_SHARED != 0 {
+            WalLockMode::Shared
+        } else if raw & SQLITE_SHM_EXCLUSIVE != 0 {
+            WalLockMode::Exclusive
+        } else {
+            panic!("internal error: invalid wal lock mode");
+        }
+    }
+
+    #[allow(unused)]
+    pub fn to_raw(&self) -> c_int {
+        match self {
+            WalLockMode::Shared => SQLITE_SHM_SHARED,
+            WalLockMode::Exclusive => SQLITE_SHM_EXCLUSIVE,
+        }
+    }
 }
 
 pub struct WalLock {
@@ -392,6 +400,7 @@ impl WalLock {
     pub const WAL_RECOVER_LOCK: usize = 2;
     pub const WAL_READ_LOCK_0: usize = 3;
 
+    #[allow(unused)]
     pub const fn new(offset: usize, n: usize) -> Self {
         let mask: u16 = (1 << (offset + n)) - (1 << offset);
         WalLock { mask }
@@ -414,7 +423,7 @@ impl WalLock {
     }
 
     pub fn read(&self, index: usize) -> bool {
-        if index > 5 {
+        if index >= 5 {
             return false;
         }
         self.mask & (1 << (Self::WAL_READ_LOCK_0 + index)) != 0
@@ -588,9 +597,9 @@ impl From<IoCapabilities> for c_int {
     }
 }
 
-pub struct VfsRegisterToken<V>(Arc<VfsStorage<V>>);
+pub struct VfsRegistrationGuard<V>(Arc<VfsStorage<V>>);
 
-impl<V> Drop for VfsRegisterToken<V> {
+impl<V> Drop for VfsRegistrationGuard<V> {
     fn drop(&mut self) {
         let rc = unsafe { sqlite3_vfs_unregister(&self.0.base as *const sqlite3_vfs as *mut _) };
         if rc != rusqlite::ffi::SQLITE_OK {
@@ -730,6 +739,7 @@ pub struct VfsRegistration<T, M> {
 }
 
 impl<T: Vfs> VfsRegistration<T, VfsSupport<T>> {
+    #[allow(unused)]
     pub fn new(vfs: T) -> Self {
         Self {
             vfs,
@@ -741,7 +751,8 @@ impl<T: Vfs> VfsRegistration<T, VfsSupport<T>> {
 }
 
 impl<T: Vfs, M: VfsMethodTable> VfsRegistration<T, M> {
-    pub fn register(self, name: &str) -> Result<VfsRegisterToken<T>> {
+    #[allow(unused)]
+    pub fn register(self, name: &str) -> Result<VfsRegistrationGuard<T>> {
         if name.len() == 0 {
             return Err(SQLiteError(NonZero::new(SQLITE_MISUSE).unwrap()));
         }
@@ -796,17 +807,19 @@ impl<T: Vfs, M: VfsMethodTable> VfsRegistration<T, M> {
         if rc != SQLITE_OK {
             Err(SQLiteError(NonZero::new(rc).unwrap()))
         } else {
-            Ok(VfsRegisterToken(storage))
+            Ok(VfsRegistrationGuard(storage))
         }
     }
 }
 
 impl<T, M> VfsRegistration<T, M> {
+    #[allow(unused)]
     pub fn max_pathlen(mut self, len: usize) -> Self {
         self.max_pathlen = len;
         self
     }
 
+    #[allow(unused)]
     pub fn as_default(mut self) -> Self {
         self.make_default = true;
         self
@@ -817,6 +830,7 @@ impl<T: Vfs, Wal> VfsRegistration<T, VfsSupport<T, Wal, NoSupport>>
 where
     T::File: VfsFetchFile,
 {
+    #[allow(unused)]
     pub fn with_fetch(self) -> VfsRegistration<T, VfsSupport<T, Wal, T::File>> {
         let Self {
             vfs,
@@ -837,6 +851,7 @@ impl<T: Vfs, Fetch> VfsRegistration<T, VfsSupport<T, NoSupport, Fetch>>
 where
     T::File: VfsWalFile,
 {
+    #[allow(unused)]
     pub fn with_wal(self) -> VfsRegistration<T, VfsSupport<T, T::File, Fetch>> {
         let Self {
             vfs,
@@ -958,7 +973,7 @@ unsafe extern "C" fn x_delete<T: Vfs>(
 unsafe extern "C" fn x_access<T: Vfs>(
     vfs: *mut sqlite3_vfs,
     filename: *const c_char,
-    flags: c_int, // TODO: use bitflags
+    flags: c_int,
     outcome: *mut c_int,
 ) -> c_int {
     let storage = unsafe { VfsStorage::<T>::from_raw(vfs) };
@@ -1017,7 +1032,7 @@ unsafe extern "C" fn x_dlerror(_: *mut sqlite3_vfs, n: c_int, out: *mut c_char) 
     unsafe {
         let err = dlerror();
         if !err.is_null() {
-            sqlite3_snprintf(n, out, b"%s\0".as_ptr() as *const c_char, err);
+            sqlite3_snprintf(n, out, c"%s".as_ptr() as *const c_char, err);
             return;
         }
     }
@@ -1215,7 +1230,7 @@ unsafe extern "C" fn x_file_control<T: Vfs>(
             let vfs_name = storage.vfs.base.zName;
             unsafe {
                 name_ptr
-                    .write(sqlite3_mprintf(b"%s\0".as_ptr() as *const c_char, vfs_name));
+                    .write(sqlite3_mprintf(c"%s".as_ptr() as *const c_char, vfs_name));
             }
             SQLITE_OK
         }
@@ -1234,17 +1249,17 @@ unsafe extern "C" fn x_file_control<T: Vfs>(
                 ).unwrap())
             };
             match file.pragma(name, arg) {
-                Ok(Some(result)) => {
+                Ok(Some(result_msg)) => {
                     unsafe {
-                        *args.add(0) = sqlite3_mprintf(b"%s\0".as_ptr() as *const c_char, result.as_bytes());
+                        *out = sqlite3_mprintf(c"%*s".as_ptr() as *const c_char, result_msg.len(), result_msg.as_bytes());
                     }
                     SQLITE_OK
                 }
                 Ok(None) => SQLITE_OK,
                 Err(PragmaError{                    code, message: None                }) => code.into(),
-                Err(PragmaError{                    code, message: Some(msg)                }) => {
+                Err(PragmaError{                    code, message: Some(err_msg)                }) => {
                     unsafe {
-                        *args.add(0) = sqlite3_mprintf(b"%s\0".as_ptr() as *const c_char, msg.as_bytes());
+                        *out = sqlite3_mprintf(c"%*s".as_ptr() as *const c_char, err_msg.len(), err_msg.as_bytes());
                     }
                     code.into()
                 }
@@ -1277,10 +1292,14 @@ unsafe extern "C" fn x_file_control<T: Vfs>(
         }
         SQLITE_FCNTL_COMMIT_PHASETWO => file.commit_phase_two().to_code_result().into(),
         SQLITE_FCNTL_PDB => {
+            // TODO: this is blocked on rusqlite as a non-owning connection still changes the connection (it unregisters all hooks on drop)
+            // See https://github.com/rusqlite/rusqlite/issues/1784
+            // TODO: we should wrap the rusqlite::Connection in a newtype that includes a lifetime so that implementations cannot leak it.
+            // Something like NonOwningConnection<'conn>
+
             // let pdb = unsafe { arg.cast::<*mut sqlite3>().read() };
             // let connection = unsafe { rusqlite::Connection::from_handle(pdb) }.unwrap();
-            // file.set_connection(connection);
-            // TODO: this is blocked on rusqlite as a non-owning connection still changes the connection (it unregisters all hooks on drop)
+            // file.set_parent_connection(connection);
             SQLITE_OK
         }
         // FIXME: it would be nice to have a struct representing atomic write options.
@@ -1389,7 +1408,18 @@ where
     F: VfsWalFile,
     T: Vfs<File = F>,
 {
-    SQLITE_MISUSE
+    let storage = unsafe { VfsFileStorage::<T>::from_raw(file) };
+    let file = storage.file();
+    let lock_mode = WalLockMode::from_raw(flags);
+    let wal_lock = WalLock::new(offset as usize, n as usize);
+
+    if flags & SQLITE_SHM_LOCK != 0 {
+        file.lock_shm(wal_lock, lock_mode).to_code_result().into()
+    } else if flags & SQLITE_SHM_UNLOCK != 0 {
+        file.unlock_shm(wal_lock, lock_mode).to_code_result().into()
+    } else {
+        panic!("internal error: invalid shm lock flags");
+    }
 }
 
 unsafe extern "C" fn x_shm_barrier<T, F>(file: *mut sqlite3_file)
@@ -1610,11 +1640,7 @@ mod tests {
 
         let default_vfs_ptr = unsafe { rusqlite::ffi::sqlite3_vfs_find(std::ptr::null()) };
         assert!(!default_vfs_ptr.is_null());
-        let vfs_ptr = unsafe {
-            rusqlite::ffi::sqlite3_vfs_find(
-                CStr::from_bytes_with_nul_unchecked(b"dummy\0").as_ptr(),
-            )
-        };
+        let vfs_ptr = unsafe { rusqlite::ffi::sqlite3_vfs_find(c"dummy".as_ptr()) };
 
         assert!(!vfs_ptr.is_null());
         assert!(vfs_ptr == default_vfs_ptr);
@@ -1628,11 +1654,7 @@ mod tests {
         assert!(unsafe { (*vfs_ptr).iVersion } == 2);
         drop(token);
 
-        let vfs_ptr = unsafe {
-            rusqlite::ffi::sqlite3_vfs_find(
-                CStr::from_bytes_with_nul_unchecked(b"dummy\0").as_ptr(),
-            )
-        };
+        let vfs_ptr = unsafe { rusqlite::ffi::sqlite3_vfs_find(c"dummy".as_ptr()) };
         assert!(vfs_ptr.is_null());
     }
 
