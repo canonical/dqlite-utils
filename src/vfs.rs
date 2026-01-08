@@ -1,6 +1,7 @@
 use std::borrow::Cow;
 use std::error::{self, Error};
 use std::ffi::{c_char, c_int, CStr, CString, OsStr};
+use std::fmt::Display;
 use std::marker::PhantomData;
 use std::num::NonZero;
 use std::os::raw::c_void;
@@ -10,7 +11,7 @@ use std::sync::atomic::{self, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, SystemTime};
-use std::{fmt, mem, result, slice};
+use std::{fmt, mem, slice};
 
 use libsqlite3_sys::{
     self as sqlite3, sqlite3_file, sqlite3_filename, sqlite3_int64, sqlite3_io_methods, sqlite3_vfs,
@@ -18,8 +19,8 @@ use libsqlite3_sys::{
 use rand::RngCore;
 use static_assertions::const_assert;
 
-/// Represents an SQLite result code.
-#[derive(Debug)]
+/// Represents a SQLite result code.
+#[derive(Copy, Clone, Debug)]
 pub struct SQLiteCode(c_int);
 
 impl SQLiteCode {
@@ -32,20 +33,22 @@ impl SQLiteCode {
     }
 }
 
-impl fmt::Display for SQLiteCode {
+impl Display for SQLiteCode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} ({})", libsqlite3_sys::code_to_str(self.0), self.0,)
+        let Self(code) = self;
+        write!(f, "{code} ({})", libsqlite3_sys::code_to_str(*code))
     }
 }
 
 /// Represents a SQLite error code.
-#[derive(Debug)]
+///
+/// This is a non-zero [`SQLiteCode`].
+#[derive(Copy, Clone, Debug)]
 pub struct SQLiteError(NonZero<c_int>);
 
 impl SQLiteError {
     pub fn from_rc(rc: c_int) -> Option<Self> {
         const_assert!(sqlite3::SQLITE_OK == 0);
-
         Some(SQLiteError(NonZero::new(rc)?))
     }
 
@@ -54,15 +57,21 @@ impl SQLiteError {
     }
 }
 
-impl fmt::Display for SQLiteError {
+impl Display for SQLiteError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        SQLiteCode(self.0.get()).fmt(f)
+        SQLiteCode::from(*self).fmt(f)
     }
 }
 
-impl error::Error for SQLiteError {}
+impl Error for SQLiteError {}
 
-pub type Result<T> = result::Result<T, SQLiteError>;
+impl From<SQLiteError> for SQLiteCode {
+    fn from(err: SQLiteError) -> Self {
+        Self(err.0.get())
+    }
+}
+
+pub type Result<T> = std::result::Result<T, SQLiteError>;
 
 impl From<SQLiteCode> for Result<()> {
     fn from(code: SQLiteCode) -> Self {
