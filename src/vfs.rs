@@ -1,5 +1,7 @@
 use core::panic;
-use libsqlite3_sys::{self, SQLITE_SHM_EXCLUSIVE, SQLITE_SHM_SHARED, *};
+use libsqlite3_sys::{
+    self as sqlite3, sqlite3_file, sqlite3_filename, sqlite3_int64, sqlite3_io_methods, sqlite3_vfs,
+};
 use rand::RngCore;
 use std::{
     borrow::Cow,
@@ -7,8 +9,7 @@ use std::{
     ffi::{CStr, CString, OsStr, c_char, c_int},
     fmt,
     marker::PhantomData,
-    num::{NonZero, NonZeroUsize},
-    ops::{Deref, DerefMut},
+    num::NonZero,
     os::{raw::c_void, unix::ffi::OsStrExt},
     ptr::{self, NonNull},
     result, slice,
@@ -62,7 +63,7 @@ pub type Result<T> = result::Result<T, SQLiteError>;
 
 impl From<SQLiteCode> for Result<()> {
     fn from(code: SQLiteCode) -> Self {
-        if code.0 == rusqlite::ffi::SQLITE_OK {
+        if code.0 == sqlite3::SQLITE_OK {
             Ok(())
         } else {
             Err(SQLiteError(NonZero::new(code.0).unwrap()))
@@ -77,7 +78,7 @@ trait ToCodeResultExt {
 impl ToCodeResultExt for Result<()> {
     fn to_code_result(self) -> SQLiteCode {
         match self {
-            Ok(_) => SQLiteCode(SQLITE_OK),
+            Ok(_) => SQLiteCode(sqlite3::SQLITE_OK),
             Err(e) => SQLiteCode(e.0.get()),
         }
     }
@@ -92,7 +93,7 @@ impl<T> ToCodeOutputExt<T> for Result<T> {
         match self {
             Ok(value) => {
                 *out = value.into();
-                SQLiteCode(SQLITE_OK)
+                SQLiteCode(sqlite3::SQLITE_OK)
             }
             Err(e) => SQLiteCode(e.0.get()),
         }
@@ -103,6 +104,7 @@ pub struct OpenFlags {
     bits: c_int,
 }
 
+#[allow(unused)]
 impl OpenFlags {
     fn new(bits: c_int) -> Self {
         let open_flags = Self { bits };
@@ -139,40 +141,40 @@ impl OpenFlags {
 
     pub fn file_type(&self) -> FileType {
         match self.bits & 0x0FFF00 {
-            SQLITE_OPEN_MAIN_DB => FileType::MainDb,
-            SQLITE_OPEN_MAIN_JOURNAL => FileType::MainJournal,
-            SQLITE_OPEN_TEMP_DB => FileType::TempDb,
-            SQLITE_OPEN_TEMP_JOURNAL => FileType::TempJournal,
-            SQLITE_OPEN_TRANSIENT_DB => FileType::TransientDb,
-            SQLITE_OPEN_SUBJOURNAL => FileType::Subjournal,
-            SQLITE_OPEN_SUPER_JOURNAL => FileType::SuperJournal,
-            SQLITE_OPEN_WAL => FileType::Wal,
+            sqlite3::SQLITE_OPEN_MAIN_DB => FileType::MainDb,
+            sqlite3::SQLITE_OPEN_MAIN_JOURNAL => FileType::MainJournal,
+            sqlite3::SQLITE_OPEN_TEMP_DB => FileType::TempDb,
+            sqlite3::SQLITE_OPEN_TEMP_JOURNAL => FileType::TempJournal,
+            sqlite3::SQLITE_OPEN_TRANSIENT_DB => FileType::TransientDb,
+            sqlite3::SQLITE_OPEN_SUBJOURNAL => FileType::Subjournal,
+            sqlite3::SQLITE_OPEN_SUPER_JOURNAL => FileType::SuperJournal,
+            sqlite3::SQLITE_OPEN_WAL => FileType::Wal,
             _ => panic!("internal error: invalid file type"),
         }
     }
 
     pub fn create(&self) -> bool {
-        (self.bits & SQLITE_OPEN_CREATE) != 0
+        (self.bits & sqlite3::SQLITE_OPEN_CREATE) != 0
     }
 
     pub fn read_only(&self) -> bool {
-        (self.bits & SQLITE_OPEN_READONLY) != 0
+        (self.bits & sqlite3::SQLITE_OPEN_READONLY) != 0
     }
 
     pub fn read_write(&self) -> bool {
-        (self.bits & SQLITE_OPEN_READWRITE) != 0
+        (self.bits & sqlite3::SQLITE_OPEN_READWRITE) != 0
     }
 
     pub fn delete_on_close(&self) -> bool {
-        (self.bits & SQLITE_OPEN_DELETEONCLOSE) != 0
+        (self.bits & sqlite3::SQLITE_OPEN_DELETEONCLOSE) != 0
     }
 
     pub fn exclusive(&self) -> bool {
-        (self.bits & SQLITE_OPEN_EXCLUSIVE) != 0
+        (self.bits & sqlite3::SQLITE_OPEN_EXCLUSIVE) != 0
     }
 
     pub fn autoproxy(&self) -> bool {
-        (self.bits & SQLITE_OPEN_AUTOPROXY) != 0
+        (self.bits & sqlite3::SQLITE_OPEN_AUTOPROXY) != 0
     }
 }
 
@@ -214,8 +216,10 @@ pub trait Vfs {
     }
 }
 
+#[allow(unused)]
 pub struct VfsPath<'a>(&'a OsStr);
 
+#[allow(unused)]
 impl VfsPath<'_> {
     pub fn inner(&self) -> &OsStr {
         self.0
@@ -245,7 +249,7 @@ pub trait VfsFile {
 
     fn hint_overwrite(&mut self, size: u64) -> Result<()> {
         let _ = size;
-        Err(SQLiteError(NonZero::new(SQLITE_NOTFOUND).unwrap()))
+        Err(SQLiteError(NonZero::new(sqlite3::SQLITE_NOTFOUND).unwrap()))
     }
 
     fn set_chunk_size(&mut self, size: u32) -> Result<()> {
@@ -257,7 +261,7 @@ pub trait VfsFile {
         let _ = name;
         let _ = arg;
         Err(PragmaError::from(SQLiteError(
-            NonZero::new(SQLITE_NOTFOUND).unwrap(),
+            NonZero::new(sqlite3::SQLITE_NOTFOUND).unwrap(),
         )))
     }
 
@@ -376,9 +380,9 @@ pub enum WalLockMode {
 
 impl WalLockMode {
     pub fn from_raw(raw: c_int) -> Self {
-        if raw & SQLITE_SHM_SHARED != 0 {
+        if raw & sqlite3::SQLITE_SHM_SHARED != 0 {
             WalLockMode::Shared
-        } else if raw & SQLITE_SHM_EXCLUSIVE != 0 {
+        } else if raw & sqlite3::SQLITE_SHM_EXCLUSIVE != 0 {
             WalLockMode::Exclusive
         } else {
             panic!("internal error: invalid wal lock mode");
@@ -388,23 +392,24 @@ impl WalLockMode {
     #[allow(unused)]
     pub fn to_raw(&self) -> c_int {
         match self {
-            WalLockMode::Shared => SQLITE_SHM_SHARED,
-            WalLockMode::Exclusive => SQLITE_SHM_EXCLUSIVE,
+            WalLockMode::Shared => sqlite3::SQLITE_SHM_SHARED,
+            WalLockMode::Exclusive => sqlite3::SQLITE_SHM_EXCLUSIVE,
         }
     }
 }
 
+#[allow(unused)]
 pub struct WalLock {
     mask: u16,
 }
 
+#[allow(unused)]
 impl WalLock {
     pub const WAL_WRITE_LOCK: usize = 0;
     pub const WAL_CKPT_LOCK: usize = 1;
     pub const WAL_RECOVER_LOCK: usize = 2;
     pub const WAL_READ_LOCK_0: usize = 3;
 
-    #[allow(unused)]
     pub const fn new(offset: usize, n: usize) -> Self {
         let mask: u16 = (1 << (offset + n)) - (1 << offset);
         WalLock { mask }
@@ -439,6 +444,7 @@ pub trait VfsFetchFile: VfsFile {
     fn unfetch(&mut self, offset: i64, ptr: NonNull<u8>) -> Result<()>;
 }
 
+#[allow(unused)]
 pub struct SyncOptions {
     /// True for Mac OS X style fullsync, false for Unix style fsync
     pub full: bool,
@@ -446,14 +452,15 @@ pub struct SyncOptions {
     pub data_only: bool,
 }
 
+#[allow(unused)]
 impl SyncOptions {
     fn to_raw(&self) -> c_int {
         let mut flags = 0;
         if self.full {
-            flags |= SQLITE_SYNC_FULL;
+            flags |= sqlite3::SQLITE_SYNC_FULL;
         }
         if self.data_only {
-            flags |= SQLITE_SYNC_DATAONLY;
+            flags |= sqlite3::SQLITE_SYNC_DATAONLY;
         }
         flags
     }
@@ -471,22 +478,22 @@ pub enum LockLevel {
 impl LockLevel {
     fn from_raw(level: c_int) -> Self {
         match level {
-            SQLITE_LOCK_NONE => LockLevel::None,
-            SQLITE_LOCK_SHARED => LockLevel::Shared,
-            SQLITE_LOCK_RESERVED => LockLevel::Reserved,
-            SQLITE_LOCK_PENDING => LockLevel::Pending,
-            SQLITE_LOCK_EXCLUSIVE => LockLevel::Exclusive,
+            sqlite3::SQLITE_LOCK_NONE => LockLevel::None,
+            sqlite3::SQLITE_LOCK_SHARED => LockLevel::Shared,
+            sqlite3::SQLITE_LOCK_RESERVED => LockLevel::Reserved,
+            sqlite3::SQLITE_LOCK_PENDING => LockLevel::Pending,
+            sqlite3::SQLITE_LOCK_EXCLUSIVE => LockLevel::Exclusive,
             _ => panic!("invalid lock level"),
         }
     }
 
     fn to_raw(&self) -> c_int {
         match self {
-            LockLevel::None => SQLITE_LOCK_NONE,
-            LockLevel::Shared => SQLITE_LOCK_SHARED,
-            LockLevel::Reserved => SQLITE_LOCK_RESERVED,
-            LockLevel::Pending => SQLITE_LOCK_PENDING,
-            LockLevel::Exclusive => SQLITE_LOCK_EXCLUSIVE,
+            LockLevel::None => sqlite3::SQLITE_LOCK_NONE,
+            LockLevel::Shared => sqlite3::SQLITE_LOCK_SHARED,
+            LockLevel::Reserved => sqlite3::SQLITE_LOCK_RESERVED,
+            LockLevel::Pending => sqlite3::SQLITE_LOCK_PENDING,
+            LockLevel::Exclusive => sqlite3::SQLITE_LOCK_EXCLUSIVE,
         }
     }
 }
@@ -548,54 +555,54 @@ impl From<IoCapabilities> for c_int {
                 size_64k,
             } => {
                 if size_512 {
-                    flags |= SQLITE_IOCAP_ATOMIC512;
+                    flags |= sqlite3::SQLITE_IOCAP_ATOMIC512;
                 }
                 if size_1k {
-                    flags |= SQLITE_IOCAP_ATOMIC1K;
+                    flags |= sqlite3::SQLITE_IOCAP_ATOMIC1K;
                 }
                 if size_2k {
-                    flags |= SQLITE_IOCAP_ATOMIC2K;
+                    flags |= sqlite3::SQLITE_IOCAP_ATOMIC2K;
                 }
                 if size_4k {
-                    flags |= SQLITE_IOCAP_ATOMIC4K;
+                    flags |= sqlite3::SQLITE_IOCAP_ATOMIC4K;
                 }
                 if size_8k {
-                    flags |= SQLITE_IOCAP_ATOMIC8K;
+                    flags |= sqlite3::SQLITE_IOCAP_ATOMIC8K;
                 }
                 if size_16k {
-                    flags |= SQLITE_IOCAP_ATOMIC16K;
+                    flags |= sqlite3::SQLITE_IOCAP_ATOMIC16K;
                 }
                 if size_32k {
-                    flags |= SQLITE_IOCAP_ATOMIC32K;
+                    flags |= sqlite3::SQLITE_IOCAP_ATOMIC32K;
                 }
                 if size_64k {
-                    flags |= SQLITE_IOCAP_ATOMIC64K;
+                    flags |= sqlite3::SQLITE_IOCAP_ATOMIC64K;
                 }
             }
             AtomicWrite::Always => {
-                flags |= SQLITE_IOCAP_ATOMIC;
+                flags |= sqlite3::SQLITE_IOCAP_ATOMIC;
             }
         }
         if safe_append {
-            flags |= SQLITE_IOCAP_SAFE_APPEND;
+            flags |= sqlite3::SQLITE_IOCAP_SAFE_APPEND;
         }
         if sequential {
-            flags |= SQLITE_IOCAP_SEQUENTIAL;
+            flags |= sqlite3::SQLITE_IOCAP_SEQUENTIAL;
         }
         if undeletable_when_open {
-            flags |= SQLITE_IOCAP_UNDELETABLE_WHEN_OPEN;
+            flags |= sqlite3::SQLITE_IOCAP_UNDELETABLE_WHEN_OPEN;
         }
         if powersafe_overwrite {
-            flags |= SQLITE_IOCAP_POWERSAFE_OVERWRITE;
+            flags |= sqlite3::SQLITE_IOCAP_POWERSAFE_OVERWRITE;
         }
         if immutable {
-            flags |= SQLITE_IOCAP_IMMUTABLE;
+            flags |= sqlite3::SQLITE_IOCAP_IMMUTABLE;
         }
         if batch_atomic {
-            flags |= SQLITE_IOCAP_BATCH_ATOMIC;
+            flags |= sqlite3::SQLITE_IOCAP_BATCH_ATOMIC;
         }
         if subpage_read {
-            flags |= SQLITE_IOCAP_SUBPAGE_READ;
+            flags |= sqlite3::SQLITE_IOCAP_SUBPAGE_READ;
         }
         flags
     }
@@ -605,9 +612,11 @@ pub struct VfsRegistrationGuard<V>(Arc<VfsStorage<V>>);
 
 impl<V> Drop for VfsRegistrationGuard<V> {
     fn drop(&mut self) {
-        let rc = unsafe { sqlite3_vfs_unregister(&self.0.base as *const sqlite3_vfs as *mut _) };
-        if rc != rusqlite::ffi::SQLITE_OK {
-            panic!("cannot unregister VFS: {}", rc);
+        let rc = unsafe {
+            sqlite3::sqlite3_vfs_unregister(&self.0.base as *const sqlite3_vfs as *mut _)
+        };
+        if rc != sqlite3::SQLITE_OK {
+            panic!("cannot unregister VFS: {rc}");
         }
     }
 }
@@ -758,7 +767,7 @@ impl<T: Vfs, M: VfsMethodTable> VfsRegistration<T, M> {
     #[allow(unused)]
     pub fn register(self, name: &str) -> Result<VfsRegistrationGuard<T>> {
         if name.len() == 0 {
-            return Err(SQLiteError(NonZero::new(SQLITE_MISUSE).unwrap()));
+            return Err(SQLiteError(NonZero::new(sqlite3::SQLITE_MISUSE).unwrap()));
         }
 
         let Self {
@@ -803,12 +812,12 @@ impl<T: Vfs, M: VfsMethodTable> VfsRegistration<T, M> {
         });
 
         let rc = unsafe {
-            sqlite3_vfs_register(
+            sqlite3::sqlite3_vfs_register(
                 &storage.base as *const sqlite3_vfs as *mut _,
                 make_default as c_int,
             )
         };
-        if rc != SQLITE_OK {
+        if rc != sqlite3::SQLITE_OK {
             Err(SQLiteError(NonZero::new(rc).unwrap()))
         } else {
             Ok(VfsRegistrationGuard(storage))
@@ -926,8 +935,8 @@ unsafe extern "C" fn x_open<T: Vfs, M: VfsMethodTable>(
     out_flags: *mut c_int,
 ) -> c_int {
     let path = if filename.is_null() {
-        if (flags & SQLITE_OPEN_DELETEONCLOSE) == 0 {
-            return SQLITE_MISUSE;
+        if (flags & sqlite3::SQLITE_OPEN_DELETEONCLOSE) == 0 {
+            return sqlite3::SQLITE_MISUSE;
         }
         None
     } else {
@@ -957,7 +966,7 @@ unsafe extern "C" fn x_open<T: Vfs, M: VfsMethodTable>(
         });
     }
 
-    SQLITE_OK
+    sqlite3::SQLITE_OK
 }
 
 unsafe extern "C" fn x_delete<T: Vfs>(
@@ -985,10 +994,10 @@ unsafe extern "C" fn x_access<T: Vfs>(
     let out = unsafe { outcome.as_mut().unwrap() };
 
     let result = match flags {
-        SQLITE_ACCESS_EXISTS => storage.vfs.exists(VfsPath(name)),
-        SQLITE_ACCESS_READ => storage.vfs.can_read(VfsPath(name)),
-        SQLITE_ACCESS_READWRITE => storage.vfs.can_write(VfsPath(name)),
-        _ => return SQLITE_MISUSE,
+        sqlite3::SQLITE_ACCESS_EXISTS => storage.vfs.exists(VfsPath(name)),
+        sqlite3::SQLITE_ACCESS_READ => storage.vfs.can_read(VfsPath(name)),
+        sqlite3::SQLITE_ACCESS_READWRITE => storage.vfs.can_write(VfsPath(name)),
+        _ => return sqlite3::SQLITE_MISUSE,
     };
 
     result.to_code_output(out).into()
@@ -1036,7 +1045,7 @@ unsafe extern "C" fn x_dlerror(_: *mut sqlite3_vfs, n: c_int, out: *mut c_char) 
     unsafe {
         let err = dlerror();
         if !err.is_null() {
-            sqlite3_snprintf(n, out, c"%s".as_ptr() as *const c_char, err);
+            sqlite3::sqlite3_snprintf(n, out, c"%s".as_ptr() as *const c_char, err);
             return;
         }
     }
@@ -1119,7 +1128,7 @@ unsafe extern "C" fn x_get_last_error<T: Vfs>(
 unsafe extern "C" fn x_close<T: Vfs>(file: *mut sqlite3_file) -> c_int {
     let storage = unsafe { VfsFileStorage::<T>::from_raw(file) };
     Option::take(&mut storage.file);
-    SQLITE_OK
+    sqlite3::SQLITE_OK
 }
 
 unsafe extern "C" fn x_read<T: Vfs>(
@@ -1156,8 +1165,8 @@ unsafe extern "C" fn x_sync<T: Vfs>(file: *mut sqlite3_file, flags: c_int) -> c_
     let storage = unsafe { VfsFileStorage::<T>::from_raw(file) };
     let file = storage.file();
     let options = SyncOptions {
-        full: (flags & SQLITE_SYNC_FULL) != 0,
-        data_only: (flags & SQLITE_SYNC_DATAONLY) != 0,
+        full: (flags & sqlite3::SQLITE_SYNC_FULL) != 0,
+        data_only: (flags & sqlite3::SQLITE_SYNC_DATAONLY) != 0,
     };
     file.sync(options).to_code_result().into()
 }
@@ -1207,38 +1216,37 @@ unsafe extern "C" fn x_file_control<T: Vfs>(
     let storage = unsafe { VfsFileStorage::<T>::from_raw(file) };
     let file = storage.file();
     match op {
-        SQLITE_FCNTL_LOCKSTATE => {
+        sqlite3::SQLITE_FCNTL_LOCKSTATE => {
             let level = file.lock_level();
             unsafe { arg.cast::<c_int>().write(level.to_raw()) };
-            SQLITE_OK
+            sqlite3::SQLITE_OK
         }
-        SQLITE_FCNTL_LAST_ERRNO => {
+        sqlite3::SQLITE_FCNTL_LAST_ERRNO => {
             let errno = file.last_errno();
             unsafe { arg.cast::<c_int>().write(errno) };
-            SQLITE_OK
+            sqlite3::SQLITE_OK
         }
-        SQLITE_FCNTL_SIZE_HINT => {
+        sqlite3::SQLITE_FCNTL_SIZE_HINT => {
             let size = unsafe { arg.cast::<i64>().read() };
             file.hint_size(size).to_code_result().into()
         }
-        SQLITE_FCNTL_CHUNK_SIZE => {
+        sqlite3::SQLITE_FCNTL_CHUNK_SIZE => {
             let size = unsafe { arg.cast::<c_int>().read() } as u32;
             file.set_chunk_size(size).to_code_result().into()
         }
-        SQLITE_FCNTL_OVERWRITE => {
+        sqlite3::SQLITE_FCNTL_OVERWRITE => {
             let size = unsafe { arg.cast::<sqlite3_int64>().read() } as u64;
             file.hint_overwrite(size).to_code_result().into()
         }
-        SQLITE_FCNTL_VFSNAME => {
+        sqlite3::SQLITE_FCNTL_VFSNAME => {
             let name_ptr = arg.cast::<*mut c_char>();
-            let vfs_name = storage.vfs.base.zName;
             unsafe {
                 name_ptr
-                    .write(sqlite3_mprintf(c"%s".as_ptr() as *const c_char, vfs_name));
+                    .write(sqlite3::sqlite3_mprintf(c"%s".as_ptr() as *const c_char, storage.vfs.name.as_ptr()));
             }
-            SQLITE_OK
+            sqlite3::SQLITE_OK
         }
-        SQLITE_FCNTL_PRAGMA => {
+        sqlite3::SQLITE_FCNTL_PRAGMA => {
             let args = arg.cast::<*mut c_char>();
             let out = unsafe { args.add(0).as_mut().unwrap() };
             let name = str::from_utf8(
@@ -1255,21 +1263,21 @@ unsafe extern "C" fn x_file_control<T: Vfs>(
             match file.pragma(name, arg) {
                 Ok(Some(result_msg)) => {
                     unsafe {
-                        *out = sqlite3_mprintf(c"%*s".as_ptr() as *const c_char, result_msg.len(), result_msg.as_bytes());
+                        *out = sqlite3::sqlite3_mprintf(c"%*s".as_ptr() as *const c_char, result_msg.len(), result_msg.as_bytes());
                     }
-                    SQLITE_OK
+                    sqlite3::SQLITE_OK
                 }
-                Ok(None) => SQLITE_OK,
+                Ok(None) => sqlite3::SQLITE_OK,
                 Err(PragmaError{                    code, message: None                }) => code.into(),
                 Err(PragmaError{                    code, message: Some(err_msg)                }) => {
                     unsafe {
-                        *out = sqlite3_mprintf(c"%*s".as_ptr() as *const c_char, err_msg.len(), err_msg.as_bytes());
+                        *out = sqlite3::sqlite3_mprintf(c"%*s".as_ptr() as *const c_char, err_msg.len(), err_msg.as_bytes());
                     }
                     code.into()
                 }
             }
         }
-        SQLITE_FCNTL_MMAP_SIZE => {
+        sqlite3::SQLITE_FCNTL_MMAP_SIZE => {
             let size = unsafe { arg.cast::<sqlite3_int64>().as_mut() }.unwrap();
             let new_size = *size;
             let old_size = file.mmap_size();
@@ -1277,14 +1285,14 @@ unsafe extern "C" fn x_file_control<T: Vfs>(
             if new_size >= 0 {
                 file.set_mmap_size(new_size as u64).to_code_result().into()
             } else {
-                SQLITE_OK
+                sqlite3::SQLITE_OK
             }
         }
-        SQLITE_FCNTL_HAS_MOVED => {
+        sqlite3::SQLITE_FCNTL_HAS_MOVED => {
             unsafe { arg.cast::<c_int>().write(file.has_moved() as c_int) };
-            SQLITE_OK
+            sqlite3::SQLITE_OK
         }
-        SQLITE_FCNTL_SYNC => {
+        sqlite3::SQLITE_FCNTL_SYNC => {
             let super_journal_raw = arg.cast::<c_char>();
             if super_journal_raw.is_null() {
                 file.pre_sync_single_db().to_code_result().into()
@@ -1294,8 +1302,8 @@ unsafe extern "C" fn x_file_control<T: Vfs>(
                 ))).to_code_result().into()
             }
         }
-        SQLITE_FCNTL_COMMIT_PHASETWO => file.commit_phase_two().to_code_result().into(),
-        SQLITE_FCNTL_PDB => {
+        sqlite3::SQLITE_FCNTL_COMMIT_PHASETWO => file.commit_phase_two().to_code_result().into(),
+        sqlite3::SQLITE_FCNTL_PDB => {
             // TODO: this is blocked on rusqlite as a non-owning connection still changes the connection (it unregisters all hooks on drop)
             // See https://github.com/rusqlite/rusqlite/issues/1784
             // TODO: we should wrap the rusqlite::Connection in a newtype that includes a lifetime so that implementations cannot leak it.
@@ -1304,16 +1312,16 @@ unsafe extern "C" fn x_file_control<T: Vfs>(
             // let pdb = unsafe { arg.cast::<*mut sqlite3>().read() };
             // let connection = unsafe { rusqlite::Connection::from_handle(pdb) }.unwrap();
             // file.set_parent_connection(connection);
-            SQLITE_OK
+            sqlite3::SQLITE_OK
         }
         // FIXME: it would be nice to have a struct representing atomic write options.
-        SQLITE_FCNTL_BEGIN_ATOMIC_WRITE => file.begin_atomic().to_code_result().into(),
-        SQLITE_FCNTL_COMMIT_ATOMIC_WRITE => file.commit_atomic().to_code_result().into(),
-        SQLITE_FCNTL_ROLLBACK_ATOMIC_WRITE => {
+        sqlite3::SQLITE_FCNTL_BEGIN_ATOMIC_WRITE => file.begin_atomic().to_code_result().into(),
+        sqlite3::SQLITE_FCNTL_COMMIT_ATOMIC_WRITE => file.commit_atomic().to_code_result().into(),
+        sqlite3::SQLITE_FCNTL_ROLLBACK_ATOMIC_WRITE => {
             file.rollback_atomic();
-            SQLITE_OK
+            sqlite3::SQLITE_OK
         }
-        SQLITE_FCNTL_LOCK_TIMEOUT => {
+        sqlite3::SQLITE_FCNTL_LOCK_TIMEOUT => {
             let timeout = unsafe { arg.cast::<i32>().as_mut() }.unwrap();
             let new_timeout = Duration::from_millis(*timeout as u64);
             let old_timeout = file.lock_timeout();
@@ -1322,47 +1330,47 @@ unsafe extern "C" fn x_file_control<T: Vfs>(
         }
 
         // Not sure what to do with these
-        SQLITE_FCNTL_BUSYHANDLER
-        | SQLITE_FCNTL_TEMPFILENAME
-        | SQLITE_FCNTL_NULL_IO
-        | SQLITE_FCNTL_SIZE_LIMIT // FIXME: do we want to support `sqlite3_[de]serialize`?
-        | SQLITE_FCNTL_EXTERNAL_READER => SQLITE_NOTFOUND,
+        sqlite3::SQLITE_FCNTL_BUSYHANDLER
+        | sqlite3::SQLITE_FCNTL_TEMPFILENAME
+        | sqlite3::SQLITE_FCNTL_NULL_IO
+        | sqlite3::SQLITE_FCNTL_SIZE_LIMIT // FIXME: do we want to support `sqlite3_[de]serialize`?
+        | sqlite3::SQLITE_FCNTL_EXTERNAL_READER => sqlite3::SQLITE_NOTFOUND,
 
         // Not available as there can't be a wal with v1 io methods
-        SQLITE_FCNTL_PERSIST_WAL
-        | SQLITE_FCNTL_WAL_BLOCK
-        | SQLITE_FCNTL_BLOCK_ON_CONNECT
-        | SQLITE_FCNTL_CKPT_DONE
-        | SQLITE_FCNTL_CKPT_START => SQLITE_MISUSE,
+        sqlite3::SQLITE_FCNTL_PERSIST_WAL
+        | sqlite3::SQLITE_FCNTL_WAL_BLOCK
+        | sqlite3::SQLITE_FCNTL_BLOCK_ON_CONNECT
+        | sqlite3::SQLITE_FCNTL_CKPT_DONE
+        | sqlite3::SQLITE_FCNTL_CKPT_START => sqlite3::SQLITE_MISUSE,
 
         // Not available as they are specific VFS detail
-        SQLITE_FCNTL_GET_LOCKPROXYFILE
-        | SQLITE_FCNTL_SET_LOCKPROXYFILE
-        | SQLITE_FCNTL_POWERSAFE_OVERWRITE
-        | SQLITE_FCNTL_WIN32_GET_HANDLE
-        | SQLITE_FCNTL_WIN32_SET_HANDLE
-        | SQLITE_FCNTL_WIN32_AV_RETRY
-        | SQLITE_FCNTL_ZIPVFS
-        | SQLITE_FCNTL_RBU
-        | SQLITE_FCNTL_CKSM_FILE => SQLITE_NOTFOUND,
+        sqlite3::SQLITE_FCNTL_GET_LOCKPROXYFILE
+        | sqlite3::SQLITE_FCNTL_SET_LOCKPROXYFILE
+        | sqlite3::SQLITE_FCNTL_POWERSAFE_OVERWRITE
+        | sqlite3::SQLITE_FCNTL_WIN32_GET_HANDLE
+        | sqlite3::SQLITE_FCNTL_WIN32_SET_HANDLE
+        | sqlite3::SQLITE_FCNTL_WIN32_AV_RETRY
+        | sqlite3::SQLITE_FCNTL_ZIPVFS
+        | sqlite3::SQLITE_FCNTL_RBU
+        | sqlite3::SQLITE_FCNTL_CKSM_FILE => sqlite3::SQLITE_NOTFOUND,
 
         // Should be implemented by SQLite core
-        SQLITE_FCNTL_DATA_VERSION
-        | SQLITE_FCNTL_RESERVE_BYTES
-        | SQLITE_FCNTL_FILE_POINTER
-        | SQLITE_FCNTL_JOURNAL_POINTER
-        | SQLITE_FCNTL_VFS_POINTER
-        | SQLITE_FCNTL_SYNC_OMITTED
-        | SQLITE_FCNTL_RESET_CACHE => SQLITE_MISUSE,
+        sqlite3::SQLITE_FCNTL_DATA_VERSION
+        | sqlite3::SQLITE_FCNTL_RESERVE_BYTES
+        | sqlite3::SQLITE_FCNTL_FILE_POINTER
+        | sqlite3::SQLITE_FCNTL_JOURNAL_POINTER
+        | sqlite3::SQLITE_FCNTL_VFS_POINTER
+        | sqlite3::SQLITE_FCNTL_SYNC_OMITTED
+        | sqlite3::SQLITE_FCNTL_RESET_CACHE => sqlite3::SQLITE_MISUSE,
 
         // Not necessary.
-        SQLITE_FCNTL_TRACE => SQLITE_OK,
+        sqlite3::SQLITE_FCNTL_TRACE => sqlite3::SQLITE_OK,
 
         // Newer codes that we don't need to handle yet
-        fcntl if fcntl <= 100 => SQLITE_NOTFOUND,
+        fcntl if fcntl <= 100 => sqlite3::SQLITE_NOTFOUND,
 
         // FIXME: how do we allow extensions to handle custom opcodes?
-        _ => SQLITE_NOTFOUND,
+        _ => sqlite3::SQLITE_NOTFOUND,
     }
 }
 
@@ -1417,9 +1425,9 @@ where
     let lock_mode = WalLockMode::from_raw(flags);
     let wal_lock = WalLock::new(offset as usize, n as usize);
 
-    if flags & SQLITE_SHM_LOCK != 0 {
+    if flags & sqlite3::SQLITE_SHM_LOCK != 0 {
         file.lock_shm(wal_lock, lock_mode).to_code_result().into()
-    } else if flags & SQLITE_SHM_UNLOCK != 0 {
+    } else if flags & sqlite3::SQLITE_SHM_UNLOCK != 0 {
         file.unlock_shm(wal_lock, lock_mode).to_code_result().into()
     } else {
         panic!("internal error: invalid shm lock flags");
@@ -1491,7 +1499,7 @@ mod tests {
         time::{Duration, SystemTime},
     };
 
-    use libsqlite3_sys::SQLITE_IOERR_SHORT_READ;
+    use libsqlite3_sys as sqlite3;
 
     use super::{
         IoCapabilities, LockLevel, OpenFlags, Result, SQLiteCode, SQLiteError, SyncOptions, Vfs,
@@ -1553,7 +1561,9 @@ mod tests {
     impl VfsFile for DummyFile {
         fn read_at(&mut self, buf: &mut [u8], _offset: u64) -> Result<()> {
             buf.fill(0);
-            Err(SQLiteError(NonZero::new(SQLITE_IOERR_SHORT_READ).unwrap()))
+            Err(SQLiteError(
+                NonZero::new(sqlite3::SQLITE_IOERR_SHORT_READ).unwrap(),
+            ))
         }
 
         fn write_at(&mut self, _buf: &[u8], _offset: u64) -> Result<()> {
@@ -1593,7 +1603,7 @@ mod tests {
         }
 
         fn sector_len(&mut self) -> u32 {
-            unimplemented!()
+            4096
         }
 
         fn io_capabilities(&mut self) -> IoCapabilities {
@@ -1642,9 +1652,9 @@ mod tests {
             .register("dummy")
             .unwrap();
 
-        let default_vfs_ptr = unsafe { rusqlite::ffi::sqlite3_vfs_find(std::ptr::null()) };
+        let default_vfs_ptr = unsafe { sqlite3::sqlite3_vfs_find(std::ptr::null()) };
         assert!(!default_vfs_ptr.is_null());
-        let vfs_ptr = unsafe { rusqlite::ffi::sqlite3_vfs_find(c"dummy".as_ptr()) };
+        let vfs_ptr = unsafe { sqlite3::sqlite3_vfs_find(c"dummy".as_ptr()) };
 
         assert!(!vfs_ptr.is_null());
         assert!(vfs_ptr == default_vfs_ptr);
@@ -1658,7 +1668,7 @@ mod tests {
         assert!(unsafe { (*vfs_ptr).iVersion } == 2);
         drop(token);
 
-        let vfs_ptr = unsafe { rusqlite::ffi::sqlite3_vfs_find(c"dummy".as_ptr()) };
+        let vfs_ptr = unsafe { sqlite3::sqlite3_vfs_find(c"dummy".as_ptr()) };
         assert!(vfs_ptr.is_null());
     }
 
@@ -1675,14 +1685,14 @@ mod tests {
 
         let methods = unsafe {
             let db_handle = conn.handle();
-            let mut file_ptr: *mut rusqlite::ffi::sqlite3_file = std::ptr::null_mut();
-            let rc = rusqlite::ffi::sqlite3_file_control(
+            let mut file_ptr: *mut sqlite3::sqlite3_file = std::ptr::null_mut();
+            let rc = sqlite3::sqlite3_file_control(
                 db_handle,
                 std::ptr::null(),
-                rusqlite::ffi::SQLITE_FCNTL_FILE_POINTER,
+                sqlite3::SQLITE_FCNTL_FILE_POINTER,
                 &mut file_ptr as *mut _ as *mut std::ffi::c_void,
             );
-            assert_eq!(rc, rusqlite::ffi::SQLITE_OK);
+            assert_eq!(rc, sqlite3::SQLITE_OK);
             assert!(!file_ptr.is_null());
             &*(*file_ptr).pMethods
         };
@@ -1724,14 +1734,14 @@ mod tests {
 
         let methods = unsafe {
             let db_handle = conn.handle();
-            let mut file_ptr: *mut rusqlite::ffi::sqlite3_file = std::ptr::null_mut();
-            let rc = rusqlite::ffi::sqlite3_file_control(
+            let mut file_ptr: *mut sqlite3::sqlite3_file = std::ptr::null_mut();
+            let rc = sqlite3::sqlite3_file_control(
                 db_handle,
                 std::ptr::null(),
-                rusqlite::ffi::SQLITE_FCNTL_FILE_POINTER,
+                sqlite3::SQLITE_FCNTL_FILE_POINTER,
                 &mut file_ptr as *mut _ as *mut std::ffi::c_void,
             );
-            assert_eq!(rc, rusqlite::ffi::SQLITE_OK);
+            assert_eq!(rc, sqlite3::SQLITE_OK);
             assert!(!file_ptr.is_null());
             &*(*file_ptr).pMethods
         };
@@ -1773,14 +1783,14 @@ mod tests {
 
         let methods = unsafe {
             let db_handle = conn.handle();
-            let mut file_ptr: *mut rusqlite::ffi::sqlite3_file = std::ptr::null_mut();
-            let rc = rusqlite::ffi::sqlite3_file_control(
+            let mut file_ptr: *mut sqlite3::sqlite3_file = std::ptr::null_mut();
+            let rc = sqlite3::sqlite3_file_control(
                 db_handle,
                 std::ptr::null(),
-                rusqlite::ffi::SQLITE_FCNTL_FILE_POINTER,
+                sqlite3::SQLITE_FCNTL_FILE_POINTER,
                 &mut file_ptr as *mut _ as *mut std::ffi::c_void,
             );
-            assert_eq!(rc, rusqlite::ffi::SQLITE_OK);
+            assert_eq!(rc, sqlite3::SQLITE_OK);
             assert!(!file_ptr.is_null());
             &*(*file_ptr).pMethods
         };
@@ -1823,14 +1833,14 @@ mod tests {
 
         let methods = unsafe {
             let db_handle = conn.handle();
-            let mut file_ptr: *mut rusqlite::ffi::sqlite3_file = std::ptr::null_mut();
-            let rc = rusqlite::ffi::sqlite3_file_control(
+            let mut file_ptr: *mut sqlite3::sqlite3_file = std::ptr::null_mut();
+            let rc = sqlite3::sqlite3_file_control(
                 db_handle,
                 std::ptr::null(),
-                rusqlite::ffi::SQLITE_FCNTL_FILE_POINTER,
+                sqlite3::SQLITE_FCNTL_FILE_POINTER,
                 &mut file_ptr as *mut _ as *mut std::ffi::c_void,
             );
-            assert_eq!(rc, rusqlite::ffi::SQLITE_OK);
+            assert_eq!(rc, sqlite3::SQLITE_OK);
             assert!(!file_ptr.is_null());
             &*(*file_ptr).pMethods
         };
