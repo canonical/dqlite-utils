@@ -1,14 +1,14 @@
 use std::borrow::Cow;
 use std::error::Error;
-use std::ffi::{c_char, c_int, CStr, CString, OsStr};
+use std::ffi::{CStr, CString, OsStr, c_char, c_int};
 use std::fmt::Display;
 use std::marker::PhantomData;
 use std::num::NonZero;
 use std::os::raw::c_void;
 use std::os::unix::ffi::OsStrExt;
 use std::ptr::{self, NonNull};
-use std::sync::atomic::{self, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{self, Ordering};
 use std::thread;
 use std::time::{Duration, SystemTime};
 use std::{fmt, mem, slice};
