@@ -1698,10 +1698,7 @@ mod tests {
 
     use libsqlite3_sys as sqlite3;
 
-    use super::{
-        IoCapabilities, LockLevel, OpenFlags, Result, SqliteCode, SqliteError, SyncOptions, Vfs,
-        VfsFetchFile, VfsFile, VfsPath, VfsRegistration, VfsWalFile, WalLock, WalLockMode,
-    };
+    use super::*;
 
     struct DummyVfs;
     struct DummyFile;
