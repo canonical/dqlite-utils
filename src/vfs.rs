@@ -1,11 +1,23 @@
 use core::panic;
-use libsqlite3_sys::{self, *, SQLITE_SHM_SHARED, SQLITE_SHM_EXCLUSIVE};
+use libsqlite3_sys::{self, SQLITE_SHM_EXCLUSIVE, SQLITE_SHM_SHARED, *};
 use rand::RngCore;
 use std::{
-    borrow::Cow, error::{self, Error}, ffi::{CStr, CString, OsStr, c_char, c_int}, fmt, marker::PhantomData, num::{NonZero, NonZeroUsize}, ops::{Deref, DerefMut}, os::{raw::c_void, unix::ffi::OsStrExt}, ptr::{self, NonNull}, result, slice, sync::{
+    borrow::Cow,
+    error::{self, Error},
+    ffi::{CStr, CString, OsStr, c_char, c_int},
+    fmt,
+    marker::PhantomData,
+    num::{NonZero, NonZeroUsize},
+    ops::{Deref, DerefMut},
+    os::{raw::c_void, unix::ffi::OsStrExt},
+    ptr::{self, NonNull},
+    result, slice,
+    sync::{
         Arc,
         atomic::{self, Ordering},
-    }, thread, time::{Duration, SystemTime}
+    },
+    thread,
+    time::{Duration, SystemTime},
 };
 
 #[derive(Debug)]
@@ -135,10 +147,7 @@ impl OpenFlags {
             SQLITE_OPEN_SUBJOURNAL => FileType::Subjournal,
             SQLITE_OPEN_SUPER_JOURNAL => FileType::SuperJournal,
             SQLITE_OPEN_WAL => FileType::Wal,
-            _ => {
-                debug_assert!(false, "invalid file type");
-                unreachable!();
-            }
+            _ => panic!("internal error: invalid file type"),
         }
     }
 
@@ -207,6 +216,12 @@ pub trait Vfs {
 
 pub struct VfsPath<'a>(&'a OsStr);
 
+impl VfsPath<'_> {
+    pub fn inner(&self) -> &OsStr {
+        self.0
+    }
+}
+
 pub trait VfsFile {
     fn read_at(&mut self, buf: &mut [u8], offset: u64) -> Result<()>;
     fn write_at(&mut self, buf: &[u8], offset: u64) -> Result<()>;
@@ -238,11 +253,7 @@ pub trait VfsFile {
         Ok(())
     }
 
-    fn pragma(
-        &mut self,
-        name: &str,
-        arg: Option<&str>,
-    ) -> PragmaResult {
+    fn pragma(&mut self, name: &str, arg: Option<&str>) -> PragmaResult {
         let _ = name;
         let _ = arg;
         Err(PragmaError::from(SQLiteError(
@@ -263,11 +274,11 @@ pub trait VfsFile {
         false
     }
 
-    fn pre_sync_one_db(&mut self) -> Result<()> {
+    fn pre_sync_single_db(&mut self) -> Result<()> {
         Ok(())
     }
 
-    fn pre_sync_many_db(&mut self, super_journal: VfsPath<'_>) -> Result<()> {
+    fn pre_sync_multiple_db(&mut self, super_journal: VfsPath<'_>) -> Result<()> {
         let _ = super_journal;
         Ok(())
     }
@@ -303,6 +314,7 @@ pub trait VfsFile {
 
 pub type PragmaResult = std::result::Result<Option<Cow<'static, str>>, PragmaError>;
 
+#[derive(Debug)]
 pub struct PragmaError {
     pub code: SQLiteError,
     pub message: Option<Cow<'static, str>>,
@@ -329,18 +341,10 @@ impl From<SQLiteError> for PragmaError {
 
 impl fmt::Display for PragmaError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match &self.message {
-            Some(msg) => write!(f, "{}: {}", self.code, msg),
-            None => write!(f, "{}", self.code),
-        }
-    }
-}
-
-impl fmt::Debug for PragmaError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match &self.message {
-            Some(msg) => write!(f, "PragmaError {{ code: {}, message: {} }}", self.code, msg),
-            None => write!(f, "PragmaError {{ code: {} }}", self.code),
+        let Self { code, message } = self;
+        match message {
+            Some(msg) => write!(f, "{code}: {msg}"),
+            None => write!(f, "{}", code),
         }
     }
 }
@@ -489,7 +493,7 @@ impl LockLevel {
 
 #[derive(Clone, Debug, Default)]
 pub struct IoCapabilities {
-    pub atomic_write: AtomicWrite,
+    pub write_cap: AtomicWrite,
     pub safe_append: bool,
     pub sequential: bool,
     pub undeletable_when_open: bool,
@@ -521,7 +525,7 @@ impl From<IoCapabilities> for c_int {
         let mut flags = 0;
 
         let IoCapabilities {
-            atomic_write: write_cap,
+            write_cap,
             safe_append,
             sequential,
             undeletable_when_open,
@@ -1283,9 +1287,9 @@ unsafe extern "C" fn x_file_control<T: Vfs>(
         SQLITE_FCNTL_SYNC => {
             let super_journal_raw = arg.cast::<c_char>();
             if super_journal_raw.is_null() {
-                file.pre_sync_one_db().to_code_result().into()
+                file.pre_sync_single_db().to_code_result().into()
             } else {
-                file.pre_sync_many_db(VfsPath(OsStr::from_bytes(
+                file.pre_sync_multiple_db(VfsPath(OsStr::from_bytes(
                     unsafe { CStr::from_ptr(super_journal_raw) }.to_bytes(),
                 ))).to_code_result().into()
             }
