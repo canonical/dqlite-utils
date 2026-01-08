@@ -119,9 +119,7 @@ impl OpenFlags {
         debug_assert!(!open_flags.exclusive() || open_flags.create());
         debug_assert!(!open_flags.delete_on_close() || open_flags.create());
 
-        debug_assert!(
-            !open_flags.delete_on_close() || open_flags.file_type() != FileType::MainDb
-        );
+        debug_assert!(!open_flags.delete_on_close() || open_flags.file_type() != FileType::MainDb);
         debug_assert!(
             !open_flags.delete_on_close() || open_flags.file_type() != FileType::MainJournal
         );
