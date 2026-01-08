@@ -1,5 +1,5 @@
 use std::borrow::Cow;
-use std::error::{self, Error};
+use std::error::Error;
 use std::ffi::{c_char, c_int, CStr, CString, OsStr};
 use std::fmt::Display;
 use std::marker::PhantomData;
@@ -546,7 +546,7 @@ impl From<SqliteError> for PragmaError {
     }
 }
 
-impl fmt::Display for PragmaError {
+impl Display for PragmaError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let Self { code, message } = self;
         match message {
