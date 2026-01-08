@@ -558,23 +558,39 @@ impl Display for PragmaError {
 
 impl Error for PragmaError {}
 
-/// Extensions for WAL shared-memory support ([io_methods v2](https://www.sqlite.org/c3ref/io_methods.html)).
+/// Represents file I/O behaviours required to use a write-ahead log with shared-memory suppport
+/// with a [`Vfs`].
+///
+/// This trait corresponds to [`sqlite3_io_methods` v2](https://www.sqlite.org/c3ref/io_methods.html).
 pub trait VfsWalFile: VfsFile {
-    /// Maps a shared-memory region. See [xShmMap](https://www.sqlite.org/c3ref/io_methods.html#xShmMap).
+    /// Maps a shared-memory region.
+    ///
+    /// See [xShmMap](https://www.sqlite.org/c3ref/io_methods.html#xShmMap).
     fn map_shm(
         &mut self,
         region_number: NonZero<u32>,
         region_size: usize,
         extend: bool,
     ) -> Result<&mut [u8]>;
-    /// Acquires a shared-memory lock. See [xShmLock](https://www.sqlite.org/c3ref/io_methods.html#xShmLock).
+
+    /// Acquires a shared-memory lock.
+    ///
+    /// See [xShmLock](https://www.sqlite.org/c3ref/io_methods.html#xShmLock).
     fn lock_shm(&mut self, locks: WalLock, mode: WalLockMode) -> Result<()>;
-    /// Releases a shared-memory lock. See [xShmLock](https://www.sqlite.org/c3ref/io_methods.html#xShmLock).
+
+    /// Releases a shared-memory lock.
+    ///
+    /// See [xShmLock](https://www.sqlite.org/c3ref/io_methods.html#xShmLock).
     fn unlock_shm(&mut self, locks: WalLock, mode: WalLockMode) -> Result<()>;
-    /// Unmaps the shared-memory, optionally deleting. See [xShmUnmap](https://www.sqlite.org/c3ref/io_methods.html#xShmUnmap).
+
+    /// Unmaps the shared-memory, optionally deleting.
+    ///
+    /// See [xShmUnmap](https://www.sqlite.org/c3ref/io_methods.html#xShmUnmap).
     fn unmap_shm(&mut self, delete: bool) -> Result<()>;
 
-    /// Issues a memory barrier. See [xShmBarrier](https://www.sqlite.org/c3ref/io_methods.html#xShmBarrier).
+    /// Issues a memory barrier.
+    ///
+    /// See [xShmBarrier](https://www.sqlite.org/c3ref/io_methods.html#xShmBarrier).
     fn barrier(&mut self) {
         atomic::fence(Ordering::SeqCst);
     }
@@ -659,11 +675,19 @@ impl WalLock {
     }
 }
 
-/// Extensions for in-memory page access ([io_methods v3](https://www.sqlite.org/c3ref/io_methods.html)).
+/// Extensions for in-memory page access
+/// Represents file I/O behaviours for in-memory page access.
+///
+/// This trait corresponds to ([`sqlite3_io_methods` v3](https://www.sqlite.org/c3ref/io_methods.html)).
 pub trait VfsFetchFile: VfsFile {
-    /// Fetches a page region into memory. See [xFetch](https://www.sqlite.org/c3ref/io_methods.html#xFetch).
+    /// Fetches a page region into memory.
+    ///
+    /// See [xFetch](https://www.sqlite.org/c3ref/io_methods.html#xFetch).
     fn fetch(&mut self, offset: i64, amount: NonZero<usize>) -> Result<&mut [u8]>;
-    /// Releases a previously fetched region. See [xUnfetch](https://www.sqlite.org/c3ref/io_methods.html#xUnfetch).
+
+    /// Releases a previously fetched region.
+    ///
+    /// See [xUnfetch](https://www.sqlite.org/c3ref/io_methods.html#xUnfetch).
     fn unfetch(&mut self, offset: i64, ptr: NonNull<u8>) -> Result<()>;
 }
 
