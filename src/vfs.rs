@@ -291,7 +291,7 @@ impl VfsPath<'_> {
 
 /// Represents the most basic file I/O bahaviours required by a [`Vfs`].
 ///
-/// This trait corresponds to [`sqlite3_io_methods` v1](https://www.sqlite.org/c3ref/io_methods.html).
+/// This trait is optional and corresponds to [`sqlite3_io_methods` v1](https://www.sqlite.org/c3ref/io_methods.html).
 pub trait VfsFile {
     /// Reads from the file at an offset.
     ///
@@ -675,10 +675,9 @@ impl WalLock {
     }
 }
 
-/// Extensions for in-memory page access
-/// Represents file I/O behaviours for in-memory page access.
+/// Represents file I/O behaviours for in-memory page access with a [`Vfs`].
 ///
-/// This trait corresponds to ([`sqlite3_io_methods` v3](https://www.sqlite.org/c3ref/io_methods.html)).
+/// This trait is optional and corresponds to ([`sqlite3_io_methods` v3](https://www.sqlite.org/c3ref/io_methods.html)).
 pub trait VfsFetchFile: VfsFile {
     /// Fetches a page region into memory.
     ///
