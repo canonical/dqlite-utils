@@ -97,15 +97,15 @@ impl ToCodeResultExt for Result<()> {
     }
 }
 
-trait ToCodeOutputExt<T> {
-    fn to_code_output(self, out: &mut impl From<T>) -> SqliteCode;
+trait WriteOutputResultExt<T> {
+    fn write_to_output(self, output: &mut impl From<T>) -> SqliteCode;
 }
 
-impl<T> ToCodeOutputExt<T> for Result<T> {
-    fn to_code_output(self, out: &mut impl From<T>) -> SqliteCode {
+impl<T> WriteOutputResultExt<T> for Result<T> {
+    fn write_to_output(self, output: &mut impl From<T>) -> SqliteCode {
         match self {
             Ok(value) => {
-                *out = value.into();
+                *output = value.into();
                 SqliteCode::OK
             }
             Err(e) => SqliteCode(e.0.get()),
@@ -1142,7 +1142,7 @@ unsafe extern "C" fn x_access<T: Vfs>(
         _ => return sqlite3::SQLITE_MISUSE,
     };
 
-    result.to_code_output(out).into_rc()
+    result.write_to_output(out).into_rc()
 }
 
 unsafe extern "C" fn x_full_pathname<T: Vfs>(
@@ -1251,7 +1251,7 @@ unsafe extern "C" fn x_get_current_time<T: Vfs>(vfs: *mut sqlite3_vfs, out_ptr: 
                 .as_millis() as i64
                 + UNIX_EPOCH
         })
-        .to_code_output(out)
+        .write_to_output(out)
         .into_rc()
 }
 
@@ -1319,7 +1319,7 @@ unsafe extern "C" fn x_file_size<T: Vfs>(
     let out = unsafe { out_ptr.as_mut().unwrap() };
     file.len()
         .map(|size| size as i64)
-        .to_code_output(out)
+        .write_to_output(out)
         .into_rc()
 }
 
@@ -1344,7 +1344,7 @@ unsafe extern "C" fn x_check_reserved_lock<T: Vfs>(
     let storage = unsafe { VfsFileStorage::<T>::from_raw(file) };
     let file = storage.file();
     let out = unsafe { out_ptr.as_mut().unwrap() };
-    file.is_write_locked().to_code_output(out).into_rc()
+    file.is_write_locked().write_to_output(out).into_rc()
 }
 
 unsafe extern "C" fn x_file_control<T: Vfs>(
@@ -1601,7 +1601,7 @@ where
         extend != 0,
     )
     .map(|s| s.as_mut_ptr())
-    .to_code_output(out)
+    .write_to_output(out)
     .into_rc()
 }
 
@@ -1668,7 +1668,7 @@ where
     let out = unsafe { out_ptr.cast::<*mut u8>().as_mut().unwrap() };
     file.fetch(offset, NonZero::new(amount as usize).unwrap())
         .map(|s| s.as_mut_ptr())
-        .to_code_output(out)
+        .write_to_output(out)
         .into_rc()
 }
 
