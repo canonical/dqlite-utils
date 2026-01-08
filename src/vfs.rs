@@ -21,6 +21,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+/// Represents an SQLite result code.
 #[derive(Debug)]
 pub struct SQLiteCode(c_int);
 
@@ -42,6 +43,7 @@ impl fmt::Display for SQLiteCode {
     }
 }
 
+/// Represents a SQLite error code.
 #[derive(Debug)]
 pub struct SQLiteError(NonZero<c_int>);
 
@@ -100,6 +102,7 @@ impl<T> ToCodeOutputExt<T> for Result<T> {
     }
 }
 
+/// Flags passed to [`Vfs::open`].
 pub struct OpenFlags {
     bits: c_int,
 }
@@ -116,7 +119,9 @@ impl OpenFlags {
         debug_assert!(!open_flags.exclusive() || open_flags.create());
         debug_assert!(!open_flags.delete_on_close() || open_flags.create());
 
-        debug_assert!(!open_flags.delete_on_close() || open_flags.file_type() != FileType::MainDb);
+        debug_assert!(
+            !open_flags.delete_on_close() || open_flags.file_type() != FileType::MainDb
+        );
         debug_assert!(
             !open_flags.delete_on_close() || open_flags.file_type() != FileType::MainJournal
         );
@@ -139,6 +144,7 @@ impl OpenFlags {
         open_flags
     }
 
+    /// Returns the type of file being opened.
     pub fn file_type(&self) -> FileType {
         match self.bits & 0x0FFF00 {
             sqlite3::SQLITE_OPEN_MAIN_DB => FileType::MainDb,
@@ -153,31 +159,38 @@ impl OpenFlags {
         }
     }
 
+    /// Returns true if the file should be created if it doesn't exist.
     pub fn create(&self) -> bool {
         (self.bits & sqlite3::SQLITE_OPEN_CREATE) != 0
     }
 
+    /// Returns true if the file is opened in read-only mode.
     pub fn read_only(&self) -> bool {
         (self.bits & sqlite3::SQLITE_OPEN_READONLY) != 0
     }
 
+    /// Returns true if the file is opened in read-write mode.
     pub fn read_write(&self) -> bool {
         (self.bits & sqlite3::SQLITE_OPEN_READWRITE) != 0
     }
 
+    /// Returns true if the file should be deleted when closed.
     pub fn delete_on_close(&self) -> bool {
         (self.bits & sqlite3::SQLITE_OPEN_DELETEONCLOSE) != 0
     }
 
+    /// Returns true if the file should be opened exclusively.
     pub fn exclusive(&self) -> bool {
         (self.bits & sqlite3::SQLITE_OPEN_EXCLUSIVE) != 0
     }
 
+    /// Returns true if the autoproxy locking style should be used.
     pub fn autoproxy(&self) -> bool {
         (self.bits & sqlite3::SQLITE_OPEN_AUTOPROXY) != 0
     }
 }
 
+/// The type of file being opened.
 #[derive(Debug, PartialEq, Eq)]
 pub enum FileType {
     MainDb,
@@ -190,73 +203,104 @@ pub enum FileType {
     Wal,
 }
 
+/// Virtual file system abstraction. See [sqlite3_vfs](https://www.sqlite.org/c3ref/vfs.html).
 pub trait Vfs {
     type File: VfsFile;
 
+    /// Opens a file. Returns the file and the actual flags used.
     fn open(&self, name: Option<VfsPath<'_>>, flags: OpenFlags) -> Result<(Self::File, OpenFlags)>;
+    /// Deletes a file, optionally syncing the directory afterward.
     fn delete(&self, name: VfsPath<'_>, sync_dir: bool) -> Result<()>;
+    /// Checks if a file exists.
     fn exists(&self, name: VfsPath<'_>) -> Result<bool>;
+    /// Checks if a file is readable.
     fn can_read(&self, name: VfsPath<'_>) -> Result<bool>;
+    /// Checks if a file is writable.
     fn can_write(&self, name: VfsPath<'_>) -> Result<bool>;
+    /// Writes the full pathname of a file to the output buffer.
     fn write_full_path(&self, name: VfsPath<'_>, out: &mut [u8]) -> Result<()>;
+    /// Returns the last error code.
     fn last_error(&self) -> SQLiteCode;
 
+    /// Fills a buffer with random bytes.
     fn fill_random_bytes(&self, out: &mut [u8]) -> Result<()> {
         let mut rng = rand::rng();
         rng.fill_bytes(out);
         Ok(())
     }
 
+    /// Sleeps for the given duration.
     fn sleep(&self, duration: Duration) {
         thread::sleep(duration);
     }
 
+    /// Returns the current system time.
     fn now(&self) -> Result<SystemTime> {
         Ok(SystemTime::now())
     }
 }
 
+/// A file path passed to VFS operations.
 #[allow(unused)]
 pub struct VfsPath<'a>(&'a OsStr);
 
 #[allow(unused)]
 impl VfsPath<'_> {
+    /// Returns the inner path as an `OsStr`.
     pub fn inner(&self) -> &OsStr {
         self.0
     }
 }
 
+/// Abstraction over SQLite's [`sqlite3_io_methods` v1](https://www.sqlite.org/c3ref/io_methods.html).
+///
+/// This trait implements the basic file I/O methods required by SQLite's VFS layer.
 pub trait VfsFile {
+    /// Reads from the file at an offset. See [xRead](https://www.sqlite.org/c3ref/io_methods.html#xRead).
     fn read_at(&mut self, buf: &mut [u8], offset: u64) -> Result<()>;
+    /// Writes to the file at an offset. See [xWrite](https://www.sqlite.org/c3ref/io_methods.html#xWrite).
     fn write_at(&mut self, buf: &[u8], offset: u64) -> Result<()>;
+    /// Truncates the file to a size. See [xTruncate](https://www.sqlite.org/c3ref/io_methods.html#xTruncate).
     fn truncate(&mut self, size: u64) -> Result<()>;
+    /// Syncs the file to disk. See [xSync](https://www.sqlite.org/c3ref/io_methods.html#xSync).
     fn sync(&mut self, op: SyncOptions) -> Result<()>;
+    /// Gets the file size. See [xFileSize](https://www.sqlite.org/c3ref/io_methods.html#xFileSize).
     fn len(&mut self) -> Result<u64>;
+    /// Acquires a file lock. See [xLock](https://www.sqlite.org/c3ref/io_methods.html#xLock).
     fn lock(&mut self, level: LockLevel) -> Result<()>;
+    /// Releases a file lock. See [xUnlock](https://www.sqlite.org/c3ref/io_methods.html#xUnlock).
     fn unlock(&mut self, level: LockLevel) -> Result<()>;
+    /// Checks if a write lock is held. See [xCheckReservedLock](https://www.sqlite.org/c3ref/io_methods.html#xCheckReservedLock).
     fn is_write_locked(&mut self) -> Result<bool>;
+    /// Gets the sector size. See [xSectorSize](https://www.sqlite.org/c3ref/io_methods.html#xSectorSize).
     fn sector_len(&mut self) -> u32;
+    /// Gets I/O characteristics. See [xDeviceCharacteristics](https://www.sqlite.org/c3ref/io_methods.html#xDeviceCharacteristics).
     fn io_capabilities(&mut self) -> IoCapabilities;
 
-    // From here on, these methods are all coming from sqlite3_file_control OPCODEs.
+    /// Gets the current lock state. See [SQLITE_FCNTL_LOCKSTATE](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntllockstate).
     fn lock_level(&mut self) -> LockLevel;
+    /// Gets the last OS error number. See [SQLITE_FCNTL_LAST_ERRNO](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntllasterrno).
     fn last_errno(&mut self) -> i32;
 
+    /// Handles the size hint for a transaction. See [SQLITE_FCNTL_SIZE_HINT](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlsizehint).
     fn hint_size(&mut self, size: i64) -> Result<()> {
         let _ = size;
         Ok(())
     }
 
+    /// Hints that subsequent writes overwrite existing content. See [SQLITE_FCNTL_OVERWRITE](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntloverwrite).
     fn hint_overwrite(&mut self, size: u64) -> Result<()> {
         let _ = size;
         Err(SQLiteError(NonZero::new(sqlite3::SQLITE_NOTFOUND).unwrap()))
     }
 
+    /// Sets the database chunk size. See [SQLITE_FCNTL_CHUNK_SIZE](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlchunksize).
     fn set_chunk_size(&mut self, size: u32) -> Result<()> {
         let _ = size;
         Ok(())
     }
 
+    /// Handles PRAGMA forwarding. See [SQLITE_FCNTL_PRAGMA](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlpragma).
     fn pragma(&mut self, name: &str, arg: Option<&str>) -> PragmaResult {
         let _ = name;
         let _ = arg;
@@ -265,77 +309,96 @@ pub trait VfsFile {
         )))
     }
 
+    /// Sets the max mmap size. See [SQLITE_FCNTL_MMAP_SIZE](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlmmapsize).
     fn set_mmap_size(&mut self, size: u64) -> Result<()> {
         let _ = size;
         Ok(())
     }
 
+    /// Gets the max mmap size. See [SQLITE_FCNTL_MMAP_SIZE](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlmmapsize).
     fn mmap_size(&mut self) -> u64 {
         0
     }
 
+    /// Reports whether the file has moved. See [SQLITE_FCNTL_HAS_MOVED](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcnthasmoved).
     fn has_moved(&mut self) -> bool {
         false
     }
 
+    /// Pre-sync hook for a single database. See [SQLITE_FCNTL_SYNC](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlsync).
     fn pre_sync_single_db(&mut self) -> Result<()> {
         Ok(())
     }
 
+    /// Pre-sync hook for multiple databases (with super-journal). See [SQLITE_FCNTL_SYNC](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlsync).
     fn pre_sync_multiple_db(&mut self, super_journal: VfsPath<'_>) -> Result<()> {
         let _ = super_journal;
         Ok(())
     }
 
+    /// Completes commit phase two. See [SQLITE_FCNTL_COMMIT_PHASETWO](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlcommitphasetwo).
     fn commit_phase_two(&mut self) -> Result<()> {
         Ok(())
     }
 
-    // TODO: Link to SQLITE_FCNTL_PDB doc
+    // See [SQLITE_FCNTL_PDB](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlpdb)
     // fn set_parent_connection<'a>(&'a mut self, conn: Connection<'a>) {
     //     let _ = conn;
     // }
 
+    /// Begins an atomic-write sequence. See [SQLITE_FCNTL_BEGIN_ATOMIC_WRITE](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlbeginatomicwrite).
     fn begin_atomic(&mut self) -> Result<()> {
         Ok(())
     }
 
+    /// Commits an atomic-write sequence. See [SQLITE_FCNTL_COMMIT_ATOMIC_WRITE](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlcommitatomicwrite).
     fn commit_atomic(&mut self) -> Result<()> {
         Ok(())
     }
 
+    /// Rolls back an atomic-write sequence. See [SQLITE_FCNTL_ROLLBACK_ATOMIC_WRITE](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlrollbackatomicwrite).
     fn rollback_atomic(&mut self) {}
 
+    /// Gets the lock timeout. See [SQLITE_FCNTL_LOCK_TIMEOUT](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntllocktimeout).
     fn lock_timeout(&mut self) -> Duration {
         Duration::from_millis(0)
     }
 
+    /// Sets the lock timeout. See [SQLITE_FCNTL_LOCK_TIMEOUT](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntllocktimeout).
     fn set_lock_timeout(&mut self, timeout: Duration) -> Result<()> {
         let _ = timeout;
         Ok(())
     }
 
+    /// Gets WAL persistence. See [SQLITE_FCNTL_PERSIST_WAL](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlpersistwal).
     fn is_wal_persistent(&self) -> bool {
         false
     }
 
+    /// Sets WAL persistence. See [SQLITE_FCNTL_PERSIST_WAL](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlpersistwal).
     fn set_wal_persistence(&mut self, persist: bool) -> Result<()> {
         let _ = persist;
         Ok(())
     }
 
+    /// Hints WAL lock behavior. See [SQLITE_FCNTL_WAL_BLOCK](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlwalblock).
     fn hint_wal_lock(&mut self) {}
 
+    /// Controls blocking behavior during connect. See [SQLITE_FCNTL_BLOCK_ON_CONNECT](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlblockonconnect).
     fn hint_block_on_connect(&mut self, block: bool) {
         let _ = block;
     }
 
+    /// Signals checkpoint start. See [SQLITE_FCNTL_CKPT_START](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlckptstart).
     fn on_checkpoint_start(&mut self) {}
+    /// Signals checkpoint completion. See [SQLITE_FCNTL_CKPT_DONE](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlckptdone).
     fn on_checkpoint_done(&mut self) {}
 }
 
+/// Result type for pragma operations.
 pub type PragmaResult = std::result::Result<Option<Cow<'static, str>>, PragmaError>;
 
+/// Error type for pragma operations.
 #[derive(Debug)]
 pub struct PragmaError {
     pub code: SQLiteError,
@@ -373,22 +436,29 @@ impl fmt::Display for PragmaError {
 
 impl Error for PragmaError {}
 
+/// Extensions for WAL shared-memory support (io_methods v2). See https://www.sqlite.org/c3ref/io_methods.html.
 pub trait VfsWalFile: VfsFile {
+    /// Maps a shared-memory region. See [xShmMap](https://www.sqlite.org/c3ref/io_methods.html#xShmMap).
     fn map_shm(
         &mut self,
         region_number: NonZero<u32>,
         region_size: usize,
         extend: bool,
     ) -> Result<&mut [u8]>;
+    /// Acquires a shared-memory lock. See [xShmLock](https://www.sqlite.org/c3ref/io_methods.html#xShmLock).
     fn lock_shm(&mut self, locks: WalLock, mode: WalLockMode) -> Result<()>;
+    /// Releases a shared-memory lock. See [xShmLock](https://www.sqlite.org/c3ref/io_methods.html#xShmLock).
     fn unlock_shm(&mut self, locks: WalLock, mode: WalLockMode) -> Result<()>;
+    /// Unmaps the shared-memory, optionally deleting. See [xShmUnmap](https://www.sqlite.org/c3ref/io_methods.html#xShmUnmap).
     fn unmap_shm(&mut self, delete: bool) -> Result<()>;
 
+    /// Issues a memory barrier. See [xShmBarrier](https://www.sqlite.org/c3ref/io_methods.html#xShmBarrier).
     fn barrier(&mut self) {
         atomic::fence(Ordering::SeqCst);
     }
 }
 
+/// Lock mode for WAL shared-memory operations.
 #[derive(Copy, Clone, Debug)]
 #[allow(unused)]
 pub enum WalLockMode {
@@ -397,6 +467,7 @@ pub enum WalLockMode {
 }
 
 impl WalLockMode {
+    /// Converts from raw SQLite flags.
     pub fn from_raw(raw: c_int) -> Self {
         if raw & sqlite3::SQLITE_SHM_SHARED != 0 {
             WalLockMode::Shared
@@ -408,6 +479,7 @@ impl WalLockMode {
     }
 
     #[allow(unused)]
+    /// Converts to raw SQLite flags.
     pub fn to_raw(&self) -> c_int {
         match self {
             WalLockMode::Shared => sqlite3::SQLITE_SHM_SHARED,
@@ -416,6 +488,7 @@ impl WalLockMode {
     }
 }
 
+/// A set representing WAL locks.
 #[allow(unused)]
 pub struct WalLock {
     mask: u16,
@@ -428,27 +501,34 @@ impl WalLock {
     pub const WAL_RECOVER_LOCK: usize = 2;
     pub const WAL_READ_LOCK_0: usize = 3;
 
+    /// Creates a set from an offset and count.
     pub const fn new(offset: usize, n: usize) -> Self {
         let mask: u16 = (1 << (offset + n)) - (1 << offset);
         WalLock { mask }
     }
 
-    pub const fn from_u16(mask: u16) -> Self {
+    /// Creates a set from a raw u16 mask.
+    pub const fn from_mask(mask: u16) -> Self {
         WalLock { mask }
     }
 
+    /// Returns true if the write lock is included.
     pub fn write(&self) -> bool {
         self.mask & (1 << Self::WAL_WRITE_LOCK) != 0
     }
 
+    /// Returns true if the checkpoint lock is included.
     pub fn checkpoint(&self) -> bool {
         self.mask & (1 << Self::WAL_CKPT_LOCK) != 0
     }
 
+    /// Returns true if the recover lock is included.
     pub fn recover(&self) -> bool {
         self.mask & (1 << Self::WAL_RECOVER_LOCK) != 0
     }
 
+    /// Returns true if the given read lock index is included.
+    /// index must be in 0..5
     pub fn read(&self, index: usize) -> bool {
         if index >= 5 {
             return false;
@@ -457,11 +537,15 @@ impl WalLock {
     }
 }
 
+/// Extensions for in-memory page access (io_methods v3). See https://www.sqlite.org/c3ref/io_methods.html.
 pub trait VfsFetchFile: VfsFile {
+    /// Fetches a page region into memory. See [xFetch](https://www.sqlite.org/c3ref/io_methods.html#xFetch).
     fn fetch(&mut self, offset: i64, amount: NonZero<usize>) -> Result<&mut [u8]>;
+    /// Releases a previously fetched region. See [xUnfetch](https://www.sqlite.org/c3ref/io_methods.html#xUnfetch).
     fn unfetch(&mut self, offset: i64, ptr: NonNull<u8>) -> Result<()>;
 }
 
+/// Options for syncing a file.
 #[allow(unused)]
 pub struct SyncOptions {
     /// True for Mac OS X style fullsync, false for Unix style fsync
@@ -484,6 +568,7 @@ impl SyncOptions {
     }
 }
 
+/// File locking levels. See [File Locking](https://www.sqlite.org/lockingv3.html).
 #[derive(Copy, Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum LockLevel {
     None,
@@ -516,6 +601,7 @@ impl LockLevel {
     }
 }
 
+/// I/O characteristics reported by [`VfsFile::io_capabilities`].
 #[derive(Clone, Debug, Default)]
 pub struct IoCapabilities {
     pub write_cap: AtomicWrite,
@@ -528,6 +614,7 @@ pub struct IoCapabilities {
     pub subpage_read: bool,
 }
 
+/// Atomic write capabilities.
 #[derive(Clone, Debug, Default)]
 pub enum AtomicWrite {
     #[default]
@@ -626,6 +713,7 @@ impl From<IoCapabilities> for c_int {
     }
 }
 
+/// RAII guard that unregisters a VFS on drop.
 pub struct VfsRegistrationGuard<V>(Arc<VfsStorage<V>>);
 
 impl<V> Drop for VfsRegistrationGuard<V> {
@@ -762,6 +850,7 @@ where
     const METHODS: sqlite3_io_methods = Self::methods();
 }
 
+/// Builder for VFS registration.
 pub struct VfsRegistration<T, M> {
     vfs: T,
     max_pathlen: usize,
@@ -771,6 +860,7 @@ pub struct VfsRegistration<T, M> {
 
 impl<T: Vfs> VfsRegistration<T, VfsSupport<T>> {
     #[allow(unused)]
+    /// Creates a new VFS registration builder.
     pub fn new(vfs: T) -> Self {
         Self {
             vfs,
@@ -783,6 +873,7 @@ impl<T: Vfs> VfsRegistration<T, VfsSupport<T>> {
 
 impl<T: Vfs, M: VfsMethodTable> VfsRegistration<T, M> {
     #[allow(unused)]
+    /// Registers the VFS with SQLite.
     pub fn register(self, name: &str) -> Result<VfsRegistrationGuard<T>> {
         if name.len() == 0 {
             return Err(SQLiteError(NonZero::new(sqlite3::SQLITE_MISUSE).unwrap()));
@@ -845,12 +936,14 @@ impl<T: Vfs, M: VfsMethodTable> VfsRegistration<T, M> {
 
 impl<T, M> VfsRegistration<T, M> {
     #[allow(unused)]
+    /// Sets the maximum path length supported by the VFS.
     pub fn max_pathlen(mut self, len: usize) -> Self {
         self.max_pathlen = len;
         self
     }
 
     #[allow(unused)]
+    /// Makes this VFS the default one.
     pub fn make_default(mut self) -> Self {
         self.make_default = true;
         self
@@ -862,6 +955,7 @@ where
     T::File: VfsFetchFile,
 {
     #[allow(unused)]
+    /// Enables fetch support (io_methods v3).
     pub fn with_fetch(self) -> VfsRegistration<T, VfsSupport<T, Wal, T::File>> {
         let Self {
             vfs,
@@ -883,6 +977,7 @@ where
     T::File: VfsWalFile,
 {
     #[allow(unused)]
+    /// Enables WAL support (io_methods v2).
     pub fn with_wal(self) -> VfsRegistration<T, VfsSupport<T, T::File, Fetch>> {
         let Self {
             vfs,
