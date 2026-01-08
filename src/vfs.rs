@@ -26,10 +26,14 @@ pub struct SqliteCode(c_int);
 impl SqliteCode {
     pub const OK: Self = Self(sqlite3::SQLITE_OK);
 
+    // Creates a new SQLite result code from a raw result code.
+    //
+    // Returns `None` if the passed result code is zero.
     pub fn from_rc(rc: c_int) -> Self {
         SqliteCode(rc)
     }
 
+    // Returns the raw result code.
     pub fn into_rc(self) -> c_int {
         self.0
     }
@@ -49,11 +53,15 @@ impl Display for SqliteCode {
 pub struct SqliteError(NonZero<c_int>);
 
 impl SqliteError {
+    // Creates a new SQLite error from a raw result code.
+    //
+    // Returns `None` if the passed result code is zero.
     pub fn from_rc(rc: c_int) -> Option<Self> {
         const_assert!(sqlite3::SQLITE_OK == 0);
         Some(Self(NonZero::new(rc)?))
     }
 
+    // Returns the raw result code of this SQLite error.
     pub fn into_rc(&self) -> c_int {
         self.0.get()
     }
@@ -84,7 +92,13 @@ impl From<SqliteCode> for Result<()> {
     }
 }
 
+/// Extension trait to convert a [`Result`] to a [`SqliteCode`].
 trait ToCodeResultExt {
+    /// Convert `self` to a [`SqliteCode`].
+    ///
+    /// If `self` is:
+    /// - `Ok(_)`, this function returns [`SqliteCode::OK`]
+    /// - `Err(err)`, this function returns `err`.
     fn to_code_result(self) -> SqliteCode;
 }
 
@@ -97,7 +111,14 @@ impl ToCodeResultExt for Result<()> {
     }
 }
 
+/// Extension trait to write results to output parameters, returning an appropriate [`SqliteCode`].
 trait WriteOutputResultExt<T> {
+    /// Converts `self` into the `sqlite`-expected `out` param + return code form.
+    ///
+    /// If `self` is:
+    /// - `Ok(value)`, then `value` is written to `*output` and [`SqliteCode::OK`]
+    ///    is returned.
+    /// - `Err(err)`, then `*output` is unchanged and `err` is returned.
     fn write_to_output(self, output: &mut impl From<T>) -> SqliteCode;
 }
 
@@ -119,8 +140,12 @@ pub struct OpenFlags {
 }
 
 impl OpenFlags {
+    /// Creates `OpenFlags` from raw flags.
     fn new(bits: c_int) -> Self {
         let open_flags = Self { bits };
+
+        // The following checks match SQLite exactly.
+
         debug_assert!(
             (!open_flags.read_only() || !open_flags.read_write())
                 && (open_flags.read_write() || open_flags.read_only())
@@ -167,32 +192,32 @@ impl OpenFlags {
         }
     }
 
-    /// Returns true if the file should be created if it doesn't exist.
+    /// Returns whether the file should be created if it doesn't exist.
     pub fn create(&self) -> bool {
         (self.bits & sqlite3::SQLITE_OPEN_CREATE) != 0
     }
 
-    /// Returns true if the file is opened in read-only mode.
+    /// Returns whether the file is opened in read-only mode.
     pub fn read_only(&self) -> bool {
         (self.bits & sqlite3::SQLITE_OPEN_READONLY) != 0
     }
 
-    /// Returns true if the file is opened in read-write mode.
+    /// Returns whether the file is opened in read-write mode.
     pub fn read_write(&self) -> bool {
         (self.bits & sqlite3::SQLITE_OPEN_READWRITE) != 0
     }
 
-    /// Returns true if the file should be deleted when closed.
+    /// Returns whether the file should be deleted when closed.
     pub fn delete_on_close(&self) -> bool {
         (self.bits & sqlite3::SQLITE_OPEN_DELETEONCLOSE) != 0
     }
 
-    /// Returns true if the file should be opened exclusively.
+    /// Returns whether the file should be opened exclusively.
     pub fn exclusive(&self) -> bool {
         (self.bits & sqlite3::SQLITE_OPEN_EXCLUSIVE) != 0
     }
 
-    /// Returns true if the autoproxy locking style should be used.
+    /// Returns whether the autoproxy locking style should be used.
     #[allow(unused)]
     pub fn autoproxy(&self) -> bool {
         (self.bits & sqlite3::SQLITE_OPEN_AUTOPROXY) != 0
@@ -212,8 +237,11 @@ pub enum FileType {
     Wal,
 }
 
-/// Virtual file system abstraction. See [sqlite3_vfs](https://www.sqlite.org/c3ref/vfs.html).
+/// Represents a sqlite virtual file system.
+///
+/// This trait abstracts [sqlite3_vfs](https://www.sqlite.org/c3ref/vfs.html).
 pub trait Vfs: Sync {
+    /// The type of files stored within this VFS.
     type File: VfsFile;
 
     /// Opens a file. Returns the file and the actual flags used.
@@ -261,55 +289,97 @@ impl VfsPath<'_> {
     }
 }
 
-/// Abstraction over SQLite's [`sqlite3_io_methods` v1](https://www.sqlite.org/c3ref/io_methods.html).
+/// Represents the most basic file I/O bahaviours required by a [`Vfs`].
 ///
-/// This trait implements the basic file I/O methods required by SQLite's VFS layer.
+/// This trait corresponds to [`sqlite3_io_methods` v1](https://www.sqlite.org/c3ref/io_methods.html).
 pub trait VfsFile {
-    /// Reads from the file at an offset. See [xRead](https://www.sqlite.org/c3ref/io_methods.html#xRead).
+    /// Reads from the file at an offset.
+    ///
+    /// See [xRead](https://www.sqlite.org/c3ref/io_methods.html#xRead).
     fn read_at(&mut self, buf: &mut [u8], offset: u64) -> Result<()>;
-    /// Writes to the file at an offset. See [xWrite](https://www.sqlite.org/c3ref/io_methods.html#xWrite).
+
+    /// Writes to the file at an offset.
+    ///
+    /// See [xWrite](https://www.sqlite.org/c3ref/io_methods.html#xWrite).
     fn write_at(&mut self, buf: &[u8], offset: u64) -> Result<()>;
-    /// Truncates the file to a size. See [xTruncate](https://www.sqlite.org/c3ref/io_methods.html#xTruncate).
+
+    /// Truncates the file to a size.
+    ///
+    /// See [xTruncate](https://www.sqlite.org/c3ref/io_methods.html#xTruncate).
     fn truncate(&mut self, size: u64) -> Result<()>;
-    /// Syncs the file to disk. See [xSync](https://www.sqlite.org/c3ref/io_methods.html#xSync).
+
+    /// Syncs the file to disk.
+    ///
+    /// See [xSync](https://www.sqlite.org/c3ref/io_methods.html#xSync).
     fn sync(&mut self, op: SyncOptions) -> Result<()>;
-    /// Gets the file size. See [xFileSize](https://www.sqlite.org/c3ref/io_methods.html#xFileSize).
+
+    /// Gets the file size.
+    ///
+    /// See [xFileSize](https://www.sqlite.org/c3ref/io_methods.html#xFileSize).
     fn len(&self) -> Result<u64>;
-    /// Acquires a file lock. See [xLock](https://www.sqlite.org/c3ref/io_methods.html#xLock).
+
+    /// Acquires a file lock at the given `level`.
+    ///
+    /// See [xLock](https://www.sqlite.org/c3ref/io_methods.html#xLock).
     fn lock(&mut self, level: LockLevel) -> Result<()>;
-    /// Releases a file lock. See [xUnlock](https://www.sqlite.org/c3ref/io_methods.html#xUnlock).
+
+    /// Releases a file lock at the given `level`.
+    ///
+    /// See [xUnlock](https://www.sqlite.org/c3ref/io_methods.html#xUnlock).
     fn unlock(&mut self, level: LockLevel) -> Result<()>;
-    /// Checks if a write lock is held. See [xCheckReservedLock](https://www.sqlite.org/c3ref/io_methods.html#xCheckReservedLock).
+
+    /// Checks if a write lock is held.
+    ///
+    /// See [xCheckReservedLock](https://www.sqlite.org/c3ref/io_methods.html#xCheckReservedLock).
     fn is_write_locked(&self) -> Result<bool>;
-    /// Gets the sector size. See [xSectorSize](https://www.sqlite.org/c3ref/io_methods.html#xSectorSize).
+
+    /// Gets the sector size.
+    ///
+    /// See [xSectorSize](https://www.sqlite.org/c3ref/io_methods.html#xSectorSize).
     fn sector_len(&self) -> u32;
-    /// Gets I/O characteristics. See [xDeviceCharacteristics](https://www.sqlite.org/c3ref/io_methods.html#xDeviceCharacteristics).
+
+    /// Gets I/O characteristics.
+    ///
+    /// See [xDeviceCharacteristics](https://www.sqlite.org/c3ref/io_methods.html#xDeviceCharacteristics).
     fn io_capabilities(&self) -> IoCapabilities;
 
-    /// Gets the current lock state. See [SQLITE_FCNTL_LOCKSTATE](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntllockstate).
+    /// Gets the current lock state.
+    ///
+    /// See [SQLITE_FCNTL_LOCKSTATE](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntllockstate).
     fn lock_level(&self) -> LockLevel;
-    /// Gets the last OS error number. See [SQLITE_FCNTL_LAST_ERRNO](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntllasterrno).
+
+    /// Gets the last OS error number.
+    ///
+    /// See [SQLITE_FCNTL_LAST_ERRNO](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntllasterrno).
     fn last_errno(&self) -> i32;
 
-    /// Handles the size hint for a transaction. See [SQLITE_FCNTL_SIZE_HINT](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlsizehint).
+    /// Handles the size hint for a transaction.
+    ///
+    /// See [SQLITE_FCNTL_SIZE_HINT](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlsizehint).
     fn hint_size(&mut self, size: i64) -> Result<()> {
         let _ = size;
         Ok(())
     }
 
-    /// Hints that subsequent writes overwrite existing content. See [SQLITE_FCNTL_OVERWRITE](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntloverwrite).
+    /// Hints that subsequent writes overwrite existing content.
+    ///
+    /// See [SQLITE_FCNTL_OVERWRITE](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntloverwrite).
     fn hint_overwrite(&mut self, size: u64) -> Result<()> {
         let _ = size;
         Err(SqliteError::from_rc(sqlite3::SQLITE_NOTFOUND).unwrap())
     }
 
-    /// Sets the database chunk size. See [SQLITE_FCNTL_CHUNK_SIZE](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlchunksize).
+    /// Sets the database chunk size.
+    ///
+    /// See [SQLITE_FCNTL_CHUNK_SIZE](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlchunksize).
     fn set_chunk_size(&mut self, size: u32) -> Result<()> {
         let _ = size;
         Ok(())
     }
 
-    /// Handles PRAGMA forwarding. See [SQLITE_FCNTL_PRAGMA](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlpragma).
+    /// Handles PRAGMA forwarding.
+    ///
+    /// See [SQLITE_FCNTL_PRAGMA](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlpragma).
     fn pragma(&mut self, name: &str, arg: Option<&str>) -> PragmaResult {
         let _ = name;
         let _ = arg;
@@ -318,100 +388,139 @@ pub trait VfsFile {
         ))
     }
 
-    /// Sets the max mmap size. See [SQLITE_FCNTL_MMAP_SIZE](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlmmapsize).
+    /// Sets the max mmap size.
+    ///
+    /// See [SQLITE_FCNTL_MMAP_SIZE](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlmmapsize).
     fn set_mmap_size(&mut self, size: u64) -> Result<()> {
         let _ = size;
         Ok(())
     }
 
-    /// Gets the max mmap size. See [SQLITE_FCNTL_MMAP_SIZE](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlmmapsize).
+    /// Gets the max mmap size.
+    ///
+    /// See [SQLITE_FCNTL_MMAP_SIZE](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlmmapsize).
     fn mmap_size(&self) -> u64 {
         0
     }
 
-    /// Reports whether the file has moved. See [SQLITE_FCNTL_HAS_MOVED](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcnthasmoved).
+    /// Reports whether the file has moved.
+    ///
+    /// See [SQLITE_FCNTL_HAS_MOVED](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcnthasmoved).
     fn has_moved(&self) -> bool {
         false
     }
 
-    /// Pre-sync hook for a single database. See [SQLITE_FCNTL_SYNC](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlsync).
+    /// Pre-sync hook for a single database.
+    ///
+    /// See [SQLITE_FCNTL_SYNC](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlsync).
     fn pre_sync_single_db(&mut self) -> Result<()> {
         Ok(())
     }
 
-    /// Pre-sync hook for multiple databases (with super-journal). See [SQLITE_FCNTL_SYNC](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlsync).
+    /// Pre-sync hook for multiple databases (with super-journal).
+    ///
+    /// See [SQLITE_FCNTL_SYNC](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlsync).
     fn pre_sync_multiple_db(&mut self, super_journal: VfsPath<'_>) -> Result<()> {
         let _ = super_journal;
         Ok(())
     }
 
-    /// Completes commit phase two. See [SQLITE_FCNTL_COMMIT_PHASETWO](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlcommitphasetwo).
+    /// Completes commit phase two.
+    ///
+    /// See [SQLITE_FCNTL_COMMIT_PHASETWO](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlcommitphasetwo).
     fn commit_phase_two(&mut self) -> Result<()> {
         Ok(())
     }
 
-    // See [SQLITE_FCNTL_PDB](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlpdb)
+    // /// Sets the parent connection.
+    // ///
+    // /// See [SQLITE_FCNTL_PDB](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlpdb)
     // fn set_parent_connection<'a>(&'a mut self, conn: Connection<'a>) {
     //     let _ = conn;
     // }
 
-    /// Begins an atomic-write sequence. See [SQLITE_FCNTL_BEGIN_ATOMIC_WRITE](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlbeginatomicwrite).
+    /// Begins an atomic-write sequence.
+    ///
+    /// See [SQLITE_FCNTL_BEGIN_ATOMIC_WRITE](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlbeginatomicwrite).
     fn begin_atomic(&mut self) -> Result<()> {
         Ok(())
     }
 
-    /// Commits an atomic-write sequence. See [SQLITE_FCNTL_COMMIT_ATOMIC_WRITE](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlcommitatomicwrite).
+    /// Commits an atomic-write sequence.
+    ///
+    /// See [SQLITE_FCNTL_COMMIT_ATOMIC_WRITE](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlcommitatomicwrite).
     fn commit_atomic(&mut self) -> Result<()> {
         Ok(())
     }
 
-    /// Rolls back an atomic-write sequence. See [SQLITE_FCNTL_ROLLBACK_ATOMIC_WRITE](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlrollbackatomicwrite).
+    /// Rolls back an atomic-write sequence.
+    ///
+    /// See [SQLITE_FCNTL_ROLLBACK_ATOMIC_WRITE](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlrollbackatomicwrite).
     fn rollback_atomic(&mut self) {}
 
-    /// Gets the lock timeout. See [SQLITE_FCNTL_LOCK_TIMEOUT](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntllocktimeout).
+    /// Gets the lock timeout.
+    ///
+    /// See [SQLITE_FCNTL_LOCK_TIMEOUT](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntllocktimeout).
     fn lock_timeout(&self) -> Duration {
         Duration::from_millis(0)
     }
 
-    /// Sets the busy handler. See [SQLITE_FCNTL_BUSYHANDLER](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlbusyhandler).
+    /// Sets the busy handler.
+    ///
+    /// See [SQLITE_FCNTL_BUSYHANDLER](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlbusyhandler).
     fn set_busy_handler<'a>(&'a mut self, handler: impl Fn() -> bool + 'a) {
         let _ = handler;
     }
 
-    /// Sets the lock timeout. See [SQLITE_FCNTL_LOCK_TIMEOUT](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntllocktimeout).
+    /// Sets the lock timeout.
+    ///
+    /// See [SQLITE_FCNTL_LOCK_TIMEOUT](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntllocktimeout).
     fn set_lock_timeout(&mut self, timeout: Duration) -> Result<()> {
         let _ = timeout;
         Ok(())
     }
 
-    /// Gets WAL persistence. See [SQLITE_FCNTL_PERSIST_WAL](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlpersistwal).
+    /// Gets WAL persistence.
+    ///
+    /// See [SQLITE_FCNTL_PERSIST_WAL](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlpersistwal).
     fn is_wal_persistent(&self) -> bool {
         false
     }
 
-    /// Sets WAL persistence. See [SQLITE_FCNTL_PERSIST_WAL](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlpersistwal).
+    /// Sets WAL persistence.
+    ///
+    /// See [SQLITE_FCNTL_PERSIST_WAL](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlpersistwal).
     fn set_wal_persistent(&mut self, persist: bool) {
         let _ = persist;
     }
 
-    /// Hints WAL lock behavior. See [SQLITE_FCNTL_WAL_BLOCK](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlwalblock).
+    /// Hints WAL lock behavior.
+    ///
+    /// See [SQLITE_FCNTL_WAL_BLOCK](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlwalblock).
     fn hint_wal_lock(&mut self) {}
 
-    /// Controls blocking behavior during connect. See [SQLITE_FCNTL_BLOCK_ON_CONNECT](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlblockonconnect).
+    /// Controls blocking behavior during connect.
+    ///
+    /// See [SQLITE_FCNTL_BLOCK_ON_CONNECT](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlblockonconnect).
     fn hint_block_on_connect(&mut self, block: bool) {
         let _ = block;
     }
 
-    /// Signals checkpoint start. See [SQLITE_FCNTL_CKPT_START](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlckptstart).
+    /// Signals checkpoint start.
+    ///
+    /// See [SQLITE_FCNTL_CKPT_START](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlckptstart).
     fn on_checkpoint_start(&mut self) {}
-    /// Signals checkpoint completion. See [SQLITE_FCNTL_CKPT_DONE](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlckptdone).
+
+    /// Signals checkpoint completion.
+    ///
+    /// See [SQLITE_FCNTL_CKPT_DONE](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlckptdone).
     fn on_checkpoint_done(&mut self) {}
 }
 
-/// Result type for pragma operations.
+/// Represents pragma operation results.
 pub type PragmaResult = std::result::Result<Option<Cow<'static, str>>, PragmaError>;
 
-/// Error type for pragma operations.
+/// Represents errors in pragma operations.
 #[derive(Debug)]
 pub struct PragmaError {
     pub code: SqliteError,
@@ -449,7 +558,7 @@ impl fmt::Display for PragmaError {
 
 impl Error for PragmaError {}
 
-/// Extensions for WAL shared-memory support (io_methods v2). See https://www.sqlite.org/c3ref/io_methods.html.
+/// Extensions for WAL shared-memory support ([io_methods v2](https://www.sqlite.org/c3ref/io_methods.html)).
 pub trait VfsWalFile: VfsFile {
     /// Maps a shared-memory region. See [xShmMap](https://www.sqlite.org/c3ref/io_methods.html#xShmMap).
     fn map_shm(
@@ -550,7 +659,7 @@ impl WalLock {
     }
 }
 
-/// Extensions for in-memory page access (io_methods v3). See https://www.sqlite.org/c3ref/io_methods.html.
+/// Extensions for in-memory page access ([io_methods v3](https://www.sqlite.org/c3ref/io_methods.html)).
 pub trait VfsFetchFile: VfsFile {
     /// Fetches a page region into memory. See [xFetch](https://www.sqlite.org/c3ref/io_methods.html#xFetch).
     fn fetch(&mut self, offset: i64, amount: NonZero<usize>) -> Result<&mut [u8]>;
