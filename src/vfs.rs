@@ -21,11 +21,11 @@ use static_assertions::const_assert;
 
 /// Represents a SQLite result code.
 #[derive(Copy, Clone, Debug)]
-pub struct SQLiteCode(c_int);
+pub struct SqliteCode(c_int);
 
-impl SQLiteCode {
+impl SqliteCode {
     pub fn from_rc(rc: c_int) -> Self {
-        SQLiteCode(rc)
+        SqliteCode(rc)
     }
 
     pub fn into_rc(self) -> c_int {
@@ -33,7 +33,7 @@ impl SQLiteCode {
     }
 }
 
-impl Display for SQLiteCode {
+impl Display for SqliteCode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let Self(code) = self;
         write!(f, "{code} ({})", libsqlite3_sys::code_to_str(*code))
@@ -44,12 +44,12 @@ impl Display for SQLiteCode {
 ///
 /// This is a non-zero [`SQLiteCode`].
 #[derive(Copy, Clone, Debug)]
-pub struct SQLiteError(NonZero<c_int>);
+pub struct SqliteError(NonZero<c_int>);
 
-impl SQLiteError {
+impl SqliteError {
     pub fn from_rc(rc: c_int) -> Option<Self> {
         const_assert!(sqlite3::SQLITE_OK == 0);
-        Some(SQLiteError(NonZero::new(rc)?))
+        Some(Self(NonZero::new(rc)?))
     }
 
     pub fn into_rc(&self) -> c_int {
@@ -57,25 +57,25 @@ impl SQLiteError {
     }
 }
 
-impl Display for SQLiteError {
+impl Display for SqliteError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        SQLiteCode::from(*self).fmt(f)
+        SqliteCode::from(*self).fmt(f)
     }
 }
 
-impl Error for SQLiteError {}
+impl Error for SqliteError {}
 
-impl From<SQLiteError> for SQLiteCode {
-    fn from(err: SQLiteError) -> Self {
+impl From<SqliteError> for SqliteCode {
+    fn from(err: SqliteError) -> Self {
         Self(err.0.get())
     }
 }
 
-pub type Result<T> = std::result::Result<T, SQLiteError>;
+pub type Result<T> = std::result::Result<T, SqliteError>;
 
-impl From<SQLiteCode> for Result<()> {
-    fn from(code: SQLiteCode) -> Self {
-        if let Some(err) = SQLiteError::from_rc(code.0) {
+impl From<SqliteCode> for Result<()> {
+    fn from(code: SqliteCode) -> Self {
+        if let Some(err) = SqliteError::from_rc(code.0) {
             return Err(err);
         }
         Ok(())
@@ -83,30 +83,30 @@ impl From<SQLiteCode> for Result<()> {
 }
 
 trait ToCodeResultExt {
-    fn to_code_result(self) -> SQLiteCode;
+    fn to_code_result(self) -> SqliteCode;
 }
 
 impl ToCodeResultExt for Result<()> {
-    fn to_code_result(self) -> SQLiteCode {
+    fn to_code_result(self) -> SqliteCode {
         match self {
-            Ok(_) => SQLiteCode(sqlite3::SQLITE_OK),
-            Err(e) => SQLiteCode(e.0.get()),
+            Ok(_) => SqliteCode(sqlite3::SQLITE_OK),
+            Err(e) => SqliteCode(e.0.get()),
         }
     }
 }
 
 trait ToCodeOutputExt<T> {
-    fn to_code_output(self, out: &mut impl From<T>) -> SQLiteCode;
+    fn to_code_output(self, out: &mut impl From<T>) -> SqliteCode;
 }
 
 impl<T> ToCodeOutputExt<T> for Result<T> {
-    fn to_code_output(self, out: &mut impl From<T>) -> SQLiteCode {
+    fn to_code_output(self, out: &mut impl From<T>) -> SqliteCode {
         match self {
             Ok(value) => {
                 *out = value.into();
-                SQLiteCode(sqlite3::SQLITE_OK)
+                SqliteCode(sqlite3::SQLITE_OK)
             }
-            Err(e) => SQLiteCode(e.0.get()),
+            Err(e) => SqliteCode(e.0.get()),
         }
     }
 }
@@ -227,7 +227,7 @@ pub trait Vfs: Sync {
     /// Writes the full pathname of a file to the output buffer.
     fn write_full_path(&self, name: VfsPath<'_>, out: &mut [u8]) -> Result<()>;
     /// Returns the last error code.
-    fn last_error(&self) -> SQLiteCode;
+    fn last_error(&self) -> SqliteCode;
 
     /// Fills a buffer with random bytes.
     fn fill_random_bytes(&self, out: &mut [u8]) -> Result<()> {
@@ -298,7 +298,7 @@ pub trait VfsFile {
     /// Hints that subsequent writes overwrite existing content. See [SQLITE_FCNTL_OVERWRITE](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntloverwrite).
     fn hint_overwrite(&mut self, size: u64) -> Result<()> {
         let _ = size;
-        Err(SQLiteError::from_rc(sqlite3::SQLITE_NOTFOUND).unwrap())
+        Err(SqliteError::from_rc(sqlite3::SQLITE_NOTFOUND).unwrap())
     }
 
     /// Sets the database chunk size. See [SQLITE_FCNTL_CHUNK_SIZE](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlchunksize).
@@ -312,7 +312,7 @@ pub trait VfsFile {
         let _ = name;
         let _ = arg;
         Err(PragmaError::from(
-            SQLiteError::from_rc(sqlite3::SQLITE_NOTFOUND).unwrap(),
+            SqliteError::from_rc(sqlite3::SQLITE_NOTFOUND).unwrap(),
         ))
     }
 
@@ -412,13 +412,13 @@ pub type PragmaResult = std::result::Result<Option<Cow<'static, str>>, PragmaErr
 /// Error type for pragma operations.
 #[derive(Debug)]
 pub struct PragmaError {
-    pub code: SQLiteError,
+    pub code: SqliteError,
     pub message: Option<Cow<'static, str>>,
 }
 
 impl PragmaError {
     #[allow(unused)]
-    pub fn new(code: SQLiteError, message: impl Into<Cow<'static, str>>) -> Self {
+    pub fn new(code: SqliteError, message: impl Into<Cow<'static, str>>) -> Self {
         PragmaError {
             code,
             message: Some(message.into()),
@@ -426,8 +426,8 @@ impl PragmaError {
     }
 }
 
-impl From<SQLiteError> for PragmaError {
-    fn from(code: SQLiteError) -> Self {
+impl From<SqliteError> for PragmaError {
+    fn from(code: SqliteError) -> Self {
         PragmaError {
             code,
             message: None,
@@ -887,7 +887,7 @@ impl<T: Vfs, M: VfsMethodTable> VfsRegistration<T, M> {
     /// Registers the VFS with SQLite.
     pub fn register(self, name: &str) -> Result<VfsRegistrationGuard<T>> {
         if name.len() == 0 {
-            return Err(SQLiteError::from_rc(sqlite3::SQLITE_MISUSE).unwrap());
+            return Err(SqliteError::from_rc(sqlite3::SQLITE_MISUSE).unwrap());
         }
 
         let Self {
@@ -938,7 +938,7 @@ impl<T: Vfs, M: VfsMethodTable> VfsRegistration<T, M> {
             )
         };
 
-        if let Some(err) = SQLiteError::from_rc(rc) {
+        if let Some(err) = SqliteError::from_rc(rc) {
             return Err(err);
         }
         Ok(VfsRegistrationGuard(storage))
@@ -1699,7 +1699,7 @@ mod tests {
     use libsqlite3_sys as sqlite3;
 
     use super::{
-        IoCapabilities, LockLevel, OpenFlags, Result, SQLiteCode, SQLiteError, SyncOptions, Vfs,
+        IoCapabilities, LockLevel, OpenFlags, Result, SqliteCode, SqliteError, SyncOptions, Vfs,
         VfsFetchFile, VfsFile, VfsPath, VfsRegistration, VfsWalFile, WalLock, WalLockMode,
     };
 
@@ -1738,7 +1738,7 @@ mod tests {
             unimplemented!()
         }
 
-        fn last_error(&self) -> SQLiteCode {
+        fn last_error(&self) -> SqliteCode {
             unimplemented!()
         }
 
@@ -1758,7 +1758,7 @@ mod tests {
     impl VfsFile for DummyFile {
         fn read_at(&mut self, buf: &mut [u8], _offset: u64) -> Result<()> {
             buf.fill(0);
-            Err(SQLiteError::from_rc(sqlite3::SQLITE_IOERR_SHORT_READ).unwrap())
+            Err(SqliteError::from_rc(sqlite3::SQLITE_IOERR_SHORT_READ).unwrap())
         }
 
         fn write_at(&mut self, _buf: &[u8], _offset: u64) -> Result<()> {
