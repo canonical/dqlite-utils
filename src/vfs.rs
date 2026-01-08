@@ -116,7 +116,6 @@ pub struct OpenFlags {
     bits: c_int,
 }
 
-#[allow(unused)]
 impl OpenFlags {
     fn new(bits: c_int) -> Self {
         let open_flags = Self { bits };
@@ -192,6 +191,7 @@ impl OpenFlags {
     }
 
     /// Returns true if the autoproxy locking style should be used.
+    #[allow(unused)]
     pub fn autoproxy(&self) -> bool {
         (self.bits & sqlite3::SQLITE_OPEN_AUTOPROXY) != 0
     }
