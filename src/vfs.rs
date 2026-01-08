@@ -1701,7 +1701,6 @@ mod tests {
     use super::*;
 
     struct DummyVfs;
-    struct DummyFile;
 
     impl Vfs for DummyVfs {
         type File = DummyFile;
@@ -1751,6 +1750,8 @@ mod tests {
             unimplemented!()
         }
     }
+
+    struct DummyFile;
 
     impl VfsFile for DummyFile {
         fn read_at(&mut self, buf: &mut [u8], _offset: u64) -> Result<()> {
