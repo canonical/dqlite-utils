@@ -44,7 +44,7 @@ impl Display for SqliteCode {
 
 /// Represents a SQLite error code.
 ///
-/// This is a non-zero [`SQLiteCode`].
+/// This is a non-zero [`SqliteCode`].
 #[derive(Copy, Clone, Debug)]
 pub struct SqliteError(NonZero<c_int>);
 
