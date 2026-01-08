@@ -1,27 +1,22 @@
-use core::panic;
+use std::borrow::Cow;
+use std::error::{self, Error};
+use std::ffi::{c_char, c_int, CStr, CString, OsStr};
+use std::marker::PhantomData;
+use std::num::NonZero;
+use std::os::raw::c_void;
+use std::os::unix::ffi::OsStrExt;
+use std::ptr::{self, NonNull};
+use std::sync::atomic::{self, Ordering};
+use std::sync::Arc;
+use std::thread;
+use std::time::{Duration, SystemTime};
+use std::{fmt, mem, result, slice};
+
 use libsqlite3_sys::{
     self as sqlite3, sqlite3_file, sqlite3_filename, sqlite3_int64, sqlite3_io_methods, sqlite3_vfs,
 };
 use rand::RngCore;
 use static_assertions::const_assert;
-use std::{
-    borrow::Cow,
-    error::{self, Error},
-    ffi::{CStr, CString, OsStr, c_char, c_int},
-    fmt,
-    marker::PhantomData,
-    mem,
-    num::NonZero,
-    os::{raw::c_void, unix::ffi::OsStrExt},
-    ptr::{self, NonNull},
-    result, slice,
-    sync::{
-        Arc,
-        atomic::{self, Ordering},
-    },
-    thread,
-    time::{Duration, SystemTime},
-};
 
 /// Represents an SQLite result code.
 #[derive(Debug)]
