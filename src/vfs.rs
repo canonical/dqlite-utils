@@ -238,7 +238,7 @@ pub trait VfsFile {
     fn sector_len(&mut self) -> u32;
     fn io_capabilities(&mut self) -> IoCapabilities;
 
-    // TODO: add docs with a link to the OPCODE
+    // From here on, these methods are all coming from sqlite3_file_control OPCODEs.
     fn lock_level(&mut self) -> LockLevel;
     fn last_errno(&mut self) -> i32;
 
@@ -330,8 +330,8 @@ pub trait VfsFile {
         let _ = block;
     }
 
-    fn on_checkpoint_start(&mut self) { }
-    fn on_checkpoint_done(&mut self) { }
+    fn on_checkpoint_start(&mut self) {}
+    fn on_checkpoint_done(&mut self) {}
 }
 
 pub type PragmaResult = std::result::Result<Option<Cow<'static, str>>, PragmaError>;
