@@ -360,7 +360,7 @@ impl<'a> VfsFile for File<'a> {
     }
 
     fn has_moved(&self) -> bool {
-        unsafe { self.control_read::<c_int>(sqlite3::SQLITE_FCNTL_LAST_ERRNO) }.unwrap() != 0
+        unsafe { self.control_read::<c_int>(sqlite3::SQLITE_FCNTL_HAS_MOVED) }.unwrap() != 0
     }
 
     fn pre_sync_single_db(&mut self) -> Result<()> {
