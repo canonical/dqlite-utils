@@ -1295,15 +1295,13 @@ unsafe extern "C" fn x_full_pathname<T: Vfs>(
 ) -> c_int {
     let storage = unsafe { VfsStorage::<T>::from_raw(vfs) };
     let name = OsStr::from_bytes(unsafe { CStr::from_ptr(name) }.to_bytes());
-    let out_slice = unsafe {
-        slice::from_raw_parts_mut(
-            out as *mut u8,
-            std::mem::size_of::<c_char>() * n_out as usize,
-        )
-    };
+    let out_len = std::mem::size_of::<c_char>() * n_out as usize;
+    let out_slice = unsafe { slice::from_raw_parts_mut(out as *mut u8, out_len) };
+    out_slice.fill(0);
+
     storage
         .vfs
-        .write_full_path(VfsPath(name), out_slice)
+        .write_full_path(VfsPath(name), &mut out_slice[..(out_len - 1)])
         .to_code_result()
         .into_rc()
 }
