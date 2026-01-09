@@ -3,6 +3,7 @@ mod command;
 mod dqlite;
 mod prompt;
 mod utils;
+mod vfs;
 
 use std::fmt::Display;
 use std::io::{self, IsTerminal};
