@@ -1854,43 +1854,53 @@ mod tests {
             _path: Option<VfsPath<'_>>,
             _flags: OpenFlags,
         ) -> Result<(Self::File, OpenFlags)> {
+            println!("DummyVfs::open called");
             Ok((DummyFile, _flags))
         }
 
         fn delete(&self, _path: VfsPath<'_>, _sync: bool) -> Result<()> {
+            println!("DummyVfs::delete called");
             unimplemented!()
         }
 
         fn write_full_path(&self, _path: VfsPath<'_>, _out: &mut [u8]) -> Result<()> {
+            println!("DummyVfs::write_full_path called");
             _out[.._path.0.as_bytes().len()].copy_from_slice(_path.0.as_bytes());
             Ok(())
         }
 
         fn fill_random_bytes(&self, _out: &mut [u8]) -> Result<()> {
+            println!("DummyVfs::fill_random_bytes called");
             unimplemented!()
         }
 
         fn sleep(&self, _duration: Duration) {
+            println!("DummyVfs::sleep called");
             unimplemented!()
         }
 
         fn now(&self) -> Result<SystemTime> {
+            println!("DummyVfs::now called");
             unimplemented!()
         }
 
         fn last_error(&self) -> SqliteCode {
+            println!("DummyVfs::last_error called");
             SqliteCode::OK
         }
 
         fn exists(&self, _name: VfsPath<'_>) -> Result<bool> {
+            println!("DummyVfs::exists called");
             unimplemented!()
         }
 
         fn can_read(&self, _name: VfsPath<'_>) -> Result<bool> {
+            println!("DummyVfs::can_read called");
             unimplemented!()
         }
 
         fn can_write(&self, _name: VfsPath<'_>) -> Result<bool> {
+            println!("DummyVfs::can_write called");
             unimplemented!()
         }
     }
@@ -1899,51 +1909,63 @@ mod tests {
 
     impl VfsFile for DummyFile {
         fn read_at(&mut self, buf: &mut [u8], _offset: u64) -> Result<()> {
+            println!("DummyFile::read_at called");
             buf.fill(0);
             Err(SqliteError::from_rc(sqlite3::SQLITE_IOERR_SHORT_READ).unwrap())
         }
 
         fn write_at(&mut self, _buf: &[u8], _offset: u64) -> Result<()> {
+            println!("DummyFile::write_at called");
             Ok(())
         }
 
         fn truncate(&mut self, _size: u64) -> Result<()> {
+            println!("DummyFile::truncate called");
             Ok(())
         }
 
         fn sync(&mut self, _op: SyncOptions) -> Result<()> {
+            println!("DummyFile::sync called");
             Ok(())
         }
 
         fn len(&self) -> Result<u64> {
+            println!("DummyFile::len called");
             Ok(0)
         }
 
         fn lock(&mut self, _level: LockLevel) -> Result<()> {
+            println!("DummyFile::lock called");
             Ok(())
         }
 
         fn unlock(&mut self, _level: LockLevel) -> Result<()> {
+            println!("DummyFile::unlock called");
             Ok(())
         }
 
         fn is_write_locked(&self) -> Result<bool> {
+            println!("DummyFile::is_write_locked called");
             Ok(false)
         }
 
         fn lock_level(&self) -> LockLevel {
+            println!("DummyFile::lock_level called");
             unimplemented!()
         }
 
         fn last_errno(&self) -> i32 {
+            println!("DummyFile::last_errno called");
             0
         }
 
         fn sector_len(&self) -> u32 {
+            println!("DummyFile::sector_len called");
             4096
         }
 
         fn io_capabilities(&self) -> IoCapabilities {
+            println!("DummyFile::io_capabilities called");
             IoCapabilities::default()
         }
     }
@@ -1955,28 +1977,34 @@ mod tests {
             _region_size: usize,
             _extend: bool,
         ) -> Result<&mut [u8]> {
+            println!("DummyFile::map_shm called");
             unimplemented!()
         }
 
         fn lock_shm(&mut self, _locks: WalLock, _mode: WalLockMode) -> Result<()> {
+            println!("DummyFile::lock_shm called");
             unimplemented!()
         }
 
         fn unlock_shm(&mut self, _locks: WalLock, _mode: WalLockMode) -> Result<()> {
+            println!("DummyFile::unlock_shm called");
             unimplemented!()
         }
 
         fn unmap_shm(&mut self, _delete: bool) -> Result<()> {
+            println!("DummyFile::unmap_shm called");
             unimplemented!()
         }
     }
 
     impl VfsFetchFile for DummyFile {
         fn unfetch(&mut self, _offset: i64, _ptr: NonNull<u8>) -> Result<()> {
+            println!("DummyFile::unfetch called");
             Ok(())
         }
 
         fn fetch(&mut self, _offset: i64, _amount: NonZero<usize>) -> Result<&mut [u8]> {
+            println!("DummyFile::fetch called");
             unimplemented!()
         }
     }
