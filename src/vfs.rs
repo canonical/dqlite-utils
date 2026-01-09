@@ -1250,7 +1250,7 @@ unsafe extern "C" fn x_open<T: Vfs, M: VfsMethodTableExt>(
         out_flags.write(flags.bits);
         out.cast::<VfsFileStorage<T>>().write(storage);
     }
-    SqliteCode::OK.into_rc()
+    sqlite3::SQLITE_OK
 }
 
 unsafe extern "C" fn x_delete<T: Vfs>(
@@ -1409,7 +1409,7 @@ unsafe extern "C" fn x_get_last_error<T: Vfs>(
 unsafe extern "C" fn x_close<T: Vfs>(file: *mut sqlite3_file) -> c_int {
     let storage = unsafe { VfsFileStorage::<T>::from_raw(file) };
     storage.state = FileStorageState::Closed;
-    SqliteCode::OK.into_rc()
+    sqlite3::SQLITE_OK
 }
 
 unsafe extern "C" fn x_read<T: Vfs>(
@@ -1500,12 +1500,12 @@ unsafe extern "C" fn x_file_control<T: Vfs>(
         sqlite3::SQLITE_FCNTL_LOCKSTATE => {
             let level = file.lock_level();
             unsafe { arg.cast::<c_int>().write(level.to_raw()) };
-            SqliteCode::OK.into_rc()
+            sqlite3::SQLITE_OK
         }
         sqlite3::SQLITE_FCNTL_LAST_ERRNO => {
             let errno = file.last_errno();
             unsafe { arg.cast::<c_int>().write(errno) };
-            SqliteCode::OK.into_rc()
+            sqlite3::SQLITE_OK
         }
         sqlite3::SQLITE_FCNTL_SIZE_HINT => {
             let size = unsafe { arg.cast::<i64>().read() };
@@ -1527,7 +1527,7 @@ unsafe extern "C" fn x_file_control<T: Vfs>(
                     storage.vfs().name.as_ptr(),
                 ));
             }
-            SqliteCode::OK.into_rc()
+            sqlite3::SQLITE_OK
         }
         sqlite3::SQLITE_FCNTL_PRAGMA => {
             // The arg is a pointer to an array of 3 *char:
@@ -1554,9 +1554,9 @@ unsafe extern "C" fn x_file_control<T: Vfs>(
                             result_msg.as_bytes(),
                         );
                     }
-                    SqliteCode::OK.into_rc()
+                    sqlite3::SQLITE_OK
                 }
-                Ok(None) => SqliteCode::OK.into_rc(),
+                Ok(None) => sqlite3::SQLITE_OK,
                 Err(PragmaError {
                     code,
                     message: None,
@@ -1582,7 +1582,7 @@ unsafe extern "C" fn x_file_control<T: Vfs>(
             let old_size = file.mmap_size();
             *size = old_size as i64;
             if new_size < 0 {
-                return SqliteCode::OK.into_rc();
+                return sqlite3::SQLITE_OK;
             }
             file.set_mmap_size(new_size as u64)
                 .to_code_result()
@@ -1590,7 +1590,7 @@ unsafe extern "C" fn x_file_control<T: Vfs>(
         }
         sqlite3::SQLITE_FCNTL_HAS_MOVED => {
             unsafe { arg.cast::<c_int>().write(file.has_moved() as c_int) };
-            SqliteCode::OK.into_rc()
+            sqlite3::SQLITE_OK
         }
         sqlite3::SQLITE_FCNTL_SYNC => {
             let super_journal_raw = arg.cast::<c_char>();
@@ -1613,7 +1613,7 @@ unsafe extern "C" fn x_file_control<T: Vfs>(
             // let pdb = unsafe { arg.cast::<*mut sqlite3>().read() };
             // let connection = unsafe { rusqlite::Connection::from_handle(pdb) }.unwrap();
             // file.set_parent_connection(connection);
-            SqliteCode::OK.into_rc()
+            sqlite3::SQLITE_OK
         }
         sqlite3::SQLITE_FCNTL_BEGIN_ATOMIC_WRITE => file.begin_atomic().to_code_result().into_rc(),
         sqlite3::SQLITE_FCNTL_COMMIT_ATOMIC_WRITE => {
@@ -1621,7 +1621,7 @@ unsafe extern "C" fn x_file_control<T: Vfs>(
         }
         sqlite3::SQLITE_FCNTL_ROLLBACK_ATOMIC_WRITE => {
             file.rollback_atomic();
-            SqliteCode::OK.into_rc()
+            sqlite3::SQLITE_OK
         }
         sqlite3::SQLITE_FCNTL_LOCK_TIMEOUT => {
             let timeout = unsafe { arg.cast::<i32>().as_mut() }.unwrap();
@@ -1643,39 +1643,39 @@ unsafe extern "C" fn x_file_control<T: Vfs>(
                 rc != 0
             };
             file.set_busy_handler(wrapped_handler);
-            SqliteCode::OK.into_rc()
+            sqlite3::SQLITE_OK
         }
 
         sqlite3::SQLITE_FCNTL_NULL_IO => {
             storage.state = FileStorageState::Closed;
-            SqliteCode::OK.into_rc()
+            sqlite3::SQLITE_OK
         }
 
         sqlite3::SQLITE_FCNTL_PERSIST_WAL => {
             let persist = unsafe { arg.cast::<i32>().as_mut() }.unwrap();
             if *persist < 0 {
                 *persist = file.is_wal_persistent() as i32;
-                return SqliteCode::OK.into_rc();
+                return sqlite3::SQLITE_OK;
             }
             file.set_wal_persistent(*persist != 0);
-            SqliteCode::OK.into_rc()
+            sqlite3::SQLITE_OK
         }
         sqlite3::SQLITE_FCNTL_WAL_BLOCK => {
             file.hint_wal_lock();
-            SqliteCode::OK.into_rc()
+            sqlite3::SQLITE_OK
         }
         sqlite3::SQLITE_FCNTL_BLOCK_ON_CONNECT => {
             let block = unsafe { arg.cast::<i32>().as_mut() }.unwrap();
             file.hint_block_on_connect(*block != 0);
-            SqliteCode::OK.into_rc()
+            sqlite3::SQLITE_OK
         }
         sqlite3::SQLITE_FCNTL_CKPT_START => {
             file.on_checkpoint_start();
-            SqliteCode::OK.into_rc()
+            sqlite3::SQLITE_OK
         }
         sqlite3::SQLITE_FCNTL_CKPT_DONE => {
             file.on_checkpoint_done();
-            SqliteCode::OK.into_rc()
+            sqlite3::SQLITE_OK
         }
 
         // Not available as they are specific VFS detail
