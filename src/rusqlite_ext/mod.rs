@@ -1,6 +1,11 @@
 use libsqlite3_sys as sqlite3;
 use static_assertions::const_assert;
-use std::{error::Error, ffi::c_int, fmt::{self, Display}, num::NonZero};
+use std::{
+    error::Error,
+    ffi::c_int,
+    fmt::{self, Display},
+    num::NonZero,
+};
 
 pub mod files;
 pub mod vfs;

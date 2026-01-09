@@ -18,7 +18,7 @@ use libsqlite3_sys::{
 };
 use rand::RngCore;
 
-use super::{Result, SqliteCode, SqliteError, WriteOutputResultExt, ToCodeResultExt};
+use super::{Result, SqliteCode, SqliteError, ToCodeResultExt, WriteOutputResultExt};
 
 /// Flags passed to [`Vfs::open`].
 pub struct OpenFlags {
@@ -358,8 +358,7 @@ pub trait VfsFile {
     /// Sets the busy handler.
     ///
     /// See [SQLITE_FCNTL_BUSYHANDLER](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlbusyhandler).
-    fn set_busy_handler(&mut self, handler: impl Fn() -> bool + 'static) 
-    {
+    fn set_busy_handler(&mut self, handler: impl Fn() -> bool + 'static) {
         let _ = handler;
     }
 
