@@ -1863,9 +1863,9 @@ mod tests {
             unimplemented!()
         }
 
-        fn write_full_path(&self, _path: VfsPath<'_>, _out: &mut [u8]) -> Result<()> {
+        fn write_full_path(&self, path: VfsPath<'_>, out: &mut [u8]) -> Result<()> {
             println!("DummyVfs::write_full_path called");
-            _out[.._path.0.as_bytes().len()].copy_from_slice(_path.0.as_bytes());
+            out[..path.inner().as_bytes().len()].copy_from_slice(path.inner().as_bytes());
             Ok(())
         }
 
@@ -2041,8 +2041,10 @@ mod tests {
     fn test_base_file_methods() {
         let token = VfsRegistration::new(DummyVfs).register("base").unwrap();
 
+        let tempdir = tempfile::tempdir().unwrap();
+        let db_path = tempdir.path().join("test.db");
         let conn = rusqlite::Connection::open_with_flags_and_vfs(
-            "test",
+            db_path.to_str().unwrap(),
             rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE | rusqlite::OpenFlags::SQLITE_OPEN_CREATE,
             "base",
         )
