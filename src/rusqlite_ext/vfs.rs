@@ -17,129 +17,8 @@ use libsqlite3_sys::{
     self as sqlite3, sqlite3_file, sqlite3_filename, sqlite3_int64, sqlite3_io_methods, sqlite3_vfs,
 };
 use rand::RngCore;
-use static_assertions::const_assert;
 
-/// Stores a SQLite result code.
-#[derive(Copy, Clone, Debug)]
-pub struct SqliteCode(c_int);
-
-impl SqliteCode {
-    /// Represents success.
-    pub const OK: Self = Self(sqlite3::SQLITE_OK);
-
-    /// Creates a new SQLite result code from a raw result code.
-    ///
-    /// Returns `None` if the passed result code is zero.
-    pub fn from_rc(rc: c_int) -> Self {
-        SqliteCode(rc)
-    }
-
-    /// Returns the raw result code.
-    pub fn into_rc(self) -> c_int {
-        self.0
-    }
-
-    /// Returns whether the code is [`Self::OK`].
-    pub fn is_ok(&self) -> bool {
-        self.0 == sqlite3::SQLITE_OK
-    }
-}
-
-impl Display for SqliteCode {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let Self(code) = self;
-        write!(f, "{code} ({})", libsqlite3_sys::code_to_str(*code))
-    }
-}
-
-/// Stores a SQLite error code.
-///
-/// This is a non-ok [`SqliteCode`].
-#[derive(Copy, Clone, Debug)]
-pub struct SqliteError(NonZero<c_int>);
-
-impl SqliteError {
-    // Creates a new SQLite error from a raw result code.
-    //
-    // Returns `None` if the passed result code is zero.
-    pub fn from_rc(rc: c_int) -> Option<Self> {
-        const_assert!(sqlite3::SQLITE_OK == 0);
-        Some(Self(NonZero::new(rc)?))
-    }
-
-    // Returns the raw result code of this SQLite error.
-    pub fn into_rc(&self) -> c_int {
-        self.0.get()
-    }
-}
-
-impl Display for SqliteError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        SqliteCode::from(*self).fmt(f)
-    }
-}
-
-impl Error for SqliteError {}
-
-impl From<SqliteError> for SqliteCode {
-    fn from(err: SqliteError) -> Self {
-        Self(err.0.get())
-    }
-}
-
-/// A specialised result type for [`Vfs`] operations.
-pub type Result<T> = std::result::Result<T, SqliteError>;
-
-impl From<SqliteCode> for Result<()> {
-    fn from(code: SqliteCode) -> Self {
-        if let Some(err) = SqliteError::from_rc(code.0) {
-            return Err(err);
-        }
-        Ok(())
-    }
-}
-
-/// Extension trait to convert a [`Result`] to a [`SqliteCode`].
-trait ToCodeResultExt {
-    /// Convert `self` to a [`SqliteCode`].
-    ///
-    /// If `self` is:
-    /// - `Ok(_)`, this function returns [`SqliteCode::OK`]
-    /// - `Err(err)`, this function returns `err`.
-    fn to_code_result(self) -> SqliteCode;
-}
-
-impl ToCodeResultExt for Result<()> {
-    fn to_code_result(self) -> SqliteCode {
-        match self {
-            Ok(_) => SqliteCode::OK,
-            Err(e) => SqliteCode(e.0.get()),
-        }
-    }
-}
-
-/// Extension trait to write results to output parameters, returning an appropriate [`SqliteCode`].
-trait WriteOutputResultExt<T> {
-    /// Converts `self` into the `sqlite`-expected `out` param + return code form.
-    ///
-    /// If `self` is:
-    /// - `Ok(value)`, then `value` is written to `*output` and [`SqliteCode::OK`]
-    ///    is returned.
-    /// - `Err(err)`, then `*output` is unchanged and `err` is returned.
-    fn write_to_output(self, output: &mut impl From<T>) -> SqliteCode;
-}
-
-impl<T> WriteOutputResultExt<T> for Result<T> {
-    fn write_to_output(self, output: &mut impl From<T>) -> SqliteCode {
-        match self {
-            Ok(value) => {
-                *output = value.into();
-                SqliteCode::OK
-            }
-            Err(e) => SqliteCode(e.0.get()),
-        }
-    }
-}
+use super::{Result, SqliteCode, SqliteError, ToCodeResultExt, WriteOutputResultExt};
 
 /// Flags passed to [`Vfs::open`].
 pub struct OpenFlags {
@@ -290,6 +169,10 @@ pub struct VfsPath<'a>(&'a OsStr);
 
 #[allow(unused)]
 impl VfsPath<'_> {
+    pub fn new(path: &OsStr) -> VfsPath<'_> {
+        VfsPath(path)
+    }
+
     /// Returns the inner path as an `OsStr`.
     pub fn inner(&self) -> &OsStr {
         self.0
@@ -475,7 +358,7 @@ pub trait VfsFile {
     /// Sets the busy handler.
     ///
     /// See [SQLITE_FCNTL_BUSYHANDLER](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlbusyhandler).
-    fn set_busy_handler<'a>(&'a mut self, handler: impl Fn() -> bool + 'a) {
+    fn set_busy_handler(&mut self, handler: impl Fn() -> bool + 'static) {
         let _ = handler;
     }
 
@@ -536,10 +419,10 @@ pub struct PragmaError {
 
 impl PragmaError {
     #[allow(unused)]
-    pub fn new(code: SqliteError, message: impl Into<Cow<'static, str>>) -> Self {
+    pub fn new(code: SqliteError, message: impl Into<Option<Cow<'static, str>>>) -> Self {
         PragmaError {
             code,
-            message: Some(message.into()),
+            message: message.into(),
         }
     }
 }
@@ -708,7 +591,7 @@ pub struct SyncOptions {
 
 #[allow(unused)]
 impl SyncOptions {
-    fn to_raw(&self) -> c_int {
+    pub fn to_raw(&self) -> c_int {
         let mut flags = 0;
         if self.full {
             flags |= sqlite3::SQLITE_SYNC_FULL;
@@ -731,7 +614,7 @@ pub enum LockLevel {
 }
 
 impl LockLevel {
-    fn from_raw(level: c_int) -> Self {
+    pub(crate) fn from_raw(level: c_int) -> Self {
         match level {
             sqlite3::SQLITE_LOCK_NONE => LockLevel::None,
             sqlite3::SQLITE_LOCK_SHARED => LockLevel::Shared,
@@ -742,7 +625,7 @@ impl LockLevel {
         }
     }
 
-    fn to_raw(&self) -> c_int {
+    pub(crate) fn to_raw(&self) -> c_int {
         match self {
             LockLevel::None => sqlite3::SQLITE_LOCK_NONE,
             LockLevel::Shared => sqlite3::SQLITE_LOCK_SHARED,
@@ -766,26 +649,36 @@ pub struct IoCapabilities {
     pub subpage_read: bool,
 }
 
-/// Atomic write capabilities.
-#[derive(Clone, Debug, Default)]
-pub enum AtomicWrite {
-    #[default]
-    Never,
-    Block {
-        size_512: bool,
-        size_1k: bool,
-        size_2k: bool,
-        size_4k: bool,
-        size_8k: bool,
-        size_16k: bool,
-        size_32k: bool,
-        size_64k: bool,
-    },
-    Always,
-}
+impl IoCapabilities {
+    pub fn from_raw(raw: c_int) -> Self {
+        let write_cap = if (raw & sqlite3::SQLITE_IOCAP_ATOMIC) != 0 {
+            AtomicWrite::Always
+        } else {
+            AtomicWrite::Block {
+                size_512: (raw & sqlite3::SQLITE_IOCAP_ATOMIC512) != 0,
+                size_1k: (raw & sqlite3::SQLITE_IOCAP_ATOMIC1K) != 0,
+                size_2k: (raw & sqlite3::SQLITE_IOCAP_ATOMIC2K) != 0,
+                size_4k: (raw & sqlite3::SQLITE_IOCAP_ATOMIC4K) != 0,
+                size_8k: (raw & sqlite3::SQLITE_IOCAP_ATOMIC8K) != 0,
+                size_16k: (raw & sqlite3::SQLITE_IOCAP_ATOMIC16K) != 0,
+                size_32k: (raw & sqlite3::SQLITE_IOCAP_ATOMIC32K) != 0,
+                size_64k: (raw & sqlite3::SQLITE_IOCAP_ATOMIC64K) != 0,
+            }
+        };
 
-impl From<IoCapabilities> for c_int {
-    fn from(capabilities: IoCapabilities) -> c_int {
+        IoCapabilities {
+            write_cap,
+            safe_append: (raw & sqlite3::SQLITE_IOCAP_SAFE_APPEND) != 0,
+            sequential: (raw & sqlite3::SQLITE_IOCAP_SEQUENTIAL) != 0,
+            undeletable_when_open: (raw & sqlite3::SQLITE_IOCAP_UNDELETABLE_WHEN_OPEN) != 0,
+            powersafe_overwrite: (raw & sqlite3::SQLITE_IOCAP_POWERSAFE_OVERWRITE) != 0,
+            immutable: (raw & sqlite3::SQLITE_IOCAP_IMMUTABLE) != 0,
+            batch_atomic: (raw & sqlite3::SQLITE_IOCAP_BATCH_ATOMIC) != 0,
+            subpage_read: (raw & sqlite3::SQLITE_IOCAP_SUBPAGE_READ) != 0,
+        }
+    }
+
+    pub fn to_raw(&self) -> c_int {
         let mut flags = 0;
 
         let IoCapabilities {
@@ -797,9 +690,9 @@ impl From<IoCapabilities> for c_int {
             immutable,
             batch_atomic,
             subpage_read,
-        } = capabilities;
+        } = self;
 
-        match write_cap {
+        match *write_cap {
             AtomicWrite::Never => {}
             AtomicWrite::Block {
                 size_512,
@@ -840,28 +733,52 @@ impl From<IoCapabilities> for c_int {
                 flags |= sqlite3::SQLITE_IOCAP_ATOMIC;
             }
         }
-        if safe_append {
+        if *safe_append {
             flags |= sqlite3::SQLITE_IOCAP_SAFE_APPEND;
         }
-        if sequential {
+        if *sequential {
             flags |= sqlite3::SQLITE_IOCAP_SEQUENTIAL;
         }
-        if undeletable_when_open {
+        if *undeletable_when_open {
             flags |= sqlite3::SQLITE_IOCAP_UNDELETABLE_WHEN_OPEN;
         }
-        if powersafe_overwrite {
+        if *powersafe_overwrite {
             flags |= sqlite3::SQLITE_IOCAP_POWERSAFE_OVERWRITE;
         }
-        if immutable {
+        if *immutable {
             flags |= sqlite3::SQLITE_IOCAP_IMMUTABLE;
         }
-        if batch_atomic {
+        if *batch_atomic {
             flags |= sqlite3::SQLITE_IOCAP_BATCH_ATOMIC;
         }
-        if subpage_read {
+        if *subpage_read {
             flags |= sqlite3::SQLITE_IOCAP_SUBPAGE_READ;
         }
         flags
+    }
+}
+
+/// Atomic write capabilities.
+#[derive(Clone, Debug, Default)]
+pub enum AtomicWrite {
+    #[default]
+    Never,
+    Block {
+        size_512: bool,
+        size_1k: bool,
+        size_2k: bool,
+        size_4k: bool,
+        size_8k: bool,
+        size_16k: bool,
+        size_32k: bool,
+        size_64k: bool,
+    },
+    Always,
+}
+
+impl From<IoCapabilities> for c_int {
+    fn from(capabilities: IoCapabilities) -> c_int {
+        capabilities.to_raw()
     }
 }
 
