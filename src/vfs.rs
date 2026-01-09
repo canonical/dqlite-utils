@@ -38,6 +38,11 @@ impl SqliteCode {
     pub fn into_rc(self) -> c_int {
         self.0
     }
+
+    /// Returns whether the code is [`Self::OK`].
+    pub fn is_ok(&self) -> bool {
+        self.0 == sqlite3::SQLITE_OK
+    }
 }
 
 impl Display for SqliteCode {
@@ -2201,6 +2206,12 @@ mod tests {
     #[test]
     fn test_sqlite_code_ok() {
         assert_eq!(SqliteCode::OK.into_rc(), sqlite3::SQLITE_OK);
+    }
+
+    #[test]
+    fn test_sqlite_code_is_ok() {
+        assert!(SqliteCode::OK.is_ok());
+        assert!(!SqliteCode::from_rc(1).is_ok());
     }
 
     #[test]
