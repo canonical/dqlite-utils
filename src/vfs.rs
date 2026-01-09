@@ -1879,7 +1879,7 @@ mod tests {
         }
 
         fn last_error(&self) -> SqliteCode {
-            unimplemented!()
+            SqliteCode::OK
         }
 
         fn exists(&self, _name: VfsPath<'_>) -> Result<bool> {
@@ -1936,7 +1936,7 @@ mod tests {
         }
 
         fn last_errno(&self) -> i32 {
-            unimplemented!()
+            0
         }
 
         fn sector_len(&self) -> u32 {
