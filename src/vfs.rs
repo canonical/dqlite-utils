@@ -2062,8 +2062,10 @@ mod tests {
             .register("fetch")
             .unwrap();
 
+        let tempdir = tempfile::tempdir().unwrap();
+        let db_path = tempdir.path().join("test.db");
         let conn = rusqlite::Connection::open_with_flags_and_vfs(
-            "test",
+            db_path.to_str().unwrap(),
             rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE | rusqlite::OpenFlags::SQLITE_OPEN_CREATE,
             "fetch",
         )
@@ -2111,8 +2113,10 @@ mod tests {
             .register("wal")
             .unwrap();
 
+        let tempdir = tempfile::tempdir().unwrap();
+        let db_path = tempdir.path().join("test.db");
         let conn = rusqlite::Connection::open_with_flags_and_vfs(
-            "test",
+            db_path.to_str().unwrap(),
             rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE | rusqlite::OpenFlags::SQLITE_OPEN_CREATE,
             "wal",
         )
@@ -2161,8 +2165,10 @@ mod tests {
             .register("full")
             .unwrap();
 
+        let tempdir = tempfile::tempdir().unwrap();
+        let db_path = tempdir.path().join("test.db");
         let conn = rusqlite::Connection::open_with_flags_and_vfs(
-            "test",
+            db_path.to_str().unwrap(),
             rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE | rusqlite::OpenFlags::SQLITE_OPEN_CREATE,
             "full",
         )
