@@ -19,21 +19,22 @@ use libsqlite3_sys::{
 use rand::RngCore;
 use static_assertions::const_assert;
 
-/// Represents a SQLite result code.
+/// Stores a SQLite result code.
 #[derive(Copy, Clone, Debug)]
 pub struct SqliteCode(c_int);
 
 impl SqliteCode {
+    /// Represents success.
     pub const OK: Self = Self(sqlite3::SQLITE_OK);
 
-    // Creates a new SQLite result code from a raw result code.
-    //
-    // Returns `None` if the passed result code is zero.
+    /// Creates a new SQLite result code from a raw result code.
+    ///
+    /// Returns `None` if the passed result code is zero.
     pub fn from_rc(rc: c_int) -> Self {
         SqliteCode(rc)
     }
 
-    // Returns the raw result code.
+    /// Returns the raw result code.
     pub fn into_rc(self) -> c_int {
         self.0
     }
@@ -46,9 +47,9 @@ impl Display for SqliteCode {
     }
 }
 
-/// Represents a SQLite error code.
+/// Stores a SQLite error code.
 ///
-/// This is a non-zero [`SqliteCode`].
+/// This is a non-ok [`SqliteCode`].
 #[derive(Copy, Clone, Debug)]
 pub struct SqliteError(NonZero<c_int>);
 
@@ -81,6 +82,7 @@ impl From<SqliteError> for SqliteCode {
     }
 }
 
+/// A specialised result type for [`Vfs`] operations.
 pub type Result<T> = std::result::Result<T, SqliteError>;
 
 impl From<SqliteCode> for Result<()> {
@@ -558,7 +560,7 @@ impl Display for PragmaError {
 
 impl Error for PragmaError {}
 
-/// Represents file I/O behaviours required to use a write-ahead log with shared-memory suppport
+/// Represents file I/O behaviours required to use a write-ahead log with shared-memory support
 /// with a [`Vfs`].
 ///
 /// This trait corresponds to [`sqlite3_io_methods` v2](https://www.sqlite.org/c3ref/io_methods.html).
@@ -872,15 +874,19 @@ impl<V> Drop for VfsRegistrationGuard<V> {
     }
 }
 
+/// Represents a lack of support for a category of file I/O methods.
 pub struct NoSupport;
 
+/// Stores info the I/O method categories supported by a [`Vfs`].
 pub struct VfsSupport<T, W = NoSupport, F = NoSupport> {
     _base: PhantomData<T>,
     _wal_support: PhantomData<W>,
     _fetch_support: PhantomData<F>,
 }
 
-pub trait VfsMethodTable {
+/// Extension trait to provide a pre-computed [`Vfs`] method table.
+pub trait VfsMethodTableExt {
+    /// The available methods derived from a [`VfsSupport`].
     const METHODS: sqlite3_io_methods;
 }
 
@@ -918,7 +924,7 @@ where
     }
 }
 
-impl<T> VfsMethodTable for VfsSupport<T, NoSupport, NoSupport>
+impl<T> VfsMethodTableExt for VfsSupport<T, NoSupport, NoSupport>
 where
     T: Vfs,
 {
@@ -942,7 +948,7 @@ where
     }
 }
 
-impl<F, T> VfsMethodTable for VfsSupport<T, F, NoSupport>
+impl<F, T> VfsMethodTableExt for VfsSupport<T, F, NoSupport>
 where
     F: VfsWalFile,
     T: Vfs<File = F>,
@@ -965,7 +971,7 @@ where
     }
 }
 
-impl<T, F> VfsMethodTable for VfsSupport<T, NoSupport, F>
+impl<T, F> VfsMethodTableExt for VfsSupport<T, NoSupport, F>
 where
     F: VfsFetchFile,
     T: Vfs<File = F>,
@@ -987,7 +993,7 @@ where
     }
 }
 
-impl<T, F> VfsMethodTable for VfsSupport<T, F, F>
+impl<T, F> VfsMethodTableExt for VfsSupport<T, F, F>
 where
     F: VfsFetchFile + VfsWalFile,
     T: Vfs<File = F>,
@@ -1016,7 +1022,7 @@ impl<T: Vfs> VfsRegistration<T, VfsSupport<T>> {
     }
 }
 
-impl<T: Vfs, M: VfsMethodTable> VfsRegistration<T, M> {
+impl<T: Vfs, M: VfsMethodTableExt> VfsRegistration<T, M> {
     #[allow(unused)]
     /// Registers the VFS with SQLite.
     pub fn register(self, name: &str) -> Result<VfsRegistrationGuard<T>> {
@@ -1071,7 +1077,6 @@ impl<T: Vfs, M: VfsMethodTable> VfsRegistration<T, M> {
                 make_default as c_int,
             )
         };
-
         if let Some(err) = SqliteError::from_rc(rc) {
             return Err(err);
         }
@@ -1200,7 +1205,7 @@ impl<T: Vfs> VfsFileStorage<T> {
     }
 }
 
-unsafe extern "C" fn x_open<T: Vfs, M: VfsMethodTable>(
+unsafe extern "C" fn x_open<T: Vfs, M: VfsMethodTableExt>(
     vfs: *mut sqlite3_vfs,
     filename: sqlite3_filename,
     out: *mut sqlite3_file,
