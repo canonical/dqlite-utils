@@ -1,4 +1,5 @@
 use std::ffi::{CStr, CString, OsStr, c_void};
+use std::marker::PhantomData;
 use std::mem;
 use std::ops::Deref;
 use std::os::unix::ffi::OsStrExt;
@@ -10,12 +11,9 @@ use rusqlite::Connection;
 use crate::rusqlite_ext::{Result, SqliteCode, SqliteError};
 
 #[allow(unused)]
-pub trait Files {
-    type FileType<'a>
-    where
-        Self: 'a;
-    fn main_file<'a>(&'a self, db: Option<&OsStr>) -> Self::FileType<'a>;
-    fn journal_file<'a>(&'a self, db: Option<&OsStr>) -> Option<Self::FileType<'a>>;
+pub trait ConnectionFilesExt {
+    fn main_file(&self, db: Option<&OsStr>) -> ConnectionFile<'_>;
+    fn journal_file(&self, db: Option<&OsStr>) -> Option<ConnectionFile<'_>>;
 }
 
 enum SmallCString<const MAX_SIZE: usize = 128> {
@@ -70,18 +68,13 @@ impl From<&[u8]> for SmallCString {
 }
 
 #[allow(unused)]
-impl Files for Connection {
-    type FileType<'a>
-        = ConnectionFile
-    where
-        Self: 'a;
-
-    fn main_file<'a>(&'a self, db: Option<&OsStr>) -> Self::FileType<'a> {
+impl ConnectionFilesExt for Connection {
+    fn main_file(&self, db: Option<&OsStr>) -> ConnectionFile<'_> {
         let handle = unsafe { get_file_handle(self, db, false).as_mut() }.unwrap();
         ConnectionFile::new(handle)
     }
 
-    fn journal_file<'a>(&'a self, db: Option<&OsStr>) -> Option<Self::FileType<'a>> {
+    fn journal_file(&self, db: Option<&OsStr>) -> Option<ConnectionFile<'_>> {
         let handle = unsafe { get_file_handle(self, db, true).as_mut() }?;
         Some(ConnectionFile::new(handle))
     }
@@ -114,15 +107,17 @@ unsafe fn get_file_handle(
 }
 
 #[allow(unused)]
-pub struct ConnectionFile {
+pub struct ConnectionFile<'conn> {
     handle: NonNull<sqlite3_file>,
+    _conn: PhantomData<&'conn Connection>,
 }
 
-impl ConnectionFile {
+impl ConnectionFile<'_> {
     fn new(handle: *mut sqlite3_file) -> Self {
         ConnectionFile {
             handle: NonNull::new(handle)
                 .expect("internal error: cannot create file with null handle"),
+            _conn: PhantomData,
         }
     }
 
@@ -181,7 +176,7 @@ impl ConnectionFile {
 
 #[cfg(test)]
 mod tests {
-    use super::{ConnectionFile, Files};
+    use super::*;
     use rusqlite::Connection;
     use tempfile::NamedTempFile;
 
@@ -225,7 +220,7 @@ mod tests {
         test(&conn);
     }
 
-    fn open_file(conn: &Connection, kind: FileKind) -> ConnectionFile {
+    fn open_file(conn: &Connection, kind: FileKind) -> ConnectionFile<'_> {
         match kind {
             FileKind::Main => conn.main_file(None),
             FileKind::Journal => conn
