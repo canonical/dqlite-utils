@@ -72,18 +72,18 @@ impl From<&[u8]> for SmallCString {
 #[allow(unused)]
 impl Files for Connection {
     type FileType<'a>
-        = File
+        = ConnectionFile
     where
         Self: 'a;
 
     fn main_file<'a>(&'a self, db: Option<&OsStr>) -> Self::FileType<'a> {
         let handle = unsafe { get_file_handle(self, db, false).as_mut() }.unwrap();
-        File::new(handle)
+        ConnectionFile::new(handle)
     }
 
     fn journal_file<'a>(&'a self, db: Option<&OsStr>) -> Option<Self::FileType<'a>> {
         let handle = unsafe { get_file_handle(self, db, true).as_mut() }?;
-        Some(File::new(handle))
+        Some(ConnectionFile::new(handle))
     }
 }
 
@@ -114,14 +114,13 @@ unsafe fn get_file_handle(
 }
 
 #[allow(unused)]
-pub struct File {
+pub struct ConnectionFile {
     handle: NonNull<sqlite3_file>,
 }
 
-#[allow(unused)]
-impl File {
+impl ConnectionFile {
     fn new(handle: *mut sqlite3_file) -> Self {
-        File {
+        ConnectionFile {
             handle: NonNull::new(handle)
                 .expect("internal error: cannot create file with null handle"),
         }
@@ -131,8 +130,12 @@ impl File {
         unsafe { self.handle.as_ref().pMethods.as_ref().unwrap() }
     }
 
+    #[allow(unused)]
     pub fn read_at(&mut self, buf: &mut [u8], offset: u64) -> Result<()> {
-        let read = self.methods().xRead.unwrap();
+        let read = self
+            .methods()
+            .xRead
+            .ok_or(SqliteError::from_rc(sqlite3::SQLITE_MISUSE).unwrap())?;
         let rc = unsafe {
             read(
                 self.handle.as_ptr(),
@@ -144,8 +147,12 @@ impl File {
         SqliteCode::from_rc(rc).into()
     }
 
+    #[allow(unused)]
     pub fn write_at(&mut self, buf: &[u8], offset: u64) -> Result<()> {
-        let write = self.methods().xWrite.unwrap();
+        let write = self
+            .methods()
+            .xWrite
+            .ok_or(SqliteError::from_rc(sqlite3::SQLITE_MISUSE).unwrap())?;
         let rc = unsafe {
             write(
                 self.handle.as_ptr(),
@@ -157,8 +164,12 @@ impl File {
         SqliteCode::from_rc(rc).into()
     }
 
+    #[allow(unused)]
     pub fn len(&self) -> Result<u64> {
-        let file_size = self.methods().xFileSize.unwrap();
+        let file_size = self
+            .methods()
+            .xFileSize
+            .ok_or(SqliteError::from_rc(sqlite3::SQLITE_MISUSE).unwrap())?;
         let mut size: i64 = 0;
         let rc = unsafe { file_size(self.handle.as_ptr(), &mut size as *mut i64) };
         if let Some(err) = SqliteError::from_rc(rc) {
@@ -170,7 +181,7 @@ impl File {
 
 #[cfg(test)]
 mod tests {
-    use super::{File, Files};
+    use super::{ConnectionFile, Files};
     use rusqlite::Connection;
     use tempfile::NamedTempFile;
 
@@ -214,7 +225,7 @@ mod tests {
         test(&conn);
     }
 
-    fn open_file(conn: &Connection, kind: FileKind) -> File {
+    fn open_file(conn: &Connection, kind: FileKind) -> ConnectionFile {
         match kind {
             FileKind::Main => conn.main_file(None),
             FileKind::Journal => conn
@@ -225,14 +236,14 @@ mod tests {
 
     fn run_all_setups<F>(test: F)
     where
-        F: Fn(&mut File, JournalMode, FileKind),
+        F: Fn(&mut ConnectionFile, JournalMode, FileKind),
     {
-        let setups = [
+        let run_setups = [
             (JournalMode::Delete, FileKind::Main),
             (JournalMode::Wal, FileKind::Main),
             (JournalMode::Wal, FileKind::Journal),
         ];
-        for (mode, kind) in setups {
+        for (mode, kind) in run_setups {
             with_prepared_connection(mode, |conn| {
                 let mut file = open_file(conn, kind);
                 test(&mut file, mode, kind);
