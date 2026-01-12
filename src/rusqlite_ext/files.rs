@@ -140,7 +140,7 @@ impl File {
     }
 
     pub fn write_at(&mut self, buf: &[u8], offset: u64) -> Result<()> {
-        let write = self.methods().xRead.unwrap();
+        let write = self.methods().xWrite.unwrap();
         let rc = unsafe {
             write(
                 self.handle.as_ptr(),
