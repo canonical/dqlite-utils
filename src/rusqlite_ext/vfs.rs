@@ -946,7 +946,7 @@ impl<T: Vfs, M: VfsMethodTableExt> VfsRegistration<T, M> {
     #[allow(unused)]
     /// Registers the VFS with SQLite.
     pub fn register(self, name: &str) -> Result<VfsRegistrationGuard<T>> {
-        if name.len() == 0 {
+        if name.is_empty() {
             return Err(SqliteError::from_rc(sqlite3::SQLITE_MISUSE).unwrap());
         }
 
@@ -1216,10 +1216,9 @@ unsafe extern "C" fn x_full_pathname<T: Vfs>(
     storage
         .vfs
         .write_full_path(VfsPath(name), &mut out_slice[..(out_len - 1)])
-        .and_then(|len| {
+        .map(|len| {
             // Null-terminate
             out_slice[len] = 0;
-            Ok(())
         })
         .to_code_result()
         .into_rc()

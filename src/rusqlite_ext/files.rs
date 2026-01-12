@@ -118,12 +118,8 @@ impl File {
         }
     }
 
-    fn handle(&self) -> &mut sqlite3_file {
-        unsafe { &mut *self.handle.as_ptr() }
-    }
-
     fn methods(&self) -> &sqlite3_io_methods {
-        unsafe { self.handle().pMethods.as_ref().unwrap() }
+        unsafe { self.handle.as_ref().pMethods.as_ref().unwrap() }
     }
 
     pub fn read_at(&mut self, buf: &mut [u8], offset: u64) -> Result<()> {
