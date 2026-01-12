@@ -1,5 +1,6 @@
-use std::ffi::{CString, OsStr, c_char, c_void};
+use std::ffi::{CStr, CString, OsStr, c_void};
 use std::mem;
+use std::ops::Deref;
 use std::os::unix::ffi::OsStrExt;
 use std::ptr::{self, NonNull};
 
@@ -19,18 +20,26 @@ pub trait Files {
 
 enum SmallCString<const MAX_SIZE: usize = 128> {
     CString(CString),
-    Stack([u8; MAX_SIZE]),
+    Stack{
+        len: usize,
+        buf: [u8; MAX_SIZE],
+    },
 }
 
 impl<const MAX_SIZE: usize> SmallCString<MAX_SIZE> {
     const MAX_SIZE: usize = MAX_SIZE;
 }
 
-impl SmallCString {
-    pub fn as_ptr(&self) -> *const c_char {
+impl Deref for SmallCString {
+    type Target = CStr;
+
+    fn deref(&self) -> &Self::Target {
         match self {
-            SmallCString::CString(cstr) => cstr.as_ptr(),
-            SmallCString::Stack(stack) => stack.as_ptr() as *const c_char,
+            SmallCString::CString(cstr) => cstr,
+            SmallCString::Stack { len, buf } => {
+                let slice = &buf[..*len];
+                unsafe { CStr::from_bytes_with_nul_unchecked(slice) }
+            }
         }
     }
 }
@@ -53,7 +62,10 @@ impl From<&[u8]> for SmallCString {
             let mut stack = [0u8; Self::MAX_SIZE];
             stack[..s.len()].copy_from_slice(s);
             assert!(stack[s.len()] == 0);
-            SmallCString::Stack(stack)
+            SmallCString::Stack{
+                len: s.len() + 1,
+                buf: stack,
+            }
         } else {
             SmallCString::CString(CString::new(s).unwrap())
         }
@@ -84,25 +96,24 @@ unsafe fn get_file_handle(
     journal: bool,
 ) -> *mut sqlite3_file {
     let handle = unsafe { conn.handle() };
-    let mut file_raw: *mut sqlite3_file = ptr::null_mut();
+    let db = db.map(SmallCString::from);
     let op = if journal {
         sqlite3::SQLITE_FCNTL_JOURNAL_POINTER
     } else {
         sqlite3::SQLITE_FCNTL_FILE_POINTER
     };
-    let db = db.map(SmallCString::from);
-
+    let mut ret: *mut sqlite3_file = ptr::null_mut();
     let rc = unsafe {
         sqlite3::sqlite3_file_control(
             handle,
             db.as_ref().map_or(ptr::null(), |d| d.as_ptr()),
             op,
-            mem::transmute(&mut file_raw),
+            mem::transmute::<&mut *mut sqlite3_file, *mut std::ffi::c_void>(&mut ret),
         )
     };
     debug_assert!(rc == sqlite3::SQLITE_OK);
 
-    file_raw
+    ret
 }
 
 #[allow(unused)]
@@ -114,7 +125,7 @@ pub struct File {
 impl File {
     fn new(handle: *mut sqlite3_file) -> Self {
         File {
-            handle: NonNull::new(handle).unwrap(),
+            handle: NonNull::new(handle).expect("internal error: cannot create file with null handle"),
         }
     }
 
@@ -205,26 +216,14 @@ mod tests {
         test(&conn);
     }
 
-    fn open_file(conn: &Connection, kind: FileKind) -> (File, bool) {
+    fn open_file(conn: &Connection, kind: FileKind) -> File {
         match kind {
-            FileKind::Main => (conn.main_file(None), false),
-            FileKind::Journal => conn
-                .journal_file(None)
-                .map(|file| (file, false))
-                .unwrap_or_else(|| {
-                    conn.execute("BEGIN IMMEDIATE", ()).unwrap();
-                    conn.execute("INSERT INTO data(value) VALUES ('gamma')", ())
-                        .unwrap();
-                    (
-                        conn.journal_file(None)
-                            .expect("journal handle available after write"),
-                        true,
-                    )
-                }),
+            FileKind::Main => conn.main_file(None),
+            FileKind::Journal => conn.journal_file(None).expect("internal error: no journal file"),
         }
     }
 
-    fn run_for_all_setups<F>(test: F)
+    fn run_all_setups<F>(test: F)
     where
         F: Fn(&mut File, JournalMode, FileKind),
     {
@@ -233,29 +232,18 @@ mod tests {
             (JournalMode::Wal, FileKind::Main),
             (JournalMode::Wal, FileKind::Journal),
         ];
-
         for (mode, kind) in setups {
-            run_setup(mode, kind, |file| {
-                test(file, mode, kind);
+            with_prepared_connection(mode, |conn| {
+                let mut file = open_file(conn, kind);
+                test(&mut file, mode, kind);
+                drop(file);
             });
         }
     }
 
-    fn run_setup(mode: JournalMode, kind: FileKind, test: impl Fn(&mut File)) {
-        with_prepared_connection(mode, |conn| {
-            let (mut file, needs_cleanup) = open_file(conn, kind);
-            test(&mut file);
-            drop(file);
-
-            if needs_cleanup {
-                conn.execute("ROLLBACK", ()).unwrap();
-            }
-        });
-    }
-
     #[test]
     fn test_read_at() {
-        run_for_all_setups(|file, _mode, kind| {
+        run_all_setups(|file, _mode, kind| {
             let mut header = [0u8; 16];
             file.read_at(&mut header, 0).unwrap();
             if kind == FileKind::Journal {
@@ -268,7 +256,7 @@ mod tests {
 
     #[test]
     fn test_write_at() {
-        run_for_all_setups(|file, _mode, _kind| {
+        run_all_setups(|file, _mode, _kind| {
             let mut header = [0u8; 16];
             file.read_at(&mut header, 0).unwrap();
             file.write_at(&header, 0).unwrap();
@@ -277,7 +265,7 @@ mod tests {
 
     #[test]
     fn test_len() {
-        run_for_all_setups(|file, _mode, _kind| {
+        run_all_setups(|file, _mode, _kind| {
             let len = file.len().unwrap();
             assert!(len > 0);
         });
