@@ -231,7 +231,7 @@ mod tests {
 
     fn run_all_setups<F>(test: F)
     where
-        F: Fn(&mut ConnectionFile, JournalMode, FileKind),
+        F: Fn(&mut ConnectionFile<'_>, JournalMode, FileKind),
     {
         let run_setups = [
             (JournalMode::Delete, FileKind::Main),
