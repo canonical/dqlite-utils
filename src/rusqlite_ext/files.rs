@@ -20,10 +20,7 @@ pub trait Files {
 
 enum SmallCString<const MAX_SIZE: usize = 128> {
     CString(CString),
-    Stack{
-        len: usize,
-        buf: [u8; MAX_SIZE],
-    },
+    Stack { len: usize, buf: [u8; MAX_SIZE] },
 }
 
 impl<const MAX_SIZE: usize> SmallCString<MAX_SIZE> {
@@ -62,7 +59,7 @@ impl From<&[u8]> for SmallCString {
             let mut stack = [0u8; Self::MAX_SIZE];
             stack[..s.len()].copy_from_slice(s);
             assert!(stack[s.len()] == 0);
-            SmallCString::Stack{
+            SmallCString::Stack {
                 len: s.len() + 1,
                 buf: stack,
             }
@@ -125,7 +122,8 @@ pub struct File {
 impl File {
     fn new(handle: *mut sqlite3_file) -> Self {
         File {
-            handle: NonNull::new(handle).expect("internal error: cannot create file with null handle"),
+            handle: NonNull::new(handle)
+                .expect("internal error: cannot create file with null handle"),
         }
     }
 
@@ -219,7 +217,9 @@ mod tests {
     fn open_file(conn: &Connection, kind: FileKind) -> File {
         match kind {
             FileKind::Main => conn.main_file(None),
-            FileKind::Journal => conn.journal_file(None).expect("internal error: no journal file"),
+            FileKind::Journal => conn
+                .journal_file(None)
+                .expect("internal error: no journal file"),
         }
     }
 
