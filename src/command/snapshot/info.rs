@@ -4,12 +4,12 @@ use anyhow::{Context as _, anyhow};
 use indoc::indoc;
 use indoc::printdoc;
 use rusqlite::Error as RusqliteError;
-use time::format_description::well_known::Iso8601;
 use time::UtcDateTime;
+use time::format_description::well_known::Iso8601;
 
+use crate::command::UnrecognizedArgumentsError;
 use crate::command::help::Help;
 use crate::command::snapshot::{ShellSnapshotContext, ShellSnapshotRaftConfiguration};
-use crate::command::UnrecognizedArgumentsError;
 use crate::dqlite::{RaftRole, RaftServer};
 use crate::{Context, Result};
 
