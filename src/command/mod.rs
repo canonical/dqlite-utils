@@ -80,7 +80,8 @@ impl Command {
             (cmd @ Self::Root(_), _) => Err(CommandUnavailable::new(&cmd, &ctx.shell).into()),
             (Self::Snapshot(cmd), Shell::Snapshot(_)) => cmd.run(ctx),
             (cmd @ Self::Snapshot(_), _) => Err(CommandUnavailable::new(&cmd, &ctx.shell).into()),
-            (Self::Sql(cmd), _) => cmd.run(ctx),
+            (Self::Sql(cmd), Shell::Snapshot(_)) => cmd.run(ctx),
+            (cmd @ Self::Sql(_), _) => Err(CommandUnavailable::new(&cmd, &ctx.shell).into()),
         }
     }
 }
