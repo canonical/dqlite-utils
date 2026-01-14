@@ -37,7 +37,7 @@ impl AddServerCommand {
         };
         let id = id.parse()?;
         let address = address.to_owned();
-        let role = match role.as_ref().map(|r| r.as_str()) {
+        let role = match role.as_deref() {
             Some("standby") => RaftRole::Standby,
             Some("voter") => RaftRole::Voter,
             Some("spare") => RaftRole::Spare,
