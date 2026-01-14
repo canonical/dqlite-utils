@@ -35,7 +35,7 @@ impl InfoCommand {
     pub(crate) fn run(self, ctx: &mut Context) -> Result<()> {
         let shell = ctx
             .shell
-            .snapshot_mut()
+            .snapshot()
             .ok_or_else(|| anyhow!("internal error: .info command not called in snapshot shell"))?;
 
         let ShellSnapshotContext { configuration } = &shell.snapshot;

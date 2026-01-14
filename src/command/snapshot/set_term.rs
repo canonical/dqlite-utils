@@ -34,7 +34,7 @@ impl SetTermCommand {
 
     pub(crate) fn run(self, ctx: &mut Context) -> Result<()> {
         let Self { term } = self;
-        let shell = ctx.shell.snapshot_mut().ok_or_else(|| {
+        let shell = ctx.shell.snapshot().ok_or_else(|| {
             anyhow!("internal error: .set-term command not called in snapshot shell")
         })?;
         shell.connection().execute(
