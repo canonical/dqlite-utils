@@ -99,7 +99,7 @@ impl SnapshotShell {
             .execute(
                 indoc! {"
                     CREATE TABLE raft_data (
-                        _id int PRIMARY KEY DEFAULT(0) CHECK (_id = 0), /* ensure at most one row */
+                        row_id int PRIMARY KEY DEFAULT(0) CHECK (row_id = 0), /* ensure at most one row */
                         term int,
                         idx int,
                         timestamp TEXT NOT NULL
