@@ -1,12 +1,15 @@
 use std::fmt;
 
-use anyhow::anyhow;
+use anyhow::{Context as _, anyhow};
+use indoc::indoc;
 use indoc::printdoc;
+use rusqlite::Error as RusqliteError;
 use time::format_description::well_known::Iso8601;
+use time::UtcDateTime;
 
-use crate::command::UnrecognizedArgumentsError;
 use crate::command::help::Help;
 use crate::command::snapshot::{ShellSnapshotContext, ShellSnapshotRaftConfiguration};
+use crate::command::UnrecognizedArgumentsError;
 use crate::dqlite::{RaftRole, RaftServer};
 use crate::{Context, Result};
 
@@ -35,12 +38,27 @@ impl InfoCommand {
             .snapshot_mut()
             .ok_or_else(|| anyhow!("internal error: .info command not called in snapshot shell"))?;
 
-        let ShellSnapshotContext {
-            term,
-            index,
-            timestamp,
-            configuration,
-        } = &shell.snapshot;
+        let ShellSnapshotContext { configuration } = &shell.snapshot;
+        let conn = shell.connection();
+        let (term, index, timestamp) = conn.query_one(
+            indoc! {"
+                SELECT *
+                FROM raft_data;
+            "},
+            (),
+            |row| {
+                let term: u64 = row.get_unwrap("term");
+                let index: u64 = row.get_unwrap("idx");
+                let timestamp = UtcDateTime::parse(
+                    &row.get_unwrap::<_, String>("timestamp"),
+                    &Iso8601::DEFAULT,
+                )
+                .context("cannot parse timestamp")
+                .map_err(|err| RusqliteError::UserFunctionError(err.into()))?;
+                Ok((term, index, timestamp))
+            },
+        )?;
+
         let timestamp = timestamp
             .format(&Iso8601::DEFAULT)
             .map_err(|_| fmt::Error)?;

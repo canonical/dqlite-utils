@@ -1,4 +1,5 @@
 use anyhow::{Context as _, anyhow};
+use indoc::indoc;
 
 use crate::{
     Context, Result,
@@ -36,7 +37,13 @@ impl SetTermCommand {
         let shell = ctx.shell.snapshot_mut().ok_or_else(|| {
             anyhow!("internal error: .set-term command not called in snapshot shell")
         })?;
-        shell.snapshot.term = term;
+        shell.connection().execute(
+            indoc! {"
+                UPDATE raft_data
+                SET term = ?
+            "},
+            (term,),
+        )?;
         Ok(())
     }
 }

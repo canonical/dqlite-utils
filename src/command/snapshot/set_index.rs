@@ -1,4 +1,5 @@
 use anyhow::{Context as _, anyhow};
+use indoc::indoc;
 
 use crate::{
     Context, Result,
@@ -37,7 +38,13 @@ impl SetIndexCommand {
         let shell = ctx.shell.snapshot_mut().ok_or_else(|| {
             anyhow!("internal error: .set_index command not called in snapshot shell")
         })?;
-        shell.snapshot.index = index;
+        shell.connection().execute(
+            indoc! {"
+                UPDATE raft_data
+                SET idx = ?
+            "},
+            (index,),
+        )?;
         Ok(())
     }
 }

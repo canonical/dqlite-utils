@@ -8,10 +8,12 @@ mod set_timestamp;
 
 use std::str::FromStr;
 
-use anyhow::anyhow;
-use rusqlite::Connection;
+use anyhow::{Context as _, anyhow};
+use indoc::indoc;
+use rusqlite::{Connection, OpenFlags, named_params};
 use strum::EnumIter;
 use time::UtcDateTime;
+use time::format_description::well_known::Iso8601;
 
 use crate::command::help::Help;
 use crate::command::{UnknownCommand, UnrecognizedArgumentsError};
@@ -49,7 +51,7 @@ impl SnapshotCommand {
 
     pub(crate) fn run(self, ctx: &mut Context) -> Result<()> {
         let Self = self;
-        ctx.shell = Shell::Snapshot(SnapshotShell::new());
+        ctx.shell = Shell::Snapshot(SnapshotShell::new()?);
         Ok(())
     }
 }
@@ -78,16 +80,60 @@ impl SnapshotShell {
             .expect("internal error: help invalid")
     }
 
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new() -> Result<Self> {
         let snapshot = ShellSnapshotContext::new();
         let prompt = Prompt::new("snapshot");
-        let connection = Connection::open_in_memory()
-            .expect("internal error: cannot open connection to in-memory database");
-        Self {
+        let connection = Self::prepare_connection()?;
+        Ok(Self {
             snapshot,
             prompt,
             connection,
+        })
+    }
+
+    fn prepare_connection() -> Result<Connection> {
+        let ret = Connection::open_in_memory()
+            .context("internal error: cannot open connection to in-memory database")?;
+
+        let rows_affected = ret
+            .execute(
+                indoc! {"
+                    CREATE TABLE raft_data (
+                        _id int PRIMARY KEY DEFAULT(0) CHECK (_id = 0), /* ensure at most one row */
+                        term int,
+                        idx int,
+                        timestamp TEXT NOT NULL
+                    ) STRICT;
+                "},
+                (),
+            )
+            .context("internal error: cannot create raft_data table")?;
+        if rows_affected != 0 {
+            return Err(anyhow!(
+                "internal error: raft_data table creation affected {rows_affected} rows"
+            ));
         }
+
+        let rows_affected = ret
+            .execute(
+                indoc! {"
+                    INSERT INTO raft_data (term, idx, timestamp)
+                    VALUES (:term, :idx, :timestamp);
+                "},
+                named_params! {
+                    ":term": 1,
+                    ":idx": 1,
+                    ":timestamp": UtcDateTime::now().format(&Iso8601::DEFAULT)?,
+                },
+            )
+            .context("internal error: cannot insert into raft_data")?;
+        if rows_affected != 1 {
+            return Err(anyhow!(
+                "internal error: raft_data insertion affected {rows_affected} rows"
+            ));
+        }
+
+        Ok(ret)
     }
 
     pub(crate) fn prompt(&self) -> &Prompt {
@@ -101,18 +147,13 @@ impl SnapshotShell {
 
 #[derive(Clone, Debug)]
 struct ShellSnapshotContext {
-    term: u64,
-    index: u64,
-    timestamp: UtcDateTime,
+    // TODO(kcza): remove me!
     configuration: ShellSnapshotRaftConfiguration,
 }
 
 impl ShellSnapshotContext {
     fn new() -> Self {
         Self {
-            term: 1,
-            index: 1,
-            timestamp: UtcDateTime::now(),
             configuration: ShellSnapshotRaftConfiguration::new(),
         }
     }
