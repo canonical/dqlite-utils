@@ -33,7 +33,10 @@ impl SqlCommand {
         let Self { raw } = self;
         let conn = match &ctx.shell {
             Shell::Snapshot(shell) => shell.connection(),
-            shell => panic!("internal error: sql command executed in {} shell", shell.name()),
+            shell => panic!(
+                "internal error: sql command executed in {} shell",
+                shell.name()
+            ),
         };
         if !matches!(ctx.shell, Shell::Snapshot(_)) {
             return Err(anyhow!("sql not available in {} shell", ctx.shell.name()));

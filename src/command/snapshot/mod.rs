@@ -82,7 +82,11 @@ impl SnapshotShell {
         let snapshot = ShellSnapshotContext::new();
         let prompt = Prompt::new("snapshot");
         let connection = Self::prepare_connection();
-        Self { snapshot, prompt, connection }
+        Self {
+            snapshot,
+            prompt,
+            connection,
+        }
     }
 
     fn prepare_connection() -> Connection {
