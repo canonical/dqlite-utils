@@ -39,6 +39,11 @@ impl FromStr for Command {
         // NOTE: All commands share the same namespace, thereby allowing us to successfully
         // parse all commands ahead of time, without knowing their effect on the Context;
         // availability is checked later.
+
+        if raw.is_empty() {
+            return Ok(Self::Noop);
+        }
+
         if raw.starts_with('.') {
             let words = shell_words::split(raw)?;
             let (command, args) = match words.split_first() {
