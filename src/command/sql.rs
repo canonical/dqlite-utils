@@ -31,11 +31,14 @@ impl SqlCommand {
 
     pub(crate) fn run(self, ctx: &Context) -> Result<()> {
         let Self { raw } = self;
+        let conn = match &ctx.shell {
+            Shell::Snapshot(shell) => shell.connection(),
+            shell => panic!("internal error: sql command executed in {} shell", shell.name()),
+        };
         if !matches!(ctx.shell, Shell::Snapshot(_)) {
             return Err(anyhow!("sql not available in {} shell", ctx.shell.name()));
         }
 
-        let conn = ctx.connection()?;
         match conn.execute(&raw, ()) {
             Ok(updated) => println!("{updated} rows affected"),
             Err(err) => return Err(err.into()),
