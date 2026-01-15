@@ -56,10 +56,10 @@ impl FinishCommand {
             "},
             (),
             |row| {
-                let term: u64 = row.get_unwrap("term");
-                let index: u64 = row.get_unwrap("idx");
+                let term = row.get_ref("term")?.as_i64()? as u64;
+                let index = row.get_ref("idx")?.as_i64()? as u64;
                 let timestamp = UtcDateTime::parse(
-                    &row.get_unwrap::<_, String>("timestamp"),
+                    row.get_ref("timestamp")?.as_str()?,
                     &Iso8601::DEFAULT,
                 )
                 .map_err(|err| RusqliteError::UserFunctionError(err.into()))?;
