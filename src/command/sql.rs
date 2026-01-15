@@ -37,7 +37,7 @@ impl SqlCommand {
             .ok_or_else(|| anyhow!("sql execution not available in {} shell", ctx.shell.name()))?;
         let rows: Vec<_> = conn.prepare(&raw)?
             .query_map((), |row| Ok(format!("{row:?}")))? // Placeholder repr.
-            .map(|res| res.context("cannot execute query"))
+            .map(|res| res.context("cannot get row"))
             .collect::<Result<_>>()?;
         // TODO(kcza): replace this row output with something prettier.
         for row in rows {
