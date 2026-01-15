@@ -10,7 +10,7 @@ use std::str::FromStr;
 
 use anyhow::{Context as _, anyhow};
 use indoc::indoc;
-use rusqlite::{Connection, OpenFlags, named_params};
+use rusqlite::{Connection, named_params};
 use strum::EnumIter;
 use time::UtcDateTime;
 use time::format_description::well_known::Iso8601;
