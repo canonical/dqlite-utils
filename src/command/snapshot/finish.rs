@@ -11,9 +11,8 @@ use time::UtcDateTime;
 use time::format_description::well_known::Iso8601;
 
 use crate::command::help::Help;
-use crate::command::snapshot::ShellSnapshotContext;
 use crate::command::{MissingArgumentError, UnrecognizedArgumentsError};
-use crate::dqlite::{DqliteDatabaseWriter, DqliteDir, RaftConfiguration};
+use crate::dqlite::{DqliteDatabaseWriter, DqliteDir, RaftConfiguration, RaftServer};
 use crate::{Context, Result, Shell};
 
 #[derive(Debug)]
@@ -47,7 +46,6 @@ impl FinishCommand {
             anyhow!("internal error: .finish command not called in snapshot shell")
         })?;
 
-        let ShellSnapshotContext { configuration } = shell.snapshot.clone();
         let conn = shell.connection();
         let (term, index, timestamp) = conn.query_one(
             indoc! {"
@@ -58,18 +56,34 @@ impl FinishCommand {
             |row| {
                 let term = row.get_ref("term")?.as_i64()? as u64;
                 let index = row.get_ref("idx")?.as_i64()? as u64;
-                let timestamp = UtcDateTime::parse(
-                    row.get_ref("timestamp")?.as_str()?,
-                    &Iso8601::DEFAULT,
-                )
-                .map_err(|err| RusqliteError::UserFunctionError(err.into()))?;
+                let timestamp = SystemTime::from(
+                    UtcDateTime::parse(row.get_ref("timestamp")?.as_str()?, &Iso8601::DEFAULT)
+                        .map_err(|err| RusqliteError::UserFunctionError(err.into()))?,
+                );
                 Ok((term, index, timestamp))
             },
         )?;
 
-        let timestamp = SystemTime::from(timestamp);
-        let configuration =
-            RaftConfiguration::try_from(configuration).context("cannot write snapshot")?;
+        let configuration = {
+            let mut servers = vec![];
+            let mut stmt = conn.prepare(indoc! {"
+                SELECT id, address, role
+                FROM raft_servers;
+            "})?;
+            let mut rows = stmt.query(())?;
+            while let Some(row) = rows.next()? {
+                let server = RaftServer {
+                    id: row.get("id")?,
+                    address: row.get("address")?,
+                    role: row.get("role")?,
+                };
+                servers.push(server);
+            }
+            if servers.is_empty() {
+                return Err(anyhow!("at least one server required"));
+            }
+            RaftConfiguration { servers }
+        };
 
         // Heuristic to ensure clean directory. Clearly there's a TOCTOU issue here,
         // but if a user chooses to write a snapshot into an actively-changing

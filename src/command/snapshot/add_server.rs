@@ -1,15 +1,17 @@
 use anyhow::anyhow;
+use indoc::indoc;
+use rusqlite::named_params;
 
 use crate::command::help::Help;
 use crate::command::{MissingArgumentError, UnrecognizedArgumentsError};
-use crate::dqlite::{RaftRole, RaftServer};
+use crate::dqlite::RaftRole;
 use crate::{Context, Result};
 
 #[derive(Debug)]
 pub(crate) struct AddServerCommand {
-    role: RaftRole,
     id: u64,
     address: String,
+    role: RaftRole,
 }
 
 impl AddServerCommand {
@@ -37,35 +39,36 @@ impl AddServerCommand {
         };
         let id = id.parse()?;
         let address = address.to_owned();
-        let role = match role.as_deref() {
-            Some("standby") => RaftRole::Standby,
-            Some("voter") => RaftRole::Voter,
-            Some("spare") => RaftRole::Spare,
-            Some(raw) => return Err(anyhow!("cannot parse {raw} as raft role")),
-            None => RaftRole::Voter,
-        };
-        Ok(Self { role, id, address })
+        let role = role
+            .as_deref()
+            .map(|role| role.parse())
+            .transpose()?
+            .unwrap_or(RaftRole::Voter);
+        Ok(Self { id, address, role })
     }
 
     pub(crate) fn run(self, ctx: &mut Context) -> Result<()> {
-        let Self { role, id, address } = self;
-        let shell = ctx.shell.snapshot_mut().ok_or_else(|| {
+        let Self { id, address, role } = self;
+        let shell = ctx.shell.snapshot().ok_or_else(|| {
             anyhow!("internal error: .add-server command not called in snapshot shell")
         })?;
-
-        let configuration = &mut shell.snapshot.configuration;
-
-        if configuration.servers.iter().any(|s| s.id == id) {
-            return Err(anyhow!("cannot add server with id {id}: already used"));
-        }
-        if configuration.servers.iter().any(|s| s.address == address) {
+        let rows_affected = shell.connection().execute(
+            indoc! {r#"
+                INSERT INTO raft_servers (id, address, role)
+                VALUES (:id, :address, :role);
+            "#},
+            named_params! {
+                ":id": id,
+                ":address": address,
+                ":role": role,
+            },
+        )?;
+        if rows_affected != 1 {
             return Err(anyhow!(
-                "cannot add server with address '{address}': already used"
+                "internal error: raft_servers insertion affected {rows_affected} rows"
             ));
         }
 
-        let server = RaftServer { id, address, role };
-        configuration.servers.push(server);
         Ok(())
     }
 }

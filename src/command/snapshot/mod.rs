@@ -17,7 +17,6 @@ use time::format_description::well_known::Iso8601;
 
 use crate::command::help::Help;
 use crate::command::{UnknownCommand, UnrecognizedArgumentsError};
-use crate::dqlite::{RaftConfiguration, RaftServer};
 use crate::prompt::Prompt;
 use crate::{Context, Error, Result, Shell};
 
@@ -59,7 +58,6 @@ impl SnapshotCommand {
 #[derive(Debug)]
 pub struct SnapshotShell {
     connection: Connection,
-    snapshot: ShellSnapshotContext,
     prompt: Prompt,
 }
 
@@ -81,38 +79,40 @@ impl SnapshotShell {
     }
 
     pub(crate) fn new() -> Result<Self> {
-        let snapshot = ShellSnapshotContext::new();
         let prompt = Prompt::new("snapshot");
         let connection = Self::prepare_connection()?;
-        Ok(Self {
-            snapshot,
-            prompt,
-            connection,
-        })
+        Ok(Self { prompt, connection })
     }
 
     fn prepare_connection() -> Result<Connection> {
         let ret = Connection::open_in_memory()
             .context("internal error: cannot open connection to in-memory database")?;
 
-        let rows_affected = ret
-            .execute(
-                indoc! {"
+        ret.execute(
+            indoc! {"
                     CREATE TABLE raft_data (
                         term int,
                         idx int,
                         timestamp TEXT NOT NULL,
-                        CHECK(rowid = 1)
+                        CHECK (rowid = 1)
                     ) STRICT;
                 "},
-                (),
-            )
-            .context("internal error: cannot create raft_data table")?;
-        if rows_affected != 0 {
-            return Err(anyhow!(
-                "internal error: raft_data table creation affected {rows_affected} rows"
-            ));
-        }
+            (),
+        )
+        .context("internal error: cannot create raft_data table")?;
+
+        ret.execute(
+            indoc! {"
+                CREATE TABLE raft_servers (
+                    id int,
+                    address TEXT NOT NULL,
+                    role TEXT CHECK (role IN ('standby', 'voter', 'spare')),
+                    UNIQUE (id, address, role)
+                ) STRICT;
+            "},
+            (),
+        )
+        .context("internal error: cannot create raft_data table")?;
 
         let rows_affected = ret
             .execute(
@@ -142,44 +142,6 @@ impl SnapshotShell {
 
     pub(crate) fn connection(&self) -> &Connection {
         &self.connection
-    }
-}
-
-#[derive(Clone, Debug)]
-struct ShellSnapshotContext {
-    // TODO(kcza): remove me!
-    configuration: ShellSnapshotRaftConfiguration,
-}
-
-impl ShellSnapshotContext {
-    fn new() -> Self {
-        Self {
-            configuration: ShellSnapshotRaftConfiguration::new(),
-        }
-    }
-}
-
-#[derive(Clone, Debug, Default)]
-struct ShellSnapshotRaftConfiguration {
-    #[allow(unused)]
-    servers: Vec<RaftServer>,
-}
-
-impl ShellSnapshotRaftConfiguration {
-    fn new() -> Self {
-        Self::default()
-    }
-}
-
-impl TryFrom<ShellSnapshotRaftConfiguration> for RaftConfiguration {
-    type Error = Error;
-
-    fn try_from(configuration: ShellSnapshotRaftConfiguration) -> Result<Self> {
-        let ShellSnapshotRaftConfiguration { servers } = configuration;
-        if servers.is_empty() {
-            return Err(anyhow!("at least one server required"));
-        }
-        Ok(Self { servers })
     }
 }
 
