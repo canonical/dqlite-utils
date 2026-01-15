@@ -13,6 +13,7 @@ use std::process::ExitCode;
 use anyhow::{Context as _, anyhow};
 use clap::Parser;
 use owo_colors::Style;
+use rusqlite::Connection;
 use rustyline::Editor;
 use rustyline::error::ReadlineError;
 use rustyline::history::DefaultHistory;
@@ -244,7 +245,14 @@ impl Shell {
     fn snapshot_mut(&mut self) -> Option<&mut SnapshotShell> {
         match self {
             Self::Snapshot(shell) => Some(shell),
-            _ => None,
+            _ => None,[]
+        }
+    }
+
+    fn connection(&self) -> Option<&Connection> {
+        match self {
+            Self::Root(shell) => shell.connection(),
+            Self::Snapshot(shell) => shell.connection(),
         }
     }
 }

@@ -81,7 +81,8 @@ impl SnapshotShell {
     pub(crate) fn new() -> Self {
         let snapshot = ShellSnapshotContext::new();
         let prompt = Prompt::new("snapshot");
-        let connection = Self::prepare_connection();
+        let connection = Connection::open_in_memory()
+            .expect("internal error: cannot open connection to in-memory database");
         Self {
             snapshot,
             prompt,
@@ -89,18 +90,12 @@ impl SnapshotShell {
         }
     }
 
-    fn prepare_connection() -> Connection {
-        let open_flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_PRIVATE_CACHE;
-        Connection::open_with_flags(":memory:", open_flags)
-            .expect("internal error: cannot open connection to in-memory database")
-    }
-
     pub(crate) fn prompt(&self) -> &Prompt {
         &self.prompt
     }
 
-    pub(crate) fn connection(&self) -> &Connection {
-        &self.connection
+    pub(crate) fn connection(&self) -> Option<&Connection> {
+        Some(&self.connection)
     }
 }
 

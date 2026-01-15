@@ -11,6 +11,7 @@ pub(crate) use self::snapshot::SnapshotShell;
 use std::str::FromStr;
 
 use anyhow::Error;
+use rusqlite::Connection;
 use strum::EnumIter;
 
 use crate::prompt::Prompt;
@@ -259,6 +260,10 @@ impl RootShell {
 
     pub(crate) fn prompt(&self) -> &Prompt {
         &self.prompt
+    }
+
+    pub(crate) fn connection(&self) -> Option<&Connection> {
+        None
     }
 }
 

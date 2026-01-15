@@ -3,7 +3,7 @@ use sqlparser::dialect::SQLiteDialect;
 use sqlparser::parser::Parser;
 
 use crate::command::help::Help;
-use crate::{Context, Result, Shell};
+use crate::{Context, Result};
 
 #[derive(Debug)]
 pub(crate) struct SqlCommand {
@@ -31,11 +31,7 @@ impl SqlCommand {
 
     pub(crate) fn run(self, ctx: &Context) -> Result<()> {
         let Self { raw } = self;
-        let shell = ctx.shell.snapshot().ok_or_else(|| {
-            anyhow!("internal error: .set_index command not called in snapshot shell")
-        })?;
-        let conn = shell.connection();
-
+        let conn = ctx.shell.connection();
         match conn.execute(&raw, ()) {
             Ok(updated) => println!("{updated} rows affected"),
             Err(err) => return Err(err.into()),
