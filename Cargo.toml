@@ -18,6 +18,7 @@ rusqlite = { version = "0.37.0", features = ["bundled-full"] }
 rustyline = "17.0.2"
 shell-words = "1.1.0"
 static_assertions = "1.1.0"
+sqlparser = "0.60.0"
 strum = { version = "0.27.2", features = ["derive"] }
 thiserror = "2.0.17"
 time = { version = "0.3.44", features = ["formatting", "parsing"] }

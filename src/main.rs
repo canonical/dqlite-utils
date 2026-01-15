@@ -13,6 +13,7 @@ use std::process::ExitCode;
 use anyhow::{Context as _, anyhow};
 use clap::Parser;
 use owo_colors::Style;
+use rusqlite::Connection;
 use rustyline::Editor;
 use rustyline::error::ReadlineError;
 use rustyline::history::DefaultHistory;
@@ -191,10 +192,10 @@ impl Context {
         Self::default()
     }
 
-    fn open(&mut self, dir_path: impl Into<PathBuf>) -> Result<&DqliteDir> {
-        let dir = DqliteDir::open(dir_path)?;
-        let ret = self.dqlite.insert(dir);
-        Ok(ret)
+    fn open(&mut self, dir_path: impl Into<PathBuf>) -> Result<()> {
+        let dir_path = dir_path.into();
+        self.dqlite = Some(DqliteDir::open(&dir_path)?);
+        Ok(())
     }
 
     fn dqlite(&self) -> Result<&DqliteDir> {
@@ -245,6 +246,13 @@ impl Shell {
         match self {
             Self::Snapshot(shell) => Some(shell),
             _ => None,
+        }
+    }
+
+    fn connection(&self) -> Option<&Connection> {
+        match self {
+            Self::Root(_) => None,
+            Self::Snapshot(shell) => Some(shell.connection()),
         }
     }
 }
