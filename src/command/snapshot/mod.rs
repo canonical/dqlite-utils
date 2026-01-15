@@ -9,7 +9,7 @@ mod set_timestamp;
 use std::str::FromStr;
 
 use anyhow::anyhow;
-use rusqlite::{Connection, OpenFlags};
+use rusqlite::Connection;
 use strum::EnumIter;
 use time::UtcDateTime;
 

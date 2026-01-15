@@ -1,4 +1,4 @@
-use anyhow::anyhow;
+use anyhow::{anyhow, Context as _};
 use sqlparser::dialect::SQLiteDialect;
 use sqlparser::parser::Parser;
 
@@ -31,11 +31,20 @@ impl SqlCommand {
 
     pub(crate) fn run(self, ctx: &Context) -> Result<()> {
         let Self { raw } = self;
-        let conn = ctx.shell.connection();
-        match conn.execute(&raw, ()) {
-            Ok(updated) => println!("{updated} rows affected"),
-            Err(err) => return Err(err.into()),
+        let conn = ctx
+            .shell
+            .connection()
+            .ok_or_else(|| anyhow!("sql execution not available in {} shell", ctx.shell.name()))?;
+        let rows: Vec<_> = conn.prepare(&raw)?
+            .query_map((), |row| Ok(format!("{row:?}")))? // Placeholder repr.
+            .map(|res| res.context("cannot execute query"))
+            .collect::<Result<_>>()?;
+        // TODO(kcza): replace this row output with something prettier.
+        for row in rows {
+            println!("{row}");
         }
+        // TODO(kcza): only output rows affected on queries containing CRUD.
+        println!("{} rows affected", conn.changes());
         Ok(())
     }
 }
