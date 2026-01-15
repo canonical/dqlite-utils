@@ -251,8 +251,8 @@ impl Shell {
 
     fn connection(&self) -> Option<&Connection> {
         match self {
-            Self::Root(shell) => shell.connection(),
-            Self::Snapshot(shell) => shell.connection(),
+            Self::Root(_) => None,
+            Self::Snapshot(shell) => Some(shell.connection()),
         }
     }
 }

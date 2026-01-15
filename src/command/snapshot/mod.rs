@@ -94,8 +94,8 @@ impl SnapshotShell {
         &self.prompt
     }
 
-    pub(crate) fn connection(&self) -> Option<&Connection> {
-        Some(&self.connection)
+    pub(crate) fn connection(&self) -> &Connection {
+        &self.connection
     }
 }
 

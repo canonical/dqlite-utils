@@ -261,10 +261,6 @@ impl RootShell {
     pub(crate) fn prompt(&self) -> &Prompt {
         &self.prompt
     }
-
-    pub(crate) fn connection(&self) -> Option<&Connection> {
-        None
-    }
 }
 
 #[cfg(test)]
