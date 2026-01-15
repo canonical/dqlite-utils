@@ -9,6 +9,7 @@ mod set_timestamp;
 use std::str::FromStr;
 
 use anyhow::anyhow;
+use rusqlite::Connection;
 use strum::EnumIter;
 use time::UtcDateTime;
 
@@ -55,6 +56,7 @@ impl SnapshotCommand {
 
 #[derive(Debug)]
 pub struct SnapshotShell {
+    connection: Connection,
     snapshot: ShellSnapshotContext,
     prompt: Prompt,
 }
@@ -80,11 +82,21 @@ impl SnapshotShell {
     pub(crate) fn new() -> Self {
         let snapshot = ShellSnapshotContext::new();
         let prompt = Prompt::new("snapshot");
-        Self { snapshot, prompt }
+        let connection = Connection::open_in_memory()
+            .expect("internal error: cannot open connection to in-memory database");
+        Self {
+            snapshot,
+            prompt,
+            connection,
+        }
     }
 
     pub(crate) fn prompt(&self) -> &Prompt {
         &self.prompt
+    }
+
+    pub(crate) fn connection(&self) -> &Connection {
+        &self.connection
     }
 }
 

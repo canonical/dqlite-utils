@@ -73,10 +73,10 @@ impl<T: CommandHelper + Default> InteractiveCommandReader<T> {
 
 impl<T: CommandHelper> Drop for InteractiveCommandReader<T> {
     fn drop(&mut self) {
-        if let Some(history_path) = &self.history_path {
-            if let Err(err) = self.line_editor.save_history(history_path) {
-                eprintln!("cannot save history: {err}");
-            }
+        if let Some(history_path) = &self.history_path
+            && let Err(err) = self.line_editor.save_history(history_path)
+        {
+            eprintln!("cannot save history: {err}");
         }
     }
 }

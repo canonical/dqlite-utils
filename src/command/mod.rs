@@ -39,9 +39,11 @@ impl FromStr for Command {
         // NOTE: All commands share the same namespace, thereby allowing us to successfully
         // parse all commands ahead of time, without knowing their effect on the Context;
         // availability is checked later.
+
         if raw.is_empty() {
             return Ok(Self::Noop);
         }
+
         if raw.starts_with('.') {
             let words = shell_words::split(raw)?;
             let (command, args) = match words.split_first() {
@@ -57,12 +59,8 @@ impl FromStr for Command {
                 Err(err) if err.is::<UnknownCommand>() => {}
                 Err(err) => return Err(err),
             }
-            match SnapshotShellCommand::try_from_input(command, args) {
-                Ok(cmd) => return Ok(Self::Snapshot(cmd)),
-                Err(err) if err.is::<UnknownCommand>() => {}
-                Err(err) => return Err(err),
-            }
-            return Err(UnknownCommand.into());
+            let snapshot_command = SnapshotShellCommand::try_from_input(command, args)?;
+            return Ok(Self::Snapshot(snapshot_command));
         }
         Ok(Self::Sql(SqlCommand::try_from_raw(raw)?))
     }
@@ -87,7 +85,8 @@ impl Command {
             (cmd @ Self::Root(_), _) => Err(CommandUnavailable::new(&cmd, &ctx.shell).into()),
             (Self::Snapshot(cmd), Shell::Snapshot(_)) => cmd.run(ctx),
             (cmd @ Self::Snapshot(_), _) => Err(CommandUnavailable::new(&cmd, &ctx.shell).into()),
-            (Self::Sql(cmd), _) => cmd.run(ctx),
+            (Self::Sql(cmd), Shell::Snapshot(_)) => cmd.run(ctx),
+            (cmd @ Self::Sql(_), _) => Err(CommandUnavailable::new(&cmd, &ctx.shell).into()),
         }
     }
 }

@@ -508,7 +508,7 @@ impl DqliteSnapshot {
             }
         }
 
-        Ok(loader.finish()?)
+        loader.finish()
     }
 
     fn deserialize<T: Deserialize>(
@@ -523,7 +523,7 @@ impl DqliteSnapshot {
             .lock()
             .map_err(|e| anyhow!("cannot take lock: {e}"))?;
         content.seek(SeekFrom::Start(0))?;
-        if Self::is_compressed(&mut *content)? {
+        if Self::is_compressed(&mut content)? {
             let frame_decoder = FrameDecoder::new(&mut *content);
             Self::read_content(frame_decoder, loader)
         } else {

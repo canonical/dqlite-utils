@@ -49,13 +49,8 @@ fn main() {
         println!("cargo:rustc-link-search=native={}", path.display());
     }
 
-    for lib in lib.libs {
-        if lib == "dqlite" {
-            println!("cargo:rustc-link-lib=static={}", lib);
-            continue;
-        }
-        println!("cargo:rustc-link-lib={}", lib);
-    }
+    println!("cargo:rustc-link-lib=static=dqlite");
+    println!("cargo:rustc-link-lib=static=uv");
 
     let bindings = bindgen::Builder::default()
         .header("dqlite-internal.h")
