@@ -13,9 +13,7 @@ impl Prompt {
 
     pub(crate) fn new(text: impl Display) -> Self {
         let content = Cow::from(format!("{text}> "));
-        Self {
-            content,
-        }
+        Self { content }
     }
 
     pub(crate) fn as_str(&self) -> &str {
