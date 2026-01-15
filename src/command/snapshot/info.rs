@@ -42,7 +42,7 @@ impl InfoCommand {
         let conn = shell.connection();
         let (term, index, timestamp) = conn.query_one(
             indoc! {"
-                SELECT *
+                SELECT term, idx, timestamp
                 FROM raft_data;
             "},
             (),

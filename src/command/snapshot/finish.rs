@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use std::time::SystemTime;
 
 use anyhow::{Context as _, anyhow};
+use indoc::indoc;
 use rusqlite::Error as RusqliteError;
 use time::UtcDateTime;
 use time::format_description::well_known::Iso8601;
@@ -48,14 +49,23 @@ impl FinishCommand {
 
         let ShellSnapshotContext { configuration } = shell.snapshot.clone();
         let conn = shell.connection();
-        let (term, index, timestamp) = conn.query_one("SELECT * FROM raft_data", (), |row| {
-            let term: u64 = row.get_unwrap("term");
-            let index: u64 = row.get_unwrap("idx");
-            let timestamp =
-                UtcDateTime::parse(&row.get_unwrap::<_, String>("timestamp"), &Iso8601::DEFAULT)
-                    .map_err(|err| RusqliteError::UserFunctionError(err.into()))?;
-            Ok((term, index, timestamp))
-        })?;
+        let (term, index, timestamp) = conn.query_one(
+            indoc! {"
+                SELECT term, idx, timestamp
+                FROM raft_data
+            "},
+            (),
+            |row| {
+                let term: u64 = row.get_unwrap("term");
+                let index: u64 = row.get_unwrap("idx");
+                let timestamp = UtcDateTime::parse(
+                    &row.get_unwrap::<_, String>("timestamp"),
+                    &Iso8601::DEFAULT,
+                )
+                .map_err(|err| RusqliteError::UserFunctionError(err.into()))?;
+                Ok((term, index, timestamp))
+            },
+        )?;
 
         let timestamp = SystemTime::from(timestamp);
         let configuration =
