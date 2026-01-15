@@ -70,7 +70,11 @@ impl SqlCommand {
 
         if !stmt.readonly() {
             const ROWS_AFFECTED_STYLE: Style = Style::new().dimmed();
-            println!("{} {}", conn.changes().terminal_style(ROWS_AFFECTED_STYLE), "rows affected".terminal_style(ROWS_AFFECTED_STYLE));
+            println!(
+                "{} {}",
+                conn.changes().terminal_style(ROWS_AFFECTED_STYLE),
+                "rows affected".terminal_style(ROWS_AFFECTED_STYLE)
+            );
         }
         Ok(())
     }
