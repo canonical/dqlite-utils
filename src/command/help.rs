@@ -64,7 +64,7 @@ pub(crate) struct HelpEntry<K> {
 
 impl<K> HelpEntry<K> {
     pub(crate) fn name(&self) -> &'static str {
-        &self.name
+        self.name
     }
 }
 
