@@ -1,8 +1,11 @@
-use anyhow::{anyhow, Context as _};
+use anyhow::anyhow;
+use owo_colors::Style;
+use rusqlite::types::ValueRef;
 use sqlparser::dialect::SQLiteDialect;
 use sqlparser::parser::Parser;
 
 use crate::command::help::Help;
+use crate::utils::TerminalStylizeExt;
 use crate::{Context, Result};
 
 #[derive(Debug)]
@@ -35,16 +38,40 @@ impl SqlCommand {
             .shell
             .connection()
             .ok_or_else(|| anyhow!("sql execution not available in {} shell", ctx.shell.name()))?;
-        let rows: Vec<_> = conn.prepare(&raw)?
-            .query_map((), |row| Ok(format!("{row:?}")))? // Placeholder repr.
-            .map(|res| res.context("cannot get row"))
-            .collect::<Result<_>>()?;
-        // TODO(kcza): replace this row output with something prettier.
-        for row in rows {
-            println!("{row}");
+        let mut stmt = conn.prepare(&raw)?;
+        {
+            let column_count = stmt.column_count();
+
+            // Print header
+            if column_count > 0 {
+                for i in 0..column_count {
+                    print!("{}  ", stmt.column_name(i)?);
+                }
+                println!("\n---");
+            }
+
+            // Print content
+            let mut rows = stmt.query(())?;
+            while let Some(row) = rows.next()? {
+                for i in 0..column_count {
+                    match row.get_ref(i)? {
+                        ValueRef::Blob(blob) => print!("<blob:({}B)>  ", blob.len()),
+                        ValueRef::Null => print!("NULL  "),
+                        ValueRef::Integer(value) => print!("{}  ", value),
+                        ValueRef::Real(value) => print!("{}  ", value),
+                        ValueRef::Text(text) => {
+                            print!("{}  ", String::from_utf8_lossy(text));
+                        }
+                    }
+                }
+                println!();
+            }
         }
-        // TODO(kcza): only output rows affected on queries containing CRUD.
-        println!("{} rows affected", conn.changes());
+
+        if !stmt.readonly() {
+            const ROWS_AFFECTED_STYLE: Style = Style::new().dimmed();
+            println!("{} {}", conn.changes().terminal_style(ROWS_AFFECTED_STYLE), "rows affected".terminal_style(ROWS_AFFECTED_STYLE));
+        }
         Ok(())
     }
 }

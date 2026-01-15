@@ -11,7 +11,6 @@ pub(crate) use self::snapshot::SnapshotShell;
 use std::str::FromStr;
 
 use anyhow::Error;
-use rusqlite::Connection;
 use strum::EnumIter;
 
 use crate::prompt::Prompt;
