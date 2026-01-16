@@ -90,13 +90,13 @@ impl SnapshotShell {
 
         ret.execute(
             indoc! {"
-                    CREATE TABLE raft_data (
-                        term int,
-                        idx int,
-                        timestamp TEXT NOT NULL,
-                        CHECK (rowid = 1)
-                    ) STRICT;
-                "},
+                CREATE TABLE raft_data (
+                    term int,
+                    idx int,
+                    timestamp TEXT NOT NULL,
+                    CHECK (rowid = 1)
+                ) STRICT;
+            "},
             (),
         )
         .context("internal error: cannot create raft_data table")?;
