@@ -34,10 +34,12 @@ impl SqlCommand {
 
     pub(crate) fn run(self, ctx: &Context) -> Result<()> {
         let Self { raw } = self;
-        let conn = ctx
-            .shell
-            .connection()
-            .ok_or_else(|| anyhow!("sql execution not available in {} shell", ctx.shell.name()))?;
+        let conn = ctx.shell.connection().ok_or_else(|| {
+            anyhow!(
+                "sql execution not available in {} shell",
+                ctx.shell.kind().name()
+            )
+        })?;
         let mut stmt = conn.prepare(&raw)?;
         {
             let column_count = stmt.column_count();

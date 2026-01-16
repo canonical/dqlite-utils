@@ -14,7 +14,7 @@ use anyhow::Error;
 use strum::EnumIter;
 
 use crate::prompt::Prompt;
-use crate::{Context, Result, Shell};
+use crate::{Context, Result, Shell, ShellKind};
 
 use self::help::HelpCommand;
 use self::log::LogCommand;
@@ -92,17 +92,17 @@ impl Command {
 }
 
 #[derive(Debug, thiserror::Error)]
-#[error("{} command unavailable in {shell_name} shell", kind.name())]
+#[error("{} command unavailable in {} shell", command_kind.name(), shell_kind.name())]
 struct CommandUnavailable {
-    kind: CommandKind,
-    shell_name: &'static str,
+    command_kind: CommandKind,
+    shell_kind: ShellKind,
 }
 
 impl CommandUnavailable {
     fn new(command: &Command, shell: &Shell) -> Self {
         Self {
-            kind: command.kind(),
-            shell_name: shell.name(),
+            command_kind: command.kind(),
+            shell_kind: shell.kind(),
         }
     }
 }
@@ -162,7 +162,7 @@ impl FromStr for CommandKind {
 }
 
 impl CommandKind {
-    fn name(&self) -> &'static str {
+    pub(crate) fn name(&self) -> &'static str {
         match self {
             Self::Help => ".help",
             Self::Noop => "no-op",
@@ -185,7 +185,7 @@ impl CommandKind {
 
 #[derive(Debug, thiserror::Error)]
 #[error("unknown command")]
-struct UnknownCommand;
+pub(crate) struct UnknownCommand;
 
 #[derive(Debug, Eq, PartialEq, EnumIter)]
 pub(crate) enum RootCommandKind {

@@ -43,7 +43,7 @@ impl HelpCommand {
     pub(crate) fn run(self, ctx: &Context) -> Result<()> {
         let Self { command } = self;
         let help = match command {
-            None => ctx.shell.help(),
+            None => ctx.shell.kind().help(),
             Some(command) => command.help(),
         };
         match help.write_to(io::stdout().lock()) {
@@ -55,11 +55,17 @@ impl HelpCommand {
     }
 }
 
-#[derive(Debug)]
-struct HelpEntry<K> {
+#[derive(Clone, Debug)]
+pub(crate) struct HelpEntry<K> {
     kind: K,
     name: &'static str,
     summary: &'static str,
+}
+
+impl<K> HelpEntry<K> {
+    pub(crate) fn name(&self) -> &'static str {
+        self.name
+    }
 }
 
 #[derive(Debug)]
@@ -71,8 +77,8 @@ struct Arg {
 struct Flag;
 
 // NOTE: short name to avoid clash with `crate::Command` type.
-#[derive(Debug)]
-struct Cmd;
+#[derive(Clone, Debug)]
+pub(crate) struct Cmd;
 
 #[derive(Debug)]
 pub(crate) struct Help {
@@ -181,6 +187,10 @@ impl Help {
             writeln!(w, "  {name}{padding}  {summary}")?;
         }
         Ok(())
+    }
+
+    pub(crate) fn into_commands(self) -> Vec<HelpEntry<Cmd>> {
+        self.commands
     }
 }
 
