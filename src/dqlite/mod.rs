@@ -1017,6 +1017,30 @@ impl DqliteSnapshotBuilder<Empty> {
             databases,
         }
     }
+
+    pub fn add_databases<T: DqliteDatabaseWriter>(
+        self,
+        dbs: impl IntoIterator<Item = (CString, T)>,
+    ) -> DqliteSnapshotBuilder<T> {
+        let Self {
+            term,
+            index,
+            timestamp,
+            compressed,
+            databases,
+            configuration,
+        } = self;
+        debug_assert!(databases.is_empty());
+        let databases = dbs.into_iter().collect();
+        DqliteSnapshotBuilder {
+            term,
+            index,
+            timestamp,
+            compressed,
+            configuration,
+            databases,
+        }
+    }
 }
 
 impl<T> DqliteSnapshotBuilder<T>
@@ -1025,6 +1049,11 @@ where
 {
     pub fn add_database(mut self, name: CString, content: T) -> Self {
         self.databases.push((name, content));
+        self
+    }
+
+    pub fn add_databases(mut self, dbs: impl IntoIterator<Item = (CString, T)>) -> Self {
+        self.databases.extend(dbs);
         self
     }
 }
@@ -1083,7 +1112,6 @@ impl<T> DqliteDirCreator<T> {
 }
 
 impl DqliteDirCreator<Empty> {
-    #[allow(unused)]
     pub fn with_snapshot<T>(
         self,
         f: impl FnOnce(DqliteSnapshotBuilder<Empty>) -> DqliteSnapshotBuilder<T>,

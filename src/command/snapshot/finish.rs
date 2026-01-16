@@ -1,6 +1,8 @@
-use std::ffi::CString;
-use std::fs;
-use std::io::{ErrorKind, Write};
+use std::ffi::{CString, OsString};
+use std::fs::{self, File};
+use std::io::{BufRead, BufReader, ErrorKind, Write};
+use std::os::unix::ffi::OsStringExt;
+use std::os::unix::fs::MetadataExt;
 use std::path::PathBuf;
 use std::time::SystemTime;
 
@@ -60,6 +62,22 @@ impl FinishCommand {
         } = RaftMetadata::read_from(conn)?;
         let timestamp = SystemTime::from(timestamp);
 
+        let attached_dbs = {
+            let mut attached_dbs = Vec::with_capacity(10);
+            let mut stmt = conn.prepare("PRAGMA database_list;")?;
+            let mut rows = stmt.query(())?;
+            while let Some(row) = rows.next()? {
+                let name = row.get("name")?;
+                if name == "main" {
+                    // Main only contains metadata, this is encoded elsewhere.
+                    continue;
+                }
+                let file = OsString::from_vec(row.get::<_, String>("file")?.into_bytes());
+                attached_dbs.push(AttachedDb::new(name, file)?)
+            }
+            attached_dbs
+        };
+
         // Heuristic to ensure clean directory. Clearly there's a TOCTOU issue here,
         // but if a user chooses to write a snapshot into an actively-changing
         // directory then on their head, be it.
@@ -84,11 +102,7 @@ impl FinishCommand {
                     .with_index(index)
                     .with_timestamp(timestamp)
                     .with_configuration(configuration)
-                    .add_database(
-                        CString::new("placeholder db".as_bytes().to_owned())
-                            .expect("internal error: CString invalid"),
-                        PlaceholderDb,
-                    )
+                    .add_databases(attached_dbs.into_iter().map(|db| (db.name.clone(), db)))
             })
             .create();
         if let Err(err) = res {
@@ -104,22 +118,87 @@ impl FinishCommand {
     }
 }
 
-struct PlaceholderDb;
+struct AttachedDb {
+    name: CString,
+    main: AttachedDbFile,
+    wal: Option<AttachedDbFile>,
+}
 
-impl DqliteDatabaseWriter for PlaceholderDb {
+impl AttachedDb {
+    fn new(name: String, main_path: OsString) -> Result<Self> {
+        let main_size = fs::metadata(&main_path)
+            .with_context(|| anyhow!("cannot open {}", main_path.display()))?
+            .size() as usize;
+        let main = AttachedDbFile {
+            path: main_path.clone(),
+            size: main_size,
+        };
+
+        let wal_path = {
+            let mut wal_path = main_path;
+            wal_path.push("-wal");
+            wal_path
+        };
+        let wal = match fs::metadata(&wal_path) {
+            Ok(metadata) => {
+                let size = metadata.size() as usize;
+                Some(AttachedDbFile {
+                    path: wal_path,
+                    size,
+                })
+            }
+            Err(err) if err.kind() == ErrorKind::NotFound => None,
+            Err(err) => {
+                return Err(err).with_context(|| anyhow!("cannot open {}", wal_path.display()))?;
+            }
+        };
+        let name = CString::new(name)?;
+        Ok(Self { name, main, wal })
+    }
+}
+
+impl DqliteDatabaseWriter for AttachedDb {
     fn main_size(&self) -> usize {
-        0
+        self.main.size
     }
 
     fn wal_size(&self) -> usize {
-        0
+        self.wal.as_ref().map(|wal| wal.size).unwrap_or_default()
     }
 
-    fn write_main(&self, _out: &mut impl Write) -> Result<()> {
+    fn write_main(&self, out: &mut impl Write) -> Result<()> {
+        self.main.write_to(out)?;
         Ok(())
     }
 
-    fn write_wal(&self, _out: &mut impl Write) -> Result<()> {
+    fn write_wal(&self, out: &mut impl Write) -> Result<()> {
+        if let Some(wal) = &self.wal {
+            wal.write_to(out)?;
+        }
+        Ok(())
+    }
+}
+
+struct AttachedDbFile {
+    path: OsString,
+    size: usize,
+}
+
+impl AttachedDbFile {
+    fn write_to(&self, out: &mut impl Write) -> Result<()> {
+        let mut reader = BufReader::new(
+            File::open(&self.path)
+                .with_context(|| anyhow!("cannot open {}", self.path.display()))?,
+        );
+        loop {
+            let buf = reader.fill_buf()?;
+            if buf.is_empty() {
+                break;
+            }
+            out.write_all(buf)?;
+            let bytes_written = buf.len(); // Ensures `buf` is dropped before `.consume()`.
+            reader.consume(bytes_written);
+        }
         Ok(())
     }
 }
