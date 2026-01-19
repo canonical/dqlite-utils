@@ -154,9 +154,9 @@ impl SnapshotShellCommand {
         }
     }
 
-    pub(crate) fn try_from_input(command: &str, args: &[String]) -> Result<Self> {
+    pub(crate) fn try_from_input(kind: SnapshotShellCommandKind, args: &[String]) -> Result<Self> {
         use SnapshotShellCommandKind as Ssck;
-        match command.parse()? {
+        match kind {
             Ssck::Abort => Ok(Self::Abort(AbortCommand::try_from_args(args)?)),
             Ssck::AddServer => Ok(Self::AddServer(AddServerCommand::try_from_args(args)?)),
             Ssck::Finish => Ok(Self::Finish(FinishCommand::try_from_args(args)?)),

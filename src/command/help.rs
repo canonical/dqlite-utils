@@ -3,7 +3,7 @@ use std::io::{self, ErrorKind, Write};
 use anyhow::Context as _;
 use owo_colors::Style;
 
-use crate::command::{CommandKind, UnrecognizedArgumentsError};
+use crate::command::{CommandKind, UnknownCommand, UnrecognizedArgumentsError};
 use crate::utils::TerminalStylizeExt;
 use crate::{Context, Result};
 
@@ -23,11 +23,15 @@ impl HelpCommand {
     }
 
     pub(crate) fn try_from_args(args: &[String]) -> Result<Self> {
-        match args {
-            [] => Self::new(),
-            [command] => Self::with_command(command.parse()?),
-            [_, tail @ ..] => Err(UnrecognizedArgumentsError(tail.to_vec()).into()),
+        let command = match args {
+            [] => return Self::new(),
+            [command] => command.parse()?,
+            [_, tail @ ..] => return Err(UnrecognizedArgumentsError(tail.to_vec()).into()),
+        };
+        if matches!(command, CommandKind::Sql) {
+            return Err(UnknownCommand.into());
         }
+        Self::with_command(command)
     }
 
     fn new() -> Result<Self> {
