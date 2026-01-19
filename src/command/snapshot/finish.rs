@@ -71,7 +71,7 @@ impl FinishCommand {
             while let Some(row) = rows.next()? {
                 let name = row.get_ref("name")?.as_str()?;
                 if name == "raft" || name == "temp" {
-                    // Main only contains metadata, this is encoded elsewhere.
+                    // `raft` only contains metadata, this is encoded elsewhere. `temp` is ignored as it cannot be used as a schema name.
                     continue;
                 }
                 attached_dbs.push(AttachedDb::new(&txn, name)?)
