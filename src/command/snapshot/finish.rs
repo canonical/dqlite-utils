@@ -5,8 +5,9 @@ use std::path::PathBuf;
 use std::time::SystemTime;
 
 use anyhow::{Context as _, anyhow};
+use fallible_iterator::FallibleIterator;
 use indoc::indoc;
-use rusqlite::Error as RusqliteError;
+use rusqlite::{Connection, Error as RusqliteError};
 use time::UtcDateTime;
 use time::format_description::well_known::Iso8601;
 
@@ -47,38 +48,29 @@ impl FinishCommand {
         })?;
 
         let conn = shell.connection();
-        let (term, index, timestamp) = conn.query_one(
-            indoc! {"
-                SELECT term, idx, timestamp
-                FROM raft_data
-            "},
-            (),
-            |row| {
-                let term = row.get_ref("term")?.as_i64()? as u64;
-                let index = row.get_ref("idx")?.as_i64()? as u64;
-                let timestamp = SystemTime::from(
-                    UtcDateTime::parse(row.get_ref("timestamp")?.as_str()?, &Iso8601::DEFAULT)
-                        .map_err(|err| RusqliteError::UserFunctionError(err.into()))?,
-                );
-                Ok((term, index, timestamp))
-            },
-        )?;
+
+        let RaftMetadata {
+            term,
+            index,
+            timestamp,
+        } = RaftMetadata::read_from(&conn)?;
+        let timestamp = SystemTime::from(timestamp);
 
         let configuration = {
-            let mut servers = vec![];
             let mut stmt = conn.prepare(indoc! {"
                 SELECT id, address, role
                 FROM raft_servers;
             "})?;
-            let mut rows = stmt.query(())?;
-            while let Some(row) = rows.next()? {
-                let server = RaftServer {
-                    id: row.get("id")?,
-                    address: row.get("address")?,
-                    role: row.get("role")?,
-                };
-                servers.push(server);
-            }
+            let servers: Vec<_> = stmt
+                .query(())?
+                .map(|row| {
+                    Ok(RaftServer {
+                        id: row.get("id")?,
+                        address: row.get("address")?,
+                        role: row.get("role")?,
+                    })
+                })
+                .collect()?;
             if servers.is_empty() {
                 return Err(anyhow!("at least one server required"));
             }
@@ -126,6 +118,37 @@ impl FinishCommand {
         ctx.shell = Shell::default();
 
         Ok(())
+    }
+}
+
+pub(crate) struct RaftMetadata {
+    pub(crate) term: u64,
+    pub(crate) index: u64,
+    pub(crate) timestamp: UtcDateTime,
+}
+
+impl RaftMetadata {
+    pub(crate) fn read_from(conn: &Connection) -> Result<Self> {
+        let (term, index, timestamp) = conn.query_one(
+            indoc! {"
+                SELECT raft_term, raft_index, timestamp
+                FROM raft_data
+            "},
+            (),
+            |row| {
+                let term: u64 = row.get("raft_term")?;
+                let index: u64 = row.get("raft_index")?;
+                let timestamp =
+                    UtcDateTime::parse(row.get_ref("timestamp")?.as_str()?, &Iso8601::DEFAULT)
+                        .map_err(|err| RusqliteError::UserFunctionError(err.into()))?;
+                Ok((term, index, timestamp))
+            },
+        )?;
+        Ok(Self {
+            term,
+            index,
+            timestamp,
+        })
     }
 }
 

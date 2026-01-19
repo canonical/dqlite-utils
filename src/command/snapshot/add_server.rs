@@ -9,6 +9,7 @@ use crate::{Context, Result};
 
 #[derive(Debug)]
 pub(crate) struct AddServerCommand {
+    // TODO(kcza): make this optional.
     id: u64,
     address: String,
     role: RaftRole,

@@ -1,14 +1,13 @@
 use std::fmt;
 
-use anyhow::{Context as _, anyhow};
+use anyhow::anyhow;
 use indoc::indoc;
 use indoc::printdoc;
-use rusqlite::Error as RusqliteError;
-use time::UtcDateTime;
 use time::format_description::well_known::Iso8601;
 
 use crate::command::UnrecognizedArgumentsError;
 use crate::command::help::Help;
+use crate::command::snapshot::finish::RaftMetadata;
 use crate::dqlite::RaftServer;
 use crate::{Context, Result};
 
@@ -38,23 +37,12 @@ impl InfoCommand {
             .ok_or_else(|| anyhow!("internal error: .info command not called in snapshot shell"))?;
 
         let conn = shell.connection();
-        let (term, index, timestamp) = conn.query_one(
-            indoc! {"
-                SELECT term, idx, timestamp
-                FROM raft_data;
-            "},
-            (),
-            |row| {
-                let term = row.get_ref("term")?.as_i64()? as u64;
-                let index = row.get_ref("idx")?.as_i64()? as u64;
-                let timestamp =
-                    UtcDateTime::parse(row.get_ref("timestamp")?.as_str()?, &Iso8601::DEFAULT)
-                        .context("cannot parse timestamp")
-                        .map_err(|err| RusqliteError::UserFunctionError(err.into()))?;
-                Ok((term, index, timestamp))
-            },
-        )?;
 
+        let RaftMetadata {
+            term,
+            index,
+            timestamp,
+        } = RaftMetadata::read_from(&conn)?;
         let timestamp = timestamp
             .format(&Iso8601::DEFAULT)
             .map_err(|_| fmt::Error)?;

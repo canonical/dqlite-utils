@@ -55,6 +55,24 @@ impl SnapshotCommand {
     }
 }
 
+const SCHEMA: &str = indoc! {"
+    CREATE TABLE raft_data (
+        raft_term INTEGER NOT NULL,
+        raft_index INTEGER NOT NULL,
+        timestamp TEXT NOT NULL,
+        CHECK (rowid = 1)
+    ) STRICT;
+
+    CREATE TABLE raft_servers (
+        id INTEGER NOT NULL PRIMARY KEY,
+        address TEXT NOT NULL UNIQUE,
+        role TEXT CHECK (role IN ('standby', 'voter', 'spare'))
+    ) STRICT;
+
+    INSERT INTO raft_data (raft_term, raft_index, timestamp)
+    VALUES (1, 1, strftime('%FT%T'));
+"};
+
 #[derive(Debug)]
 pub struct SnapshotShell {
     connection: Connection,
@@ -80,59 +98,15 @@ impl SnapshotShell {
 
     pub(crate) fn new() -> Result<Self> {
         let prompt = Prompt::new("snapshot");
-        let connection = Self::prepare_connection()?;
+        let connection = Self::open_connection()?;
         Ok(Self { prompt, connection })
     }
 
-    fn prepare_connection() -> Result<Connection> {
+    fn open_connection() -> Result<Connection> {
         let ret = Connection::open_in_memory()
             .context("internal error: cannot open connection to in-memory database")?;
-
-        ret.execute(
-            indoc! {"
-                CREATE TABLE raft_data (
-                    term int,
-                    idx int,
-                    timestamp TEXT NOT NULL,
-                    CHECK (rowid = 1)
-                ) STRICT;
-            "},
-            (),
-        )
-        .context("internal error: cannot create raft_data table")?;
-
-        ret.execute(
-            indoc! {"
-                CREATE TABLE raft_servers (
-                    id int,
-                    address TEXT NOT NULL,
-                    role TEXT CHECK (role IN ('standby', 'voter', 'spare')),
-                    UNIQUE (id, address, role)
-                ) STRICT;
-            "},
-            (),
-        )
-        .context("internal error: cannot create raft_data table")?;
-
-        let rows_affected = ret
-            .execute(
-                indoc! {"
-                    INSERT INTO raft_data (term, idx, timestamp)
-                    VALUES (:term, :idx, :timestamp);
-                "},
-                named_params! {
-                    ":term": 1,
-                    ":idx": 1,
-                    ":timestamp": UtcDateTime::now().format(&Iso8601::DEFAULT)?,
-                },
-            )
-            .context("internal error: cannot insert into raft_data")?;
-        if rows_affected != 1 {
-            return Err(anyhow!(
-                "internal error: raft_data insertion affected {rows_affected} rows"
-            ));
-        }
-
+        ret.execute_batch(SCHEMA)
+            .context("internal error: cannot create raft_data table")?;
         Ok(ret)
     }
 

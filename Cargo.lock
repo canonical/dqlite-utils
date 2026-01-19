@@ -286,6 +286,7 @@ dependencies = [
  "anyhow",
  "bindgen",
  "clap",
+ "fallible-iterator",
  "googletest",
  "home",
  "indoc",
