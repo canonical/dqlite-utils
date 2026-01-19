@@ -1,17 +1,18 @@
-use std::ffi::{CString, OsString};
-use std::fs::{self, File};
-use std::io::{BufRead, BufReader, ErrorKind, Write};
-use std::os::unix::ffi::OsStringExt;
-use std::os::unix::fs::MetadataExt;
+use std::ffi::{CString, OsStr};
+use std::fs::{self};
+use std::io::{ErrorKind, Write};
 use std::path::PathBuf;
 use std::time::SystemTime;
 
 use anyhow::{Context as _, anyhow};
+use libsqlite3_sys as sqlite3;
+use rusqlite::{Connection, TransactionBehavior};
 
 use crate::command::help::Help;
 use crate::command::snapshot::{RaftMetadata, RaftServers};
 use crate::command::{MissingArgumentError, UnrecognizedArgumentsError};
 use crate::dqlite::{DqliteDatabaseWriter, DqliteDir, RaftConfiguration};
+use crate::rusqlite_ext::files::{ConnectionFile, ConnectionFilesExt};
 use crate::{Context, Result, Shell};
 
 #[derive(Debug)]
@@ -41,14 +42,15 @@ impl FinishCommand {
 
     pub(crate) fn run(self, ctx: &mut Context) -> Result<()> {
         let Self { dir } = self;
-        let shell = ctx.shell.snapshot().ok_or_else(|| {
+        let shell = ctx.shell.snapshot_mut().ok_or_else(|| {
             anyhow!("internal error: .finish command not called in snapshot shell")
         })?;
 
-        let conn = shell.connection();
+        let conn = shell.connection_mut();
+        let txn = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
 
         let configuration = {
-            let RaftServers { servers } = RaftServers::read_from(conn)?;
+            let RaftServers { servers } = RaftServers::read_from(&txn)?;
             if servers.is_empty() {
                 return Err(anyhow!("at least one server required"));
             }
@@ -59,21 +61,20 @@ impl FinishCommand {
             term,
             index,
             timestamp,
-        } = RaftMetadata::read_from(conn)?;
+        } = RaftMetadata::read_from(&txn)?;
         let timestamp = SystemTime::from(timestamp);
 
         let attached_dbs = {
             let mut attached_dbs = Vec::with_capacity(10);
-            let mut stmt = conn.prepare("PRAGMA database_list;")?;
+            let mut stmt = txn.prepare("PRAGMA database_list;")?;
             let mut rows = stmt.query(())?;
             while let Some(row) = rows.next()? {
-                let name = row.get("name")?;
-                if name == "main" {
+                let name = row.get_ref("name")?.as_str()?;
+                if name == "raft" || name == "temp" {
                     // Main only contains metadata, this is encoded elsewhere.
                     continue;
                 }
-                let file = OsString::from_vec(row.get::<_, String>("file")?.into_bytes());
-                attached_dbs.push(AttachedDb::new(name, file)?)
+                attached_dbs.push(AttachedDb::new(&txn, name)?)
             }
             attached_dbs
         };
@@ -111,6 +112,7 @@ impl FinishCommand {
             }
             return Err(err);
         }
+        txn.rollback()?;
 
         ctx.shell = Shell::default();
 
@@ -118,87 +120,70 @@ impl FinishCommand {
     }
 }
 
-struct AttachedDb {
+struct AttachedDb<'conn> {
     name: CString,
-    main: AttachedDbFile,
-    wal: Option<AttachedDbFile>,
+    main: ConnectionFile<'conn>,
+    journal: Option<ConnectionFile<'conn>>,
 }
 
-impl AttachedDb {
-    fn new(name: String, main_path: OsString) -> Result<Self> {
-        let main_size = fs::metadata(&main_path)
-            .with_context(|| anyhow!("cannot open {}", main_path.display()))?
-            .size() as usize;
-        let main = AttachedDbFile {
-            path: main_path.clone(),
-            size: main_size,
-        };
-
-        let wal_path = {
-            let mut wal_path = main_path;
-            wal_path.push("-wal");
-            wal_path
-        };
-        let wal = match fs::metadata(&wal_path) {
-            Ok(metadata) => {
-                let size = metadata.size() as usize;
-                Some(AttachedDbFile {
-                    path: wal_path,
-                    size,
-                })
-            }
-            Err(err) if err.kind() == ErrorKind::NotFound => None,
-            Err(err) => {
-                return Err(err).with_context(|| anyhow!("cannot open {}", wal_path.display()))?;
-            }
-        };
+impl<'conn> AttachedDb<'conn> {
+    fn new(conn: &'conn Connection, name: &str) -> Result<Self> {
+        let name_os_str = OsStr::new(name);
+        let main = conn.main_file(Some(name_os_str))?;
+        let journal = conn.journal_file(Some(name_os_str))?;
         let name = CString::new(name)?;
-        Ok(Self { name, main, wal })
+        Ok(Self {
+            name,
+            main,
+            journal,
+        })
     }
 }
 
-impl DqliteDatabaseWriter for AttachedDb {
-    fn main_size(&self) -> usize {
-        self.main.size
+impl DqliteDatabaseWriter for AttachedDb<'_> {
+    fn main_size(&self) -> Result<u64> {
+        self.main.len().context("cannot get length of main file")
     }
 
-    fn wal_size(&self) -> usize {
-        self.wal.as_ref().map(|wal| wal.size).unwrap_or_default()
+    fn wal_size(&self) -> Result<u64> {
+        let journal = match &self.journal {
+            Some(journal) => journal,
+            None => return Ok(0),
+        };
+        journal.len().context("cannot get length of journal file")
     }
 
-    fn write_main(&self, out: &mut impl Write) -> Result<()> {
-        self.main.write_to(out)?;
+    fn write_main(&mut self, out: &mut impl Write) -> Result<()> {
+        write_file(&mut self.main, out)?;
         Ok(())
     }
 
-    fn write_wal(&self, out: &mut impl Write) -> Result<()> {
-        if let Some(wal) = &self.wal {
-            wal.write_to(out)?;
-        }
+    fn write_wal(&mut self, out: &mut impl Write) -> Result<()> {
+        let journal = match &mut self.journal {
+            Some(journal) => journal,
+            None => return Ok(()),
+        };
+        write_file(journal, out)?;
         Ok(())
     }
 }
 
-struct AttachedDbFile {
-    path: OsString,
-    size: usize,
-}
-
-impl AttachedDbFile {
-    fn write_to(&self, out: &mut impl Write) -> Result<()> {
-        let mut reader = BufReader::new(
-            File::open(&self.path)
-                .with_context(|| anyhow!("cannot open {}", self.path.display()))?,
-        );
-        loop {
-            let buf = reader.fill_buf()?;
-            if buf.is_empty() {
-                break;
+fn write_file(file: &mut ConnectionFile<'_>, out: &mut impl Write) -> Result<()> {
+    let len = file
+        .len()
+        .expect("internal error: cannot get length of main file") as usize;
+    let mut offset = 0;
+    let mut buf = [0; 512];
+    while offset < len {
+        match file.read_at(&mut buf, offset as u64) {
+            Ok(()) => {}
+            Err(err) if err.into_rc() == sqlite3::SQLITE_IOERR_SHORT_READ => {}
+            Err(err) => {
+                return Err(err.into());
             }
-            out.write_all(buf)?;
-            let bytes_written = buf.len(); // Ensures `buf` is dropped before `.consume()`.
-            reader.consume(bytes_written);
         }
-        Ok(())
+        out.write_all(&buf)?;
+        offset += buf.len();
     }
+    Ok(())
 }

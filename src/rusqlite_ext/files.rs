@@ -12,8 +12,8 @@ use crate::rusqlite_ext::{Result, SqliteCode, SqliteError};
 
 #[allow(unused)]
 pub trait ConnectionFilesExt {
-    fn main_file(&self, db: Option<&OsStr>) -> ConnectionFile<'_>;
-    fn journal_file(&self, db: Option<&OsStr>) -> Option<ConnectionFile<'_>>;
+    fn main_file(&self, db: Option<&OsStr>) -> Result<ConnectionFile<'_>>;
+    fn journal_file(&self, db: Option<&OsStr>) -> Result<Option<ConnectionFile<'_>>>;
 }
 
 enum SmallCString<const MAX_SIZE: usize = 128> {
@@ -67,16 +67,22 @@ impl From<&[u8]> for SmallCString {
     }
 }
 
-#[allow(unused)]
 impl ConnectionFilesExt for Connection {
-    fn main_file(&self, db: Option<&OsStr>) -> ConnectionFile<'_> {
-        let handle = unsafe { get_file_handle(self, db, false).as_mut() }.unwrap();
-        ConnectionFile::new(handle)
+    fn main_file(&self, db: Option<&OsStr>) -> Result<ConnectionFile<'_>> {
+        let handle = unsafe { get_file_handle(self, db, false)? };
+        Ok(ConnectionFile::new(handle))
     }
 
-    fn journal_file(&self, db: Option<&OsStr>) -> Option<ConnectionFile<'_>> {
-        let handle = unsafe { get_file_handle(self, db, true).as_mut() }?;
-        Some(ConnectionFile::new(handle))
+    fn journal_file(&self, db: Option<&OsStr>) -> Result<Option<ConnectionFile<'_>>> {
+        let handle = unsafe { get_file_handle(self, db, true)?.as_mut() };
+        let handle = match handle {
+            Some(handle) => handle,
+            None => return Ok(None),
+        };
+        if handle.pMethods.is_null() {
+            return Ok(None);
+        }
+        Ok(Some(ConnectionFile::new(handle)))
     }
 }
 
@@ -84,7 +90,7 @@ unsafe fn get_file_handle(
     conn: &Connection,
     db: Option<&OsStr>,
     journal: bool,
-) -> *mut sqlite3_file {
+) -> Result<*mut sqlite3_file> {
     let handle = unsafe { conn.handle() };
     let db = db.map(SmallCString::from);
     let op = if journal {
@@ -101,9 +107,10 @@ unsafe fn get_file_handle(
             mem::transmute::<&mut *mut sqlite3_file, *mut std::ffi::c_void>(&mut ret),
         )
     };
-    debug_assert!(rc == sqlite3::SQLITE_OK);
-
-    ret
+    if let Some(err) = SqliteError::from_rc(rc) {
+        return Err(err);
+    }
+    Ok(ret)
 }
 
 #[allow(unused)]
@@ -125,7 +132,6 @@ impl ConnectionFile<'_> {
         unsafe { self.handle.as_ref().pMethods.as_ref().unwrap() }
     }
 
-    #[allow(unused)]
     pub fn read_at(&mut self, buf: &mut [u8], offset: u64) -> Result<()> {
         let read = self
             .methods()
@@ -159,7 +165,6 @@ impl ConnectionFile<'_> {
         SqliteCode::from_rc(rc).into()
     }
 
-    #[allow(unused)]
     pub fn len(&self) -> Result<u64> {
         let file_size = self
             .methods()
@@ -222,9 +227,10 @@ mod tests {
 
     fn open_file(conn: &Connection, kind: FileKind) -> ConnectionFile<'_> {
         match kind {
-            FileKind::Main => conn.main_file(None),
+            FileKind::Main => conn.main_file(None).unwrap(),
             FileKind::Journal => conn
                 .journal_file(None)
+                .unwrap()
                 .expect("internal error: no journal file"),
         }
     }
