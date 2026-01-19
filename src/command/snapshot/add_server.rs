@@ -55,7 +55,7 @@ impl AddServerCommand {
         })?;
         let rows_affected = shell.connection().execute(
             indoc! {r#"
-                INSERT INTO raft_servers (id, address, role)
+                INSERT INTO raft.servers (id, address, role)
                 VALUES (:id, :address, :role);
             "#},
             named_params! {
@@ -66,7 +66,7 @@ impl AddServerCommand {
         )?;
         if rows_affected != 1 {
             return Err(anyhow!(
-                "internal error: raft_servers insertion affected {rows_affected} rows"
+                "internal error: raft.servers insertion affected {rows_affected} rows"
             ));
         }
 

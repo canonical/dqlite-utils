@@ -59,7 +59,7 @@ impl FinishCommand {
         let configuration = {
             let mut stmt = conn.prepare(indoc! {"
                 SELECT id, address, role
-                FROM raft_servers;
+                FROM raft.servers;
             "})?;
             let servers: Vec<_> = stmt
                 .query(())?
@@ -132,7 +132,7 @@ impl RaftMetadata {
         let (term, index, timestamp) = conn.query_one(
             indoc! {"
                 SELECT raft_term, raft_index, timestamp
-                FROM raft_data
+                FROM raft.metadata
             "},
             (),
             |row| {

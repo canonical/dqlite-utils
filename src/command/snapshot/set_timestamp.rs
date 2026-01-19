@@ -39,7 +39,7 @@ impl SetTimestampCommand {
         })?;
         shell.connection().execute(
             indoc! {"
-                UPDATE raft_data
+                UPDATE raft.metadata
                 SET timestamp = ?;
             "},
             (timestamp.format(&Iso8601::DEFAULT)?,),

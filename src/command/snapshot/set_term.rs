@@ -39,7 +39,7 @@ impl SetTermCommand {
         })?;
         shell.connection().execute(
             indoc! {"
-                UPDATE raft_data
+                UPDATE raft.metadata
                 SET term = ?
             "},
             (term,),

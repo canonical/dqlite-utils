@@ -40,7 +40,7 @@ impl SetIndexCommand {
         })?;
         shell.connection().execute(
             indoc! {"
-                UPDATE raft_data
+                UPDATE raft.metadata
                 SET idx = ?
             "},
             (index,),

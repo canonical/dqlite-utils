@@ -8,16 +8,15 @@ mod set_timestamp;
 
 use std::str::FromStr;
 
-use anyhow::{Context as _, anyhow};
+use anyhow::Context as _;
 use indoc::indoc;
-use rusqlite::{Connection, named_params};
+use rusqlite::Connection;
 use strum::EnumIter;
-use time::UtcDateTime;
-use time::format_description::well_known::Iso8601;
 
 use crate::command::help::{Help, HelpCommand};
 use crate::command::{UnknownCommand, UnrecognizedArgumentsError};
 use crate::prompt::Prompt;
+use crate::rusqlite_ext::config::ConnectionConfigExt;
 use crate::{Context, Error, Result, Shell};
 
 use self::abort::AbortCommand;
@@ -56,20 +55,20 @@ impl SnapshotCommand {
 }
 
 const SCHEMA: &str = indoc! {"
-    CREATE TABLE raft_data (
+    CREATE TABLE raft.metadata (
         raft_term INTEGER NOT NULL,
         raft_index INTEGER NOT NULL,
         timestamp TEXT NOT NULL,
         CHECK (rowid = 1)
     ) STRICT;
 
-    CREATE TABLE raft_servers (
+    CREATE TABLE raft.servers (
         id INTEGER NOT NULL PRIMARY KEY,
         address TEXT NOT NULL UNIQUE,
         role TEXT CHECK (role IN ('standby', 'voter', 'spare'))
     ) STRICT;
 
-    INSERT INTO raft_data (raft_term, raft_index, timestamp)
+    INSERT INTO raft.metadata (raft_term, raft_index, timestamp)
     VALUES (1, 1, strftime('%FT%T'));
 "};
 
@@ -106,6 +105,7 @@ impl SnapshotShell {
     fn open_connection() -> Result<Connection> {
         let ret = Connection::open_in_memory()
             .context("internal error: cannot open connection to in-memory database")?;
+        ret.set_main_name(c"raft");
         ret.execute_batch(SCHEMA)
             .context("internal error: cannot create raft_data table")?;
         Ok(ret)

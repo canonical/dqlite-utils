@@ -58,7 +58,7 @@ impl InfoCommand {
             let mut servers = vec![];
             let mut stmt = conn.prepare(indoc! {"
                 SELECT id, address, role
-                FROM raft_servers;
+                FROM raft.servers;
             "})?;
             let mut rows = stmt.query(())?;
             while let Some(row) = rows.next()? {
