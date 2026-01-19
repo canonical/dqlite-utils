@@ -41,7 +41,7 @@ impl SetTimestampCommand {
                 UPDATE metadata
                 SET timestamp = ?;
             ",
-            (timestamp.format(&Iso8601::DEFAULT)?,),
+            (timestamp.unix_timestamp(),),
         )?;
         Ok(())
     }

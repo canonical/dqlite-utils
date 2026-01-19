@@ -10,10 +10,9 @@ use std::str::FromStr;
 
 use anyhow::Context as _;
 use fallible_iterator::FallibleIterator;
-use rusqlite::{Connection, Error as RusqliteError};
+use rusqlite::Connection;
 use strum::EnumIter;
 use time::UtcDateTime;
-use time::format_description::well_known::Iso8601;
 
 use crate::command::help::{Help, HelpCommand};
 use crate::command::{UnknownCommand, UnrecognizedArgumentsError};
@@ -61,7 +60,8 @@ const SCHEMA: &str = "
     CREATE TABLE metadata (
         raft_term INTEGER NOT NULL,
         raft_index INTEGER NOT NULL,
-        timestamp TEXT NOT NULL,
+        timestamp INTEGER NOT NULL,
+        pretty_timestamp TEXT AS (datetime(timestamp)),
         CHECK (rowid = 1)
     ) STRICT;
 
@@ -78,7 +78,7 @@ const SCHEMA: &str = "
     ) STRICT;
 
     INSERT INTO metadata (raft_term, raft_index, timestamp)
-    VALUES (1, 1, strftime('%FT%T'));
+    VALUES (1, 1, unixepoch('now'));
 ";
 
 #[derive(Debug)]
@@ -244,26 +244,22 @@ pub(crate) struct RaftMetadata {
 
 impl RaftMetadata {
     pub(crate) fn read_from(conn: &Connection) -> Result<Self> {
-        let (term, index, timestamp) = conn.query_one(
+        let ret = conn.query_one(
             "
                 SELECT raft_term, raft_index, timestamp
                 FROM metadata
             ",
             (),
             |row| {
-                let term: u64 = row.get("raft_term")?;
-                let index: u64 = row.get("raft_index")?;
-                let timestamp =
-                    UtcDateTime::parse(row.get_ref("timestamp")?.as_str()?, &Iso8601::DEFAULT)
-                        .map_err(|err| RusqliteError::UserFunctionError(err.into()))?;
-                Ok((term, index, timestamp))
+                Ok(Self {
+                    term: row.get("raft_term")?,
+                    index: row.get("raft_index")?,
+                    timestamp: UtcDateTime::from_unix_timestamp(row.get("timestamp")?)
+                        .map_err(|err| rusqlite::Error::UserFunctionError(err.into()))?,
+                })
             },
         )?;
-        Ok(Self {
-            term,
-            index,
-            timestamp,
-        })
+        Ok(ret)
     }
 }
 
