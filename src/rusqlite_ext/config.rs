@@ -6,9 +6,28 @@ use rusqlite::Connection;
 
 use crate::rusqlite_ext::{Result, SqliteCode};
 
+/// Extension trait providing additional SQLite database configuration methods.
+#[allow(unused)]
 pub trait ConnectionConfigExt {
+    /// Sets the name of the main database schema.
+    ///
+    /// See [`SQLITE_DBCONFIG_MAINDBNAME`](https://sqlite.org/c3ref/c_dbconfig_defensive.html#sqlitedbconfigmaindbname).
     fn set_main_name(&self, name: &'static CStr);
+
+    /// Configures the lookaside memory allocator with a pre-allocated buffer.
+    ///
+    /// Each slot is `SZ` bytes; the buffer contains `buf.len()` slots. Returns an error
+    /// if the configuration fails.
+    ///
+    /// See [`SQLITE_DBCONFIG_LOOKASIDE`](https://sqlite.org/c3ref/c_dbconfig_defensive.html#sqlitedbconfiglookaside).
     fn set_lookaside_buffer<const SZ: usize>(&self, buf: &'static [[u8; SZ]]) -> Result<()>;
+
+    /// Configures the lookaside memory allocator to use internal allocation.
+    ///
+    /// `sz` is the size of each slot in bytes, `cnt` is the number of slots. Returns an error
+    /// if the configuration fails.
+    ///
+    /// See [`SQLITE_DBCONFIG_LOOKASIDE`](https://sqlite.org/c3ref/c_dbconfig_defensive.html#sqlitedbconfiglookaside).
     fn set_lookaside_size(&self, sz: usize, cnt: usize) -> Result<()>;
 }
 
