@@ -40,7 +40,6 @@ impl AddServerCommand {
             [address, role, id] => (address, Some(role.to_lowercase()), Some(id)),
             [_, _, _, tail @ ..] => return Err(UnrecognizedArgumentsError(tail.to_vec()).into()),
         };
-        let id = id.map(|id| id.parse()).transpose()?;
         let address = address.to_owned();
         let role = role
             .as_deref()
@@ -52,11 +51,12 @@ impl AddServerCommand {
             })
             .transpose()?
             .unwrap_or(RaftRole::Voter);
-        Ok(Self { id, address, role })
+        let id = id.map(|id| id.parse()).transpose()?;
+        Ok(Self { address, role, id })
     }
 
     pub(crate) fn run(self, ctx: &mut Context) -> Result<()> {
-        let Self { id, address, role } = self;
+        let Self { address, role, id } = self;
         let shell = ctx.shell.snapshot().ok_or_else(|| {
             anyhow!("internal error: .add-server command not called in snapshot shell")
         })?;
