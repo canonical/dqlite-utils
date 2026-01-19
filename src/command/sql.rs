@@ -4,7 +4,6 @@ use rusqlite::types::ValueRef;
 use sqlparser::dialect::SQLiteDialect;
 use sqlparser::parser::Parser;
 
-use crate::command::help::Help;
 use crate::utils::TerminalStylizeExt;
 use crate::{Context, Result};
 
@@ -14,14 +13,6 @@ pub(crate) struct SqlCommand {
 }
 
 impl SqlCommand {
-    pub(crate) fn help() -> Help {
-        Help::builder()
-            .name("<sql>")
-            .summary("run a sql command")
-            .build()
-            .expect("internal error: help invalid")
-    }
-
     pub(crate) fn try_from_raw(raw: &str) -> Result<Self> {
         let mut parser = Parser::new(&SQLiteDialect {})
             .with_recursion_limit(100)

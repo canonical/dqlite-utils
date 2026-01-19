@@ -184,13 +184,13 @@ impl CommandKind {
         }
     }
 
-    fn help(&self) -> Help {
+    fn help(&self) -> Option<Help> {
         match self {
-            Self::Help => HelpCommand::help(),
-            Self::Noop => panic!("cannot get help of no-op"),
-            Self::Root(kind) => kind.help(),
-            Self::Snapshot(kind) => kind.help(),
-            Self::Sql => SqlCommand::help(),
+            Self::Help => Some(HelpCommand::help()),
+            Self::Noop => None,
+            Self::Root(kind) => Some(kind.help()),
+            Self::Snapshot(kind) => Some(kind.help()),
+            Self::Sql => None,
         }
     }
 }
