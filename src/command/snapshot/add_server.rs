@@ -46,7 +46,7 @@ impl AddServerCommand {
                 "standby" => Ok(RaftRole::Standby),
                 "voter" => Ok(RaftRole::Voter),
                 "spare" => Ok(RaftRole::Spare),
-                _ => return Err(anyhow!("cannot parse {role} as raft role")),
+                _ => Err(anyhow!("cannot parse {role} as raft role")),
             })
             .transpose()?
             .unwrap_or(RaftRole::Voter);
@@ -70,20 +70,14 @@ impl AddServerCommand {
             },
         );
         match res {
-            Ok(1) => Ok(()),
-            Ok(rows_affected) => Err(anyhow!(
-                "internal error: servers insertion affected {rows_affected} rows"
-            )),
+            Ok(_) => Ok(()),
             Err(rusqlite::Error::SqliteFailure(
                 sqlite3::Error {
                     code: ErrorCode::ConstraintViolation,
                     extended_code: sqlite3::SQLITE_CONSTRAINT_PRIMARYKEY,
                 },
                 _,
-            )) => {
-                // Assumes `id` is the only primary key.
-                Err(anyhow!("id already in use"))
-            }
+            )) => Err(anyhow!("id already in use")),
             Err(rusqlite::Error::SqliteFailure(
                 sqlite3::Error {
                     code: ErrorCode::ConstraintViolation,
@@ -91,7 +85,7 @@ impl AddServerCommand {
                 },
                 _,
             )) => {
-                // Assumes `address` is the only unique, non-primary key.
+                // Assumes `address` is the only UNIQUE non-PRIMARY key.
                 Err(anyhow!("address already in use"))
             }
             Err(err) => Err(err.into()),

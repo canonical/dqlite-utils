@@ -1,4 +1,5 @@
 use anyhow::{Context as _, anyhow};
+use rusqlite::params;
 use time::{UtcDateTime, format_description::well_known::Iso8601};
 
 use crate::{
@@ -41,7 +42,7 @@ impl SetTimestampCommand {
                 UPDATE metadata
                 SET timestamp = ?;
             ",
-            (timestamp.unix_timestamp(),),
+            params![timestamp.unix_timestamp()],
         )?;
         Ok(())
     }

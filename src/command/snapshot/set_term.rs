@@ -1,4 +1,5 @@
 use anyhow::{Context as _, anyhow};
+use rusqlite::params;
 
 use crate::{
     Context, Result,
@@ -41,7 +42,7 @@ impl SetTermCommand {
                 UPDATE metadata
                 SET raft_term = ?
             ",
-            (term,),
+            params![term],
         )?;
         Ok(())
     }
