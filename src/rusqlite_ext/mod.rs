@@ -7,6 +7,7 @@ use std::{
     num::NonZero,
 };
 
+pub mod config;
 pub mod files;
 pub mod vfs;
 

@@ -1,11 +1,11 @@
 mod args;
 mod command;
 mod dqlite;
+mod interactive_reader;
 mod prompt;
 mod rusqlite_ext;
 mod utils;
 
-use std::fmt::Display;
 use std::io::{self, IsTerminal};
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -14,13 +14,13 @@ use anyhow::{Context as _, anyhow};
 use clap::Parser;
 use owo_colors::Style;
 use rusqlite::Connection;
-use rustyline::Editor;
 use rustyline::error::ReadlineError;
-use rustyline::history::DefaultHistory;
 
 use self::args::Args;
 use self::command::{Command, Help, RootShell, SnapshotShell};
 use self::dqlite::{DqliteDir, NoMetadataError};
+use self::interactive_reader::CommandHelper;
+use self::interactive_reader::InteractiveCommandReader;
 use self::prompt::Prompt;
 use self::utils::TerminalStylizeExt;
 
@@ -64,15 +64,21 @@ fn exec(args: Args) -> Result<()> {
             .collect::<Result<_>>()?;
         run_batch(commands, ctx)
     } else if io::stdin().is_terminal() {
-        run_interactive(InteractiveCommandReader::new()?, ctx)
+        run_interactive(InteractiveCommandReader::<ShellKind>::new()?, ctx)
     } else {
         run_batch(stdin_commands(), ctx)
     }
 }
 
-fn run_interactive(mut command_reader: InteractiveCommandReader, mut ctx: Context) -> Result<()> {
+fn run_interactive(
+    mut command_reader: InteractiveCommandReader<ShellKind>,
+    mut ctx: Context,
+) -> Result<()> {
+    const ERROR_STYLE: Style = Style::new().bright_red();
+
     println!("{}", command_reader.banner());
     loop {
+        command_reader.helper_mut().command_helper = ctx.shell.kind();
         let command = match command_reader.read(&ctx) {
             Ok(Some(command)) => command,
             Ok(None) => continue,
@@ -80,26 +86,19 @@ fn run_interactive(mut command_reader: InteractiveCommandReader, mut ctx: Contex
                 Some(ReadlineError::Interrupted) => {
                     eprintln!(
                         "{}",
-                        "(Press Ctrl+D or type 'quit' to exit)"
-                            .terminal_style(InteractiveCommandReader::ERROR_STYLE)
+                        "(Press Ctrl+D or type 'quit' to exit)".terminal_style(ERROR_STYLE)
                     );
                     continue;
                 }
                 Some(ReadlineError::Eof) => break,
                 _ => {
-                    eprintln!(
-                        "{}",
-                        err.terminal_style(InteractiveCommandReader::ERROR_STYLE)
-                    );
+                    eprintln!("{}", err.terminal_style(ERROR_STYLE));
                     continue;
                 }
             },
         };
         if let Err(err) = command.run(&mut ctx) {
-            println!(
-                "{:?}",
-                err.terminal_style(InteractiveCommandReader::ERROR_STYLE)
-            );
+            println!("{:?}", err.terminal_style(ERROR_STYLE));
         }
     }
     Ok(())
@@ -110,55 +109,6 @@ fn run_batch(commands: impl IntoIterator<Item = Command>, mut ctx: Context) -> R
         command.run(&mut ctx)?;
     }
     Ok(())
-}
-
-struct InteractiveCommandReader {
-    history_path: Option<PathBuf>,
-
-    // TODO(kcza): improve completion.
-    line_editor: Editor<(), DefaultHistory>,
-}
-
-impl InteractiveCommandReader {
-    const ERROR_STYLE: Style = Style::new().bright_red();
-
-    fn new() -> Result<Self> {
-        const HISTORY_FILE: &str = ".dqlite-utils-history";
-
-        let mut line_editor = Editor::new()?;
-        let history_path = home::home_dir().map(|home| home.join(HISTORY_FILE));
-        if let Some(history_path) = &history_path {
-            line_editor.load_history(&history_path).ok();
-        } else {
-            eprintln!("cannot load history");
-        }
-        Ok(Self {
-            history_path,
-            line_editor,
-        })
-    }
-
-    fn banner(&self) -> impl Display {
-        r#"enter ".help" for usage hints"#
-    }
-
-    fn read(&mut self, ctx: &Context) -> Result<Option<Command>> {
-        let line = self.line_editor.readline(ctx.shell.prompt().as_str())?;
-        let trimmed_line = line.trim();
-        let ret = trimmed_line.parse().map(Some);
-        self.line_editor.add_history_entry(line)?;
-        ret
-    }
-}
-
-impl Drop for InteractiveCommandReader {
-    fn drop(&mut self) {
-        if let Some(history_path) = &self.history_path
-            && let Err(err) = self.line_editor.save_history(history_path)
-        {
-            eprintln!("cannot save history: {err}");
-        }
-    }
 }
 
 fn stdin_commands() -> impl Iterator<Item = Command> {
@@ -214,17 +164,10 @@ pub enum Shell {
 }
 
 impl Shell {
-    fn name(&self) -> &'static str {
+    fn kind(&self) -> ShellKind {
         match self {
-            Self::Root(_) => "root",
-            Self::Snapshot(_) => "snapshot",
-        }
-    }
-
-    fn help(&self) -> Help {
-        match self {
-            Shell::Root(_) => RootShell::help(),
-            Shell::Snapshot(_) => SnapshotShell::help(),
+            Self::Root(_) => ShellKind::Root,
+            Self::Snapshot(_) => ShellKind::Snapshot,
         }
     }
 
@@ -261,5 +204,37 @@ impl Shell {
 impl Default for Shell {
     fn default() -> Self {
         Self::Root(RootShell::default())
+    }
+}
+
+#[derive(Copy, Clone, Debug, Default)]
+enum ShellKind {
+    #[default]
+    Root,
+    Snapshot,
+}
+
+impl ShellKind {
+    fn name(&self) -> &'static str {
+        match self {
+            Self::Root => "root",
+            Self::Snapshot => "snapshot",
+        }
+    }
+
+    fn help(&self) -> Help {
+        match self {
+            Self::Root => RootShell::help(),
+            Self::Snapshot => SnapshotShell::help(),
+        }
+    }
+}
+
+impl CommandHelper for ShellKind {
+    fn known_commands(&self) -> impl Iterator<Item = &'static str> {
+        self.help()
+            .into_commands()
+            .into_iter()
+            .map(|kind| kind.name())
     }
 }

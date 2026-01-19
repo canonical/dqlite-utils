@@ -15,7 +15,7 @@ use strum::EnumIter;
 use time::UtcDateTime;
 use time::format_description::well_known::Iso8601;
 
-use crate::command::help::Help;
+use crate::command::help::{Help, HelpCommand};
 use crate::command::{UnknownCommand, UnrecognizedArgumentsError};
 use crate::prompt::Prompt;
 use crate::{Context, Error, Result, Shell};
@@ -88,6 +88,7 @@ impl SnapshotShell {
             .add_command(AbortCommand::help())
             .add_command(AddServerCommand::help())
             .add_command(FinishCommand::help())
+            .add_command(HelpCommand::help())
             .add_command(InfoCommand::help())
             .add_command(SetIndexCommand::help())
             .add_command(SetTermCommand::help())
