@@ -42,7 +42,12 @@ impl AddServerCommand {
         let address = address.to_owned();
         let role = role
             .as_deref()
-            .map(|role| role.parse())
+            .map(|role| match role {
+                "standby" => Ok(RaftRole::Standby),
+                "voter" => Ok(RaftRole::Voter),
+                "spare" => Ok(RaftRole::Spare),
+                _ => return Err(anyhow!("cannot parse {role} as raft role")),
+            })
             .transpose()?
             .unwrap_or(RaftRole::Voter);
         Ok(Self { id, address, role })
@@ -61,7 +66,7 @@ impl AddServerCommand {
             named_params! {
                 ":id": id,
                 ":address": address,
-                ":role": role,
+                ":role": role as u8,
             },
         );
         match res {

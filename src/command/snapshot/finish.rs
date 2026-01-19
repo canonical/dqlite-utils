@@ -5,14 +5,11 @@ use std::path::PathBuf;
 use std::time::SystemTime;
 
 use anyhow::{Context as _, anyhow};
-use fallible_iterator::FallibleIterator;
-use rusqlite::{Connection, Error as RusqliteError};
-use time::UtcDateTime;
-use time::format_description::well_known::Iso8601;
 
 use crate::command::help::Help;
+use crate::command::snapshot::{RaftMetadata, RaftServers};
 use crate::command::{MissingArgumentError, UnrecognizedArgumentsError};
-use crate::dqlite::{DqliteDatabaseWriter, DqliteDir, RaftConfiguration, RaftServer};
+use crate::dqlite::{DqliteDatabaseWriter, DqliteDir, RaftConfiguration};
 use crate::{Context, Result, Shell};
 
 #[derive(Debug)]
@@ -49,22 +46,7 @@ impl FinishCommand {
         let conn = shell.connection();
 
         let configuration = {
-            let mut stmt = conn.prepare(
-                "
-                    SELECT id, address, role
-                    FROM servers;
-                ",
-            )?;
-            let servers: Vec<_> = stmt
-                .query(())?
-                .map(|row| {
-                    Ok(RaftServer {
-                        id: row.get("id")?,
-                        address: row.get("address")?,
-                        role: row.get("role")?,
-                    })
-                })
-                .collect()?;
+            let RaftServers { servers } = RaftServers::read_from(conn)?;
             if servers.is_empty() {
                 return Err(anyhow!("at least one server required"));
             }
@@ -119,37 +101,6 @@ impl FinishCommand {
         ctx.shell = Shell::default();
 
         Ok(())
-    }
-}
-
-pub(crate) struct RaftMetadata {
-    pub(crate) term: u64,
-    pub(crate) index: u64,
-    pub(crate) timestamp: UtcDateTime,
-}
-
-impl RaftMetadata {
-    pub(crate) fn read_from(conn: &Connection) -> Result<Self> {
-        let (term, index, timestamp) = conn.query_one(
-            "
-                SELECT raft_term, raft_index, timestamp
-                FROM metadata
-            ",
-            (),
-            |row| {
-                let term: u64 = row.get("raft_term")?;
-                let index: u64 = row.get("raft_index")?;
-                let timestamp =
-                    UtcDateTime::parse(row.get_ref("timestamp")?.as_str()?, &Iso8601::DEFAULT)
-                        .map_err(|err| RusqliteError::UserFunctionError(err.into()))?;
-                Ok((term, index, timestamp))
-            },
-        )?;
-        Ok(Self {
-            term,
-            index,
-            timestamp,
-        })
     }
 }
 

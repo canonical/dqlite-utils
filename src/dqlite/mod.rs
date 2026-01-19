@@ -4,24 +4,19 @@ use std::{
     borrow::Cow,
     cmp,
     ffi::{CStr, CString, OsStr, OsString, c_char, c_int, c_uint, c_void},
-    fmt::{self, Debug, Display},
+    fmt::Debug,
     fs::{self, File},
     io::{self, Read, Seek, SeekFrom, Write},
     ops::{Deref, DerefMut, RangeInclusive},
     os::unix::{ffi::OsStrExt, fs::FileExt},
     path::{Path, PathBuf},
     ptr,
-    str::FromStr,
     sync::Mutex,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::{Context, Error, Result, anyhow};
 use lz4_flex::frame::{BlockMode, FrameDecoder, FrameEncoder, FrameInfo};
-use rusqlite::{
-    ToSql,
-    types::{FromSql, FromSqlError, FromSqlResult, ToSqlOutput, ValueRef},
-};
 
 use crate::dqlite::sys::{cursor, dqlite_result};
 
@@ -368,62 +363,23 @@ pub struct RaftServer {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[repr(u8)]
 pub enum RaftRole {
-    Standby,
-    Voter,
-    Spare,
+    Standby = 0,
+    Voter = 1,
+    Spare = 2,
 }
 
-impl RaftRole {
-    fn name(&self) -> &'static str {
-        match self {
-            RaftRole::Standby => "standby",
-            RaftRole::Voter => "voter",
-            RaftRole::Spare => "spare",
-        }
-    }
-}
+impl TryFrom<u8> for RaftRole {
+    type Error = Error;
 
-impl FromStr for RaftRole {
-    type Err = Error;
-
-    fn from_str(raw: &str) -> std::result::Result<Self, Self::Err> {
+    fn try_from(raw: u8) -> Result<Self> {
         match raw {
-            "standby" => Ok(RaftRole::Standby),
-            "voter" => Ok(RaftRole::Voter),
-            "spare" => Ok(RaftRole::Spare),
-            _ => return Err(anyhow!("cannot parse {raw} as raft role")),
+            0 => Ok(Self::Standby),
+            1 => Ok(Self::Voter),
+            2 => Ok(Self::Spare),
+            _ => Err(anyhow!("cannot convert {raw} to RaftRole")),
         }
-    }
-}
-
-impl Display for RaftRole {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.name())
-    }
-}
-
-impl ToSql for RaftRole {
-    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
-        Ok(ToSqlOutput::Borrowed(ValueRef::Text(
-            self.name().as_bytes(),
-        )))
-    }
-}
-
-impl FromSql for RaftRole {
-    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
-        let text = match value {
-            ValueRef::Text(text) => text,
-            _ => return Err(FromSqlError::InvalidType),
-        };
-        let text = str::from_utf8(text)
-            .context("cannot parse role")
-            .map_err(|err| FromSqlError::Other(err.into()))?;
-        let ret = text
-            .parse()
-            .map_err(|err: anyhow::Error| FromSqlError::Other(err.into()))?;
-        Ok(ret)
     }
 }
 

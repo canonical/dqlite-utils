@@ -6,8 +6,8 @@ use time::format_description::well_known::Iso8601;
 
 use crate::command::UnrecognizedArgumentsError;
 use crate::command::help::Help;
-use crate::command::snapshot::finish::RaftMetadata;
-use crate::dqlite::RaftServer;
+use crate::command::snapshot::{RaftMetadata, RaftServers};
+use crate::dqlite::{RaftRole, RaftServer};
 use crate::{Context, Result};
 
 #[derive(Debug)]
@@ -53,31 +53,18 @@ impl InfoCommand {
             "
         );
 
-        let servers = {
-            let mut servers = vec![];
-            let mut stmt = conn.prepare(
-                "
-                SELECT id, address, role
-                FROM servers;
-            ",
-            )?;
-            let mut rows = stmt.query(())?;
-            while let Some(row) = rows.next()? {
-                let server = RaftServer {
-                    id: row.get("id")?,
-                    address: row.get("address")?,
-                    role: row.get("role")?,
-                };
-                servers.push(server);
-            }
-            servers
-        };
+        let RaftServers { servers } = RaftServers::read_from(conn)?;
         if servers.is_empty() {
             println!("configuration: -");
         } else {
             println!("configuration:");
             for server in servers {
                 let RaftServer { id, address, role } = server;
+                let role = match role {
+                    RaftRole::Standby => "standby",
+                    RaftRole::Voter => "voter",
+                    RaftRole::Spare => "spare",
+                };
                 printdoc!(
                     "
                         - id: {id}

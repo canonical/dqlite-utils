@@ -9,11 +9,15 @@ mod set_timestamp;
 use std::str::FromStr;
 
 use anyhow::Context as _;
-use rusqlite::Connection;
+use fallible_iterator::FallibleIterator;
+use rusqlite::{Connection, Error as RusqliteError};
 use strum::EnumIter;
+use time::UtcDateTime;
+use time::format_description::well_known::Iso8601;
 
 use crate::command::help::{Help, HelpCommand};
 use crate::command::{UnknownCommand, UnrecognizedArgumentsError};
+use crate::dqlite::{RaftRole, RaftServer};
 use crate::prompt::Prompt;
 use crate::rusqlite_ext::config::ConnectionConfigExt;
 use crate::{Context, Error, Result, Shell};
@@ -65,12 +69,12 @@ const SCHEMA: &str = "
         id INTEGER NOT NULL PRIMARY KEY,
         address TEXT NOT NULL UNIQUE,
         role INTEGER NOT NULL CHECK (role IN (0, 1, 2)),
-        role_name TEXT AS CASE
+        role_name TEXT AS (CASE
             WHEN role = 0 THEN 'Standby'
             WHEN role = 1 THEN 'Voter'
             WHEN role = 2 THEN 'Spare'
             ELSE 'Unknown'
-        END
+        END)
     ) STRICT;
 
     INSERT INTO metadata (raft_term, raft_index, timestamp)
@@ -229,6 +233,64 @@ impl FromStr for SnapshotShellCommandKind {
             ".set-timestamp" => Ok(Self::SetTimestamp),
             _ => Err(UnknownCommand.into()),
         }
+    }
+}
+
+pub(crate) struct RaftMetadata {
+    pub(crate) term: u64,
+    pub(crate) index: u64,
+    pub(crate) timestamp: UtcDateTime,
+}
+
+impl RaftMetadata {
+    pub(crate) fn read_from(conn: &Connection) -> Result<Self> {
+        let (term, index, timestamp) = conn.query_one(
+            "
+                SELECT raft_term, raft_index, timestamp
+                FROM metadata
+            ",
+            (),
+            |row| {
+                let term: u64 = row.get("raft_term")?;
+                let index: u64 = row.get("raft_index")?;
+                let timestamp =
+                    UtcDateTime::parse(row.get_ref("timestamp")?.as_str()?, &Iso8601::DEFAULT)
+                        .map_err(|err| RusqliteError::UserFunctionError(err.into()))?;
+                Ok((term, index, timestamp))
+            },
+        )?;
+        Ok(Self {
+            term,
+            index,
+            timestamp,
+        })
+    }
+}
+
+pub(crate) struct RaftServers {
+    pub(crate) servers: Vec<RaftServer>,
+}
+
+impl RaftServers {
+    pub(crate) fn read_from(conn: &Connection) -> Result<Self> {
+        let mut stmt = conn.prepare(
+            "
+                SELECT id, address, role
+                FROM servers;
+            ",
+        )?;
+        let servers: Vec<_> = stmt
+            .query(())?
+            .map(|row| {
+                Ok(RaftServer {
+                    id: row.get("id")?,
+                    address: row.get("address")?,
+                    role: RaftRole::try_from(row.get::<_, u8>("role")?)
+                        .map_err(|err| rusqlite::Error::UserFunctionError(err.into()))?,
+                })
+            })
+            .collect()?;
+        Ok(Self { servers })
     }
 }
 
