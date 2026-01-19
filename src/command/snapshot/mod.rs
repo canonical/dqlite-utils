@@ -54,20 +54,26 @@ impl SnapshotCommand {
 }
 
 const SCHEMA: &str = "
-    CREATE TABLE raft.metadata (
+    CREATE TABLE metadata (
         raft_term INTEGER NOT NULL,
         raft_index INTEGER NOT NULL,
         timestamp TEXT NOT NULL,
         CHECK (rowid = 1)
     ) STRICT;
 
-    CREATE TABLE raft.servers (
+    CREATE TABLE servers (
         id INTEGER NOT NULL PRIMARY KEY,
         address TEXT NOT NULL UNIQUE,
-        role TEXT CHECK (role IN ('standby', 'voter', 'spare'))
+        role INTEGER NOT NULL CHECK (role IN (0, 1, 2)),
+        role_name TEXT AS CASE
+            WHEN role = 0 THEN 'Standby'
+            WHEN role = 1 THEN 'Voter'
+            WHEN role = 2 THEN 'Spare'
+            ELSE 'Unknown'
+        END
     ) STRICT;
 
-    INSERT INTO raft.metadata (raft_term, raft_index, timestamp)
+    INSERT INTO metadata (raft_term, raft_index, timestamp)
     VALUES (1, 1, strftime('%FT%T'));
 ";
 

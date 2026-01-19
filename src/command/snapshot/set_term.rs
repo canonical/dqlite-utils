@@ -38,8 +38,8 @@ impl SetTermCommand {
         })?;
         shell.connection().execute(
             "
-                UPDATE raft.metadata
-                SET term = ?
+                UPDATE metadata
+                SET raft_term = ?
             ",
             (term,),
         )?;

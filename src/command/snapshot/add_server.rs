@@ -1,5 +1,6 @@
 use anyhow::anyhow;
-use rusqlite::named_params;
+use libsqlite3_sys as sqlite3;
+use rusqlite::{ErrorCode, named_params};
 
 use crate::command::help::Help;
 use crate::command::{MissingArgumentError, UnrecognizedArgumentsError};
@@ -52,9 +53,9 @@ impl AddServerCommand {
         let shell = ctx.shell.snapshot().ok_or_else(|| {
             anyhow!("internal error: .add-server command not called in snapshot shell")
         })?;
-        let rows_affected = shell.connection().execute(
+        let res = shell.connection().execute(
             "
-                INSERT INTO raft.servers (id, address, role)
+                INSERT INTO servers (id, address, role)
                 VALUES (:id, :address, :role);
             ",
             named_params! {
@@ -62,13 +63,33 @@ impl AddServerCommand {
                 ":address": address,
                 ":role": role,
             },
-        )?;
-        if rows_affected != 1 {
-            return Err(anyhow!(
-                "internal error: raft.servers insertion affected {rows_affected} rows"
-            ));
+        );
+        match res {
+            Ok(1) => Ok(()),
+            Ok(rows_affected) => Err(anyhow!(
+                "internal error: servers insertion affected {rows_affected} rows"
+            )),
+            Err(rusqlite::Error::SqliteFailure(
+                sqlite3::Error {
+                    code: ErrorCode::ConstraintViolation,
+                    extended_code: sqlite3::SQLITE_CONSTRAINT_PRIMARYKEY,
+                },
+                _,
+            )) => {
+                // Assumes `id` is the only primary key.
+                Err(anyhow!("id already in use"))
+            }
+            Err(rusqlite::Error::SqliteFailure(
+                sqlite3::Error {
+                    code: ErrorCode::ConstraintViolation,
+                    extended_code: sqlite3::SQLITE_CONSTRAINT_UNIQUE,
+                },
+                _,
+            )) => {
+                // Assumes `address` is the only unique, non-primary key.
+                Err(anyhow!("address already in use"))
+            }
+            Err(err) => Err(err.into()),
         }
-
-        Ok(())
     }
 }

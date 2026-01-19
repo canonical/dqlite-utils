@@ -41,7 +41,7 @@ impl InfoCommand {
             term,
             index,
             timestamp,
-        } = RaftMetadata::read_from(&conn)?;
+        } = RaftMetadata::read_from(conn)?;
         let timestamp = timestamp
             .format(&Iso8601::DEFAULT)
             .map_err(|_| fmt::Error)?;
@@ -55,10 +55,12 @@ impl InfoCommand {
 
         let servers = {
             let mut servers = vec![];
-            let mut stmt = conn.prepare("
+            let mut stmt = conn.prepare(
+                "
                 SELECT id, address, role
-                FROM raft.servers;
-            ")?;
+                FROM servers;
+            ",
+            )?;
             let mut rows = stmt.query(())?;
             while let Some(row) = rows.next()? {
                 let server = RaftServer {

@@ -48,18 +48,13 @@ impl FinishCommand {
 
         let conn = shell.connection();
 
-        let RaftMetadata {
-            term,
-            index,
-            timestamp,
-        } = RaftMetadata::read_from(&conn)?;
-        let timestamp = SystemTime::from(timestamp);
-
         let configuration = {
-            let mut stmt = conn.prepare("
-                SELECT id, address, role
-                FROM raft.servers;
-            ")?;
+            let mut stmt = conn.prepare(
+                "
+                    SELECT id, address, role
+                    FROM servers;
+                ",
+            )?;
             let servers: Vec<_> = stmt
                 .query(())?
                 .map(|row| {
@@ -75,6 +70,13 @@ impl FinishCommand {
             }
             RaftConfiguration { servers }
         };
+
+        let RaftMetadata {
+            term,
+            index,
+            timestamp,
+        } = RaftMetadata::read_from(conn)?;
+        let timestamp = SystemTime::from(timestamp);
 
         // Heuristic to ensure clean directory. Clearly there's a TOCTOU issue here,
         // but if a user chooses to write a snapshot into an actively-changing
@@ -131,7 +133,7 @@ impl RaftMetadata {
         let (term, index, timestamp) = conn.query_one(
             "
                 SELECT raft_term, raft_index, timestamp
-                FROM raft.metadata
+                FROM metadata
             ",
             (),
             |row| {

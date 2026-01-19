@@ -39,8 +39,8 @@ impl SetIndexCommand {
         })?;
         shell.connection().execute(
             "
-                UPDATE raft.metadata
-                SET idx = ?
+                UPDATE metadata
+                SET raft_index = ?
             ",
             (index,),
         )?;
