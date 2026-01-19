@@ -43,31 +43,29 @@ impl ConnectionConfigExt for Connection {
         assert_eq!(rc, sqlite3::SQLITE_OK);
     }
 
-    fn set_lookaside_buffer<const SZ: usize>(&self, buf: &'static [[u8; SZ]]) -> Result<()> {
+    fn set_lookaside_buffer<const SIZE: usize>(&self, buf: &'static [[u8; SIZE]]) -> Result<()> {
         let rc = unsafe {
             sqlite3::sqlite3_db_config(
                 self.handle(),
                 sqlite3::SQLITE_DBCONFIG_LOOKASIDE,
                 buf.as_ptr() as *const c_void,
-                SZ as c_int,
+                SIZE as c_int,
                 buf.len() as c_int,
             )
         };
-
         SqliteCode::from_rc(rc).into()
     }
 
-    fn set_lookaside_size(&self, sz: usize, cnt: usize) -> Result<()> {
+    fn set_lookaside_size(&self, size: usize, count: usize) -> Result<()> {
         let rc = unsafe {
             sqlite3::sqlite3_db_config(
                 self.handle(),
                 sqlite3::SQLITE_DBCONFIG_LOOKASIDE,
                 ptr::null::<c_void>(),
-                sz as c_int,
-                cnt as c_int,
+                size as c_int,
+                count as c_int,
             )
         };
-
         SqliteCode::from_rc(rc).into()
     }
 }
