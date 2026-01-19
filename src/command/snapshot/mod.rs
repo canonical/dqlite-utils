@@ -61,7 +61,7 @@ const SCHEMA: &str = "
         raft_term INTEGER NOT NULL,
         raft_index INTEGER NOT NULL,
         timestamp INTEGER NOT NULL,
-        pretty_timestamp TEXT AS (datetime(timestamp)),
+        pretty_timestamp TEXT AS (strftime('%FT%T', timestamp, 'unixepoch')),
         CHECK (rowid = 1)
     ) STRICT;
 
