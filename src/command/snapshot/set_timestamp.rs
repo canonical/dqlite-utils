@@ -1,5 +1,4 @@
 use anyhow::{Context as _, anyhow};
-use indoc::indoc;
 use time::{UtcDateTime, format_description::well_known::Iso8601};
 
 use crate::{
@@ -38,10 +37,10 @@ impl SetTimestampCommand {
             anyhow!("internal error: .set-timestamp command not called in snapshot shell")
         })?;
         shell.connection().execute(
-            indoc! {"
+            "
                 UPDATE raft.metadata
                 SET timestamp = ?;
-            "},
+            ",
             (timestamp.format(&Iso8601::DEFAULT)?,),
         )?;
         Ok(())

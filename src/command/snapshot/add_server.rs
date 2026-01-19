@@ -1,5 +1,4 @@
 use anyhow::anyhow;
-use indoc::indoc;
 use rusqlite::named_params;
 
 use crate::command::help::Help;
@@ -54,10 +53,10 @@ impl AddServerCommand {
             anyhow!("internal error: .add-server command not called in snapshot shell")
         })?;
         let rows_affected = shell.connection().execute(
-            indoc! {r#"
+            "
                 INSERT INTO raft.servers (id, address, role)
                 VALUES (:id, :address, :role);
-            "#},
+            ",
             named_params! {
                 ":id": id,
                 ":address": address,

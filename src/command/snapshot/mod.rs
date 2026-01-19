@@ -9,7 +9,6 @@ mod set_timestamp;
 use std::str::FromStr;
 
 use anyhow::Context as _;
-use indoc::indoc;
 use rusqlite::Connection;
 use strum::EnumIter;
 
@@ -54,7 +53,7 @@ impl SnapshotCommand {
     }
 }
 
-const SCHEMA: &str = indoc! {"
+const SCHEMA: &str = "
     CREATE TABLE raft.metadata (
         raft_term INTEGER NOT NULL,
         raft_index INTEGER NOT NULL,
@@ -70,7 +69,7 @@ const SCHEMA: &str = indoc! {"
 
     INSERT INTO raft.metadata (raft_term, raft_index, timestamp)
     VALUES (1, 1, strftime('%FT%T'));
-"};
+";
 
 #[derive(Debug)]
 pub struct SnapshotShell {

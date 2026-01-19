@@ -1,7 +1,6 @@
 use std::fmt;
 
 use anyhow::anyhow;
-use indoc::indoc;
 use indoc::printdoc;
 use time::format_description::well_known::Iso8601;
 
@@ -56,10 +55,10 @@ impl InfoCommand {
 
         let servers = {
             let mut servers = vec![];
-            let mut stmt = conn.prepare(indoc! {"
+            let mut stmt = conn.prepare("
                 SELECT id, address, role
                 FROM raft.servers;
-            "})?;
+            ")?;
             let mut rows = stmt.query(())?;
             while let Some(row) = rows.next()? {
                 let server = RaftServer {

@@ -6,7 +6,6 @@ use std::time::SystemTime;
 
 use anyhow::{Context as _, anyhow};
 use fallible_iterator::FallibleIterator;
-use indoc::indoc;
 use rusqlite::{Connection, Error as RusqliteError};
 use time::UtcDateTime;
 use time::format_description::well_known::Iso8601;
@@ -57,10 +56,10 @@ impl FinishCommand {
         let timestamp = SystemTime::from(timestamp);
 
         let configuration = {
-            let mut stmt = conn.prepare(indoc! {"
+            let mut stmt = conn.prepare("
                 SELECT id, address, role
                 FROM raft.servers;
-            "})?;
+            ")?;
             let servers: Vec<_> = stmt
                 .query(())?
                 .map(|row| {
@@ -130,10 +129,10 @@ pub(crate) struct RaftMetadata {
 impl RaftMetadata {
     pub(crate) fn read_from(conn: &Connection) -> Result<Self> {
         let (term, index, timestamp) = conn.query_one(
-            indoc! {"
+            "
                 SELECT raft_term, raft_index, timestamp
                 FROM raft.metadata
-            "},
+            ",
             (),
             |row| {
                 let term: u64 = row.get("raft_term")?;

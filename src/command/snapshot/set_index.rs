@@ -1,5 +1,4 @@
 use anyhow::{Context as _, anyhow};
-use indoc::indoc;
 
 use crate::{
     Context, Result,
@@ -39,10 +38,10 @@ impl SetIndexCommand {
             anyhow!("internal error: .set_index command not called in snapshot shell")
         })?;
         shell.connection().execute(
-            indoc! {"
+            "
                 UPDATE raft.metadata
                 SET idx = ?
-            "},
+            ",
             (index,),
         )?;
         Ok(())

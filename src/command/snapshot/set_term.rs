@@ -1,5 +1,4 @@
 use anyhow::{Context as _, anyhow};
-use indoc::indoc;
 
 use crate::{
     Context, Result,
@@ -38,10 +37,10 @@ impl SetTermCommand {
             anyhow!("internal error: .set-term command not called in snapshot shell")
         })?;
         shell.connection().execute(
-            indoc! {"
+            "
                 UPDATE raft.metadata
                 SET term = ?
-            "},
+            ",
             (term,),
         )?;
         Ok(())
