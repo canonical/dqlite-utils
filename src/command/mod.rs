@@ -55,7 +55,9 @@ impl FromStr for Command {
                 CommandKind::Noop => Self::Noop,
                 CommandKind::Help => Self::Help(HelpCommand::try_from_args(args)?),
                 CommandKind::Root(kind) => Self::Root(RootCommand::try_from_input(kind, args)?),
-                CommandKind::Snapshot(kind) => Self::Snapshot(SnapshotShellCommand::try_from_input(kind, args)?),
+                CommandKind::Snapshot(kind) => {
+                    Self::Snapshot(SnapshotShellCommand::try_from_input(kind, args)?)
+                }
                 CommandKind::Sql => unreachable!(), // No SQL command starts with a `.`
             };
             return Ok(ret);
