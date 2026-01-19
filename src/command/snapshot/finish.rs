@@ -7,7 +7,7 @@ use std::time::SystemTime;
 use anyhow::{Context as _, anyhow};
 
 use crate::command::help::Help;
-use crate::command::snapshot::ShellSnapshotContext;
+use crate::command::snapshot::{RaftMetadata, RaftServers};
 use crate::command::{MissingArgumentError, UnrecognizedArgumentsError};
 use crate::dqlite::{DqliteDatabaseWriter, DqliteDir, RaftConfiguration};
 use crate::{Context, Result, Shell};
@@ -43,15 +43,22 @@ impl FinishCommand {
             anyhow!("internal error: .finish command not called in snapshot shell")
         })?;
 
-        let ShellSnapshotContext {
+        let conn = shell.connection();
+
+        let configuration = {
+            let RaftServers { servers } = RaftServers::read_from(conn)?;
+            if servers.is_empty() {
+                return Err(anyhow!("at least one server required"));
+            }
+            RaftConfiguration { servers }
+        };
+
+        let RaftMetadata {
             term,
             index,
             timestamp,
-            configuration,
-        } = shell.snapshot.clone();
+        } = RaftMetadata::read_from(conn)?;
         let timestamp = SystemTime::from(timestamp);
-        let configuration =
-            RaftConfiguration::try_from(configuration).context("cannot write snapshot")?;
 
         // Heuristic to ensure clean directory. Clearly there's a TOCTOU issue here,
         // but if a user chooses to write a snapshot into an actively-changing

@@ -33,10 +33,16 @@ impl SetTimestampCommand {
 
     pub(crate) fn run(self, ctx: &mut Context) -> Result<()> {
         let Self { timestamp } = self;
-        let shell = ctx.shell.snapshot_mut().ok_or_else(|| {
+        let shell = ctx.shell.snapshot().ok_or_else(|| {
             anyhow!("internal error: .set-timestamp command not called in snapshot shell")
         })?;
-        shell.snapshot.timestamp = timestamp;
+        shell.connection().execute(
+            "
+                UPDATE metadata
+                SET timestamp = ?;
+            ",
+            (timestamp.unix_timestamp(),),
+        )?;
         Ok(())
     }
 }

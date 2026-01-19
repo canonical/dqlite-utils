@@ -185,6 +185,7 @@ impl Shell {
         }
     }
 
+    #[allow(unused)]
     fn snapshot_mut(&mut self) -> Option<&mut SnapshotShell> {
         match self {
             Self::Snapshot(shell) => Some(shell),

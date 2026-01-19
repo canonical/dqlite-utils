@@ -22,6 +22,7 @@ sqlparser = "0.60.0"
 strum = { version = "0.27.2", features = ["derive"] }
 thiserror = "2.0.17"
 time = { version = "0.3.44", features = ["formatting", "parsing"] }
+fallible-iterator = "0.3.0"
 
 [[bin]]
 name = "dqlite-utils"

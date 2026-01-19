@@ -6,7 +6,7 @@ use time::format_description::well_known::Iso8601;
 
 use crate::command::UnrecognizedArgumentsError;
 use crate::command::help::Help;
-use crate::command::snapshot::{ShellSnapshotContext, ShellSnapshotRaftConfiguration};
+use crate::command::snapshot::{RaftMetadata, RaftServers};
 use crate::dqlite::{RaftRole, RaftServer};
 use crate::{Context, Result};
 
@@ -32,15 +32,16 @@ impl InfoCommand {
     pub(crate) fn run(self, ctx: &mut Context) -> Result<()> {
         let shell = ctx
             .shell
-            .snapshot_mut()
+            .snapshot()
             .ok_or_else(|| anyhow!("internal error: .info command not called in snapshot shell"))?;
 
-        let ShellSnapshotContext {
+        let conn = shell.connection();
+
+        let RaftMetadata {
             term,
             index,
             timestamp,
-            configuration,
-        } = &shell.snapshot;
+        } = RaftMetadata::read_from(conn)?;
         let timestamp = timestamp
             .format(&Iso8601::DEFAULT)
             .map_err(|_| fmt::Error)?;
@@ -52,14 +53,14 @@ impl InfoCommand {
             "
         );
 
-        let ShellSnapshotRaftConfiguration { servers } = configuration;
+        let RaftServers { servers } = RaftServers::read_from(conn)?;
         if servers.is_empty() {
             println!("configuration: -");
         } else {
             println!("configuration:");
             for server in servers {
                 let RaftServer { id, address, role } = server;
-                let pretty_role = match role {
+                let role = match role {
                     RaftRole::Standby => "standby",
                     RaftRole::Voter => "voter",
                     RaftRole::Spare => "spare",
@@ -68,7 +69,7 @@ impl InfoCommand {
                     "
                         - id: {id}
                           address: {address}
-                          role: {pretty_role}
+                          role: {role}
                     "
                 );
             }

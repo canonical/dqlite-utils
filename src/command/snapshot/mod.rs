@@ -8,15 +8,17 @@ mod set_timestamp;
 
 use std::str::FromStr;
 
-use anyhow::anyhow;
+use anyhow::Context as _;
+use fallible_iterator::FallibleIterator;
 use rusqlite::Connection;
 use strum::EnumIter;
 use time::UtcDateTime;
 
 use crate::command::help::{Help, HelpCommand};
 use crate::command::{UnknownCommand, UnrecognizedArgumentsError};
-use crate::dqlite::{RaftConfiguration, RaftServer};
+use crate::dqlite::{RaftRole, RaftServer};
 use crate::prompt::Prompt;
+use crate::rusqlite_ext::config::ConnectionConfigExt;
 use crate::{Context, Error, Result, Shell};
 
 use self::abort::AbortCommand;
@@ -49,15 +51,39 @@ impl SnapshotCommand {
 
     pub(crate) fn run(self, ctx: &mut Context) -> Result<()> {
         let Self = self;
-        ctx.shell = Shell::Snapshot(SnapshotShell::new());
+        ctx.shell = Shell::Snapshot(SnapshotShell::new()?);
         Ok(())
     }
 }
 
+const SCHEMA: &str = "
+    CREATE TABLE metadata (
+        raft_term INTEGER NOT NULL,
+        raft_index INTEGER NOT NULL,
+        timestamp INTEGER NOT NULL,
+        pretty_timestamp TEXT AS (strftime('%FT%T', timestamp, 'unixepoch')),
+        CHECK (rowid = 1)
+    ) STRICT;
+
+    CREATE TABLE servers (
+        id INTEGER NOT NULL PRIMARY KEY,
+        address TEXT NOT NULL UNIQUE,
+        role INTEGER NOT NULL CHECK (role IN (0, 1, 2)),
+        role_name TEXT AS (CASE
+            WHEN role = 0 THEN 'Standby'
+            WHEN role = 1 THEN 'Voter'
+            WHEN role = 2 THEN 'Spare'
+            ELSE 'Unknown'
+        END)
+    ) STRICT;
+
+    INSERT INTO metadata (raft_term, raft_index, timestamp)
+    VALUES (1, 1, unixepoch('now'));
+";
+
 #[derive(Debug)]
 pub struct SnapshotShell {
     connection: Connection,
-    snapshot: ShellSnapshotContext,
     prompt: Prompt,
 }
 
@@ -79,16 +105,19 @@ impl SnapshotShell {
             .expect("internal error: help invalid")
     }
 
-    pub(crate) fn new() -> Self {
-        let snapshot = ShellSnapshotContext::new();
+    pub(crate) fn new() -> Result<Self> {
         let prompt = Prompt::new("snapshot");
-        let connection = Connection::open_in_memory()
-            .expect("internal error: cannot open connection to in-memory database");
-        Self {
-            snapshot,
-            prompt,
-            connection,
-        }
+        let connection = Self::open_connection()?;
+        Ok(Self { prompt, connection })
+    }
+
+    fn open_connection() -> Result<Connection> {
+        let ret = Connection::open_in_memory()
+            .context("internal error: cannot open connection to in-memory database")?;
+        ret.set_main_name(c"raft");
+        ret.execute_batch(SCHEMA)
+            .context("internal error: cannot create raft_data table")?;
+        Ok(ret)
     }
 
     pub(crate) fn prompt(&self) -> &Prompt {
@@ -97,49 +126,6 @@ impl SnapshotShell {
 
     pub(crate) fn connection(&self) -> &Connection {
         &self.connection
-    }
-}
-
-#[derive(Clone, Debug)]
-struct ShellSnapshotContext {
-    term: u64,
-    index: u64,
-    timestamp: UtcDateTime,
-    configuration: ShellSnapshotRaftConfiguration,
-}
-
-impl ShellSnapshotContext {
-    fn new() -> Self {
-        Self {
-            term: 1,
-            index: 1,
-            timestamp: UtcDateTime::now(),
-            configuration: ShellSnapshotRaftConfiguration::new(),
-        }
-    }
-}
-
-#[derive(Clone, Debug, Default)]
-struct ShellSnapshotRaftConfiguration {
-    #[allow(unused)]
-    servers: Vec<RaftServer>,
-}
-
-impl ShellSnapshotRaftConfiguration {
-    fn new() -> Self {
-        Self::default()
-    }
-}
-
-impl TryFrom<ShellSnapshotRaftConfiguration> for RaftConfiguration {
-    type Error = Error;
-
-    fn try_from(configuration: ShellSnapshotRaftConfiguration) -> Result<Self> {
-        let ShellSnapshotRaftConfiguration { servers } = configuration;
-        if servers.is_empty() {
-            return Err(anyhow!("at least one server required"));
-        }
-        Ok(Self { servers })
     }
 }
 
@@ -247,6 +233,60 @@ impl FromStr for SnapshotShellCommandKind {
             ".set-timestamp" => Ok(Self::SetTimestamp),
             _ => Err(UnknownCommand.into()),
         }
+    }
+}
+
+pub(crate) struct RaftMetadata {
+    pub(crate) term: u64,
+    pub(crate) index: u64,
+    pub(crate) timestamp: UtcDateTime,
+}
+
+impl RaftMetadata {
+    pub(crate) fn read_from(conn: &Connection) -> Result<Self> {
+        let ret = conn.query_one(
+            "
+                SELECT raft_term, raft_index, timestamp
+                FROM metadata
+            ",
+            (),
+            |row| {
+                Ok(Self {
+                    term: row.get("raft_term")?,
+                    index: row.get("raft_index")?,
+                    timestamp: UtcDateTime::from_unix_timestamp(row.get("timestamp")?)
+                        .map_err(|err| rusqlite::Error::UserFunctionError(err.into()))?,
+                })
+            },
+        )?;
+        Ok(ret)
+    }
+}
+
+pub(crate) struct RaftServers {
+    pub(crate) servers: Vec<RaftServer>,
+}
+
+impl RaftServers {
+    pub(crate) fn read_from(conn: &Connection) -> Result<Self> {
+        let mut stmt = conn.prepare(
+            "
+                SELECT id, address, role
+                FROM servers;
+            ",
+        )?;
+        let servers: Vec<_> = stmt
+            .query(())?
+            .map(|row| {
+                Ok(RaftServer {
+                    id: row.get("id")?,
+                    address: row.get("address")?,
+                    role: RaftRole::try_from(row.get::<_, u8>("role")?)
+                        .map_err(|err| rusqlite::Error::UserFunctionError(err.into()))?,
+                })
+            })
+            .collect()?;
+        Ok(Self { servers })
     }
 }
 

@@ -15,7 +15,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Error, Result, anyhow};
 use lz4_flex::frame::{BlockMode, FrameDecoder, FrameEncoder, FrameInfo};
 
 use crate::dqlite::sys::{cursor, dqlite_result};
@@ -363,10 +363,24 @@ pub struct RaftServer {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[repr(u8)]
 pub enum RaftRole {
-    Standby,
-    Voter,
-    Spare,
+    Standby = 0,
+    Voter = 1,
+    Spare = 2,
+}
+
+impl TryFrom<u8> for RaftRole {
+    type Error = Error;
+
+    fn try_from(raw: u8) -> Result<Self> {
+        match raw {
+            0 => Ok(Self::Standby),
+            1 => Ok(Self::Voter),
+            2 => Ok(Self::Spare),
+            _ => Err(anyhow!("cannot convert {raw} to RaftRole")),
+        }
+    }
 }
 
 impl RaftServer {

@@ -1,15 +1,18 @@
 use anyhow::anyhow;
+use libsqlite3_sys as sqlite3;
+use rusqlite::{ErrorCode, named_params};
 
 use crate::command::help::Help;
 use crate::command::{MissingArgumentError, UnrecognizedArgumentsError};
-use crate::dqlite::{RaftRole, RaftServer};
+use crate::dqlite::RaftRole;
 use crate::{Context, Result};
 
 #[derive(Debug)]
 pub(crate) struct AddServerCommand {
-    role: RaftRole,
+    // TODO(kcza): make this optional.
     id: u64,
     address: String,
+    role: RaftRole,
 }
 
 impl AddServerCommand {
@@ -37,35 +40,61 @@ impl AddServerCommand {
         };
         let id = id.parse()?;
         let address = address.to_owned();
-        let role = match role.as_deref() {
-            Some("standby") => RaftRole::Standby,
-            Some("voter") => RaftRole::Voter,
-            Some("spare") => RaftRole::Spare,
-            Some(raw) => return Err(anyhow!("cannot parse {raw} as raft role")),
-            None => RaftRole::Voter,
-        };
-        Ok(Self { role, id, address })
+        let role = role
+            .as_deref()
+            .map(|role| match role {
+                "standby" => Ok(RaftRole::Standby),
+                "voter" => Ok(RaftRole::Voter),
+                "spare" => Ok(RaftRole::Spare),
+                _ => return Err(anyhow!("cannot parse {role} as raft role")),
+            })
+            .transpose()?
+            .unwrap_or(RaftRole::Voter);
+        Ok(Self { id, address, role })
     }
 
     pub(crate) fn run(self, ctx: &mut Context) -> Result<()> {
-        let Self { role, id, address } = self;
-        let shell = ctx.shell.snapshot_mut().ok_or_else(|| {
+        let Self { id, address, role } = self;
+        let shell = ctx.shell.snapshot().ok_or_else(|| {
             anyhow!("internal error: .add-server command not called in snapshot shell")
         })?;
-
-        let configuration = &mut shell.snapshot.configuration;
-
-        if configuration.servers.iter().any(|s| s.id == id) {
-            return Err(anyhow!("cannot add server with id {id}: already used"));
+        let res = shell.connection().execute(
+            "
+                INSERT INTO servers (id, address, role)
+                VALUES (:id, :address, :role);
+            ",
+            named_params! {
+                ":id": id,
+                ":address": address,
+                ":role": role as u8,
+            },
+        );
+        match res {
+            Ok(1) => Ok(()),
+            Ok(rows_affected) => Err(anyhow!(
+                "internal error: servers insertion affected {rows_affected} rows"
+            )),
+            Err(rusqlite::Error::SqliteFailure(
+                sqlite3::Error {
+                    code: ErrorCode::ConstraintViolation,
+                    extended_code: sqlite3::SQLITE_CONSTRAINT_PRIMARYKEY,
+                },
+                _,
+            )) => {
+                // Assumes `id` is the only primary key.
+                Err(anyhow!("id already in use"))
+            }
+            Err(rusqlite::Error::SqliteFailure(
+                sqlite3::Error {
+                    code: ErrorCode::ConstraintViolation,
+                    extended_code: sqlite3::SQLITE_CONSTRAINT_UNIQUE,
+                },
+                _,
+            )) => {
+                // Assumes `address` is the only unique, non-primary key.
+                Err(anyhow!("address already in use"))
+            }
+            Err(err) => Err(err.into()),
         }
-        if configuration.servers.iter().any(|s| s.address == address) {
-            return Err(anyhow!(
-                "cannot add server with address '{address}': already used"
-            ));
-        }
-
-        let server = RaftServer { id, address, role };
-        configuration.servers.push(server);
-        Ok(())
     }
 }
