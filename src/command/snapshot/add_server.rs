@@ -24,10 +24,7 @@ impl AddServerCommand {
                 "role",
                 "the role of the new server (standby, voter or spare, default: voter)",
             )
-            .add_optional_arg(
-                "id",
-                "the raft ID of the server, generated if unspecified",
-            )
+            .add_optional_arg("id", "the raft ID of the server, generated if unspecified")
             .build()
             .expect("internal error: help invalid")
     }
