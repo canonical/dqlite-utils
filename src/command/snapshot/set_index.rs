@@ -1,4 +1,5 @@
 use anyhow::{Context as _, anyhow};
+use rusqlite::params;
 
 use crate::{
     Context, Result,
@@ -42,7 +43,7 @@ impl SetIndexCommand {
                 UPDATE metadata
                 SET raft_index = ?
             ",
-            (index,),
+            params![index],
         )?;
         Ok(())
     }

@@ -1,15 +1,18 @@
-use std::ffi::CString;
-use std::fs;
+use std::ffi::{CString, OsStr};
+use std::fs::{self};
 use std::io::{ErrorKind, Write};
 use std::path::PathBuf;
 use std::time::SystemTime;
 
 use anyhow::{Context as _, anyhow};
+use libsqlite3_sys as sqlite3;
+use rusqlite::{Connection, TransactionBehavior};
 
 use crate::command::help::Help;
 use crate::command::snapshot::{RaftMetadata, RaftServers};
 use crate::command::{MissingArgumentError, UnrecognizedArgumentsError};
 use crate::dqlite::{DqliteDatabaseWriter, DqliteDir, RaftConfiguration};
+use crate::rusqlite_ext::files::{ConnectionFile, ConnectionFilesExt};
 use crate::{Context, Result, Shell};
 
 #[derive(Debug)]
@@ -39,14 +42,15 @@ impl FinishCommand {
 
     pub(crate) fn run(self, ctx: &mut Context) -> Result<()> {
         let Self { dir } = self;
-        let shell = ctx.shell.snapshot().ok_or_else(|| {
+        let shell = ctx.shell.snapshot_mut().ok_or_else(|| {
             anyhow!("internal error: .finish command not called in snapshot shell")
         })?;
 
-        let conn = shell.connection();
+        let conn = shell.connection_mut();
+        let txn = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
 
         let configuration = {
-            let RaftServers { servers } = RaftServers::read_from(conn)?;
+            let RaftServers { servers } = RaftServers::read_from(&txn)?;
             if servers.is_empty() {
                 return Err(anyhow!("at least one server required"));
             }
@@ -57,8 +61,23 @@ impl FinishCommand {
             term,
             index,
             timestamp,
-        } = RaftMetadata::read_from(conn)?;
+        } = RaftMetadata::read_from(&txn)?;
         let timestamp = SystemTime::from(timestamp);
+
+        let attached_dbs = {
+            let mut attached_dbs = Vec::with_capacity(10);
+            let mut stmt = txn.prepare("PRAGMA database_list;")?;
+            let mut rows = stmt.query(())?;
+            while let Some(row) = rows.next()? {
+                let name = row.get_ref("name")?.as_str()?;
+                if name == "raft" || name == "temp" {
+                    // `raft` only contains metadata, this is encoded elsewhere. `temp` is ignored as it cannot be used as a schema name.
+                    continue;
+                }
+                attached_dbs.push(AttachedDb::new(&txn, name)?)
+            }
+            attached_dbs
+        };
 
         // Heuristic to ensure clean directory. Clearly there's a TOCTOU issue here,
         // but if a user chooses to write a snapshot into an actively-changing
@@ -84,11 +103,7 @@ impl FinishCommand {
                     .with_index(index)
                     .with_timestamp(timestamp)
                     .with_configuration(configuration)
-                    .add_database(
-                        CString::new("placeholder db".as_bytes().to_owned())
-                            .expect("internal error: CString invalid"),
-                        PlaceholderDb,
-                    )
+                    .add_databases(attached_dbs.into_iter().map(|db| (db.name.clone(), db)))
             })
             .create();
         if let Err(err) = res {
@@ -97,6 +112,7 @@ impl FinishCommand {
             }
             return Err(err);
         }
+        txn.rollback()?;
 
         ctx.shell = Shell::default();
 
@@ -104,22 +120,70 @@ impl FinishCommand {
     }
 }
 
-struct PlaceholderDb;
+struct AttachedDb<'conn> {
+    name: CString,
+    main: ConnectionFile<'conn>,
+    journal: Option<ConnectionFile<'conn>>,
+}
 
-impl DqliteDatabaseWriter for PlaceholderDb {
-    fn main_size(&self) -> usize {
-        0
+impl<'conn> AttachedDb<'conn> {
+    fn new(conn: &'conn Connection, name: &str) -> Result<Self> {
+        let name_os_str = OsStr::new(name);
+        let main = conn.main_file(Some(name_os_str))?;
+        let journal = conn.journal_file(Some(name_os_str))?;
+        let name = CString::new(name)?;
+        Ok(Self {
+            name,
+            main,
+            journal,
+        })
+    }
+}
+
+impl DqliteDatabaseWriter for AttachedDb<'_> {
+    fn main_size(&self) -> Result<u64> {
+        self.main.len().context("cannot get length of main file")
     }
 
-    fn wal_size(&self) -> usize {
-        0
+    fn wal_size(&self) -> Result<u64> {
+        let journal = match &self.journal {
+            Some(journal) => journal,
+            None => return Ok(0),
+        };
+        journal.len().context("cannot get length of journal file")
     }
 
-    fn write_main(&self, _out: &mut impl Write) -> Result<()> {
+    fn write_main(&mut self, out: &mut impl Write) -> Result<()> {
+        write_file(&mut self.main, out)?;
         Ok(())
     }
 
-    fn write_wal(&self, _out: &mut impl Write) -> Result<()> {
+    fn write_wal(&mut self, out: &mut impl Write) -> Result<()> {
+        let journal = match &mut self.journal {
+            Some(journal) => journal,
+            None => return Ok(()),
+        };
+        write_file(journal, out)?;
         Ok(())
     }
+}
+
+fn write_file(file: &mut ConnectionFile<'_>, out: &mut impl Write) -> Result<()> {
+    let len = file.len()? as usize;
+    let mut offset = 0;
+    let mut buf = [0; 4096];
+    while offset < len {
+        let to_read = std::cmp::min(buf.len(), len - offset);
+        let buf = &mut buf[..to_read];
+        match file.read_at(buf, offset as u64) {
+            Ok(()) => {}
+            Err(err) if err.into_rc() == sqlite3::SQLITE_IOERR_SHORT_READ => {}
+            Err(err) => {
+                return Err(err.into());
+            }
+        }
+        out.write_all(buf)?;
+        offset += buf.len();
+    }
+    Ok(())
 }

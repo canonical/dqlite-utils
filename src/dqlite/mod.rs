@@ -936,11 +936,11 @@ impl DqliteSegmentBuilder {
 }
 
 pub trait DqliteDatabaseWriter {
-    fn main_size(&self) -> usize;
-    fn wal_size(&self) -> usize;
+    fn main_size(&self) -> Result<u64>;
+    fn wal_size(&self) -> Result<u64>;
 
-    fn write_main(&self, out: &mut impl Write) -> Result<()>;
-    fn write_wal(&self, out: &mut impl Write) -> Result<()>;
+    fn write_main(&mut self, out: &mut impl Write) -> Result<()>;
+    fn write_wal(&mut self, out: &mut impl Write) -> Result<()>;
 }
 
 pub struct Empty;
@@ -992,6 +992,146 @@ impl<T> DqliteSnapshotBuilder<T> {
     }
 }
 
+impl<T> DqliteSnapshotBuilder<T>
+where
+    T: DqliteDatabaseWriter,
+{
+    fn write_to(&mut self, folder: &Path) -> Result<()> {
+        let Self {
+            term,
+            index,
+            timestamp,
+            compressed,
+            ..
+        } = self;
+        let mut path = {
+            let timestamp = timestamp.duration_since(UNIX_EPOCH)?.as_millis();
+            folder.join(format!("snapshot-{term}-{index}-{timestamp}"))
+        };
+
+        let file = File::create(&path)?;
+        if *compressed {
+            self.write_compressed_snapshot_data(file)?;
+        } else {
+            self.write_snapshot_data(file)?;
+        }
+
+        path.set_extension("meta");
+        self.write_snapshot_metadata(File::create(&path)?)?;
+
+        Ok(())
+    }
+
+    fn write_compressed_snapshot_data(&mut self, data: impl Write) -> Result<()> {
+        // Unfortunately dqlite requires the full content length to be stored
+        // in the header of a single compressed frame.
+        // This means that it is necessary to loop twice over the data:
+        // first to compute the total size, then to actually write it.
+        let mut size = 16u64; // The header
+
+        for (name, database) in &self.databases {
+            let main_size = database.main_size()?;
+            let wal_size = database.wal_size()?;
+
+            let header = snapshotDatabase {
+                filename: name.as_ptr(),
+                main_size,
+                wal_size,
+            };
+
+            let header_size = unsafe { sys::snapshotDatabase__sizeof(&header) } as u64;
+            size += header_size;
+            size += main_size;
+            size += wal_size;
+        }
+
+        let frame_info = FrameInfo::new()
+            .content_checksum(true)
+            .content_size(Some(size))
+            .block_mode(BlockMode::Linked);
+        let mut encoder = FrameEncoder::with_frame_info(frame_info, data);
+        self.write_snapshot_data(&mut encoder)?;
+        encoder.finish()?;
+
+        Ok(())
+    }
+
+    fn write_snapshot_data(&mut self, mut data: impl Write) -> Result<()> {
+        let mut write_buf = raft_buffer::default();
+        let rc = unsafe { sys::encodeSnapshotHeader(self.databases.len() as _, &mut write_buf) };
+        if rc != raft_result::OK {
+            return Err(anyhow!("failed to encode snapshot header"));
+        }
+        let result = data.write_all(unsafe { write_buf.as_bytes() });
+        unsafe { sys::raft_free(write_buf.base) };
+        result?; // Avoid leaking `header_buf` content.
+
+        for (name, database) in &mut self.databases {
+            let main_size = database.main_size()?;
+
+            let wal_size = database.wal_size()?;
+            let header = snapshotDatabase {
+                filename: name.as_ptr(),
+                main_size,
+                wal_size,
+            };
+
+            let header_size = unsafe { sys::snapshotDatabase__sizeof(&header) };
+            let mut write_buf = vec![0u8; header_size];
+            let mut cursor = write_buf.as_mut_ptr() as *mut c_char;
+            unsafe { sys::snapshotDatabase__encode(&header, &mut cursor) };
+
+            data.write_all(&write_buf)?;
+            // TODO: wrap a writer so that we are sure to write exactly main_size and wal_size bytes.
+            database.write_main(&mut data)?;
+            database.write_wal(&mut data)?;
+        }
+
+        Ok(())
+    }
+
+    fn write_snapshot_metadata(&mut self, mut meta: impl Write) -> Result<()> {
+        let mut config = raft_configuration::default();
+        unsafe { sys::configurationInit(&mut config) };
+
+        let configuration = self
+            .configuration
+            .as_ref()
+            .expect("cannot write snapshot without configuration");
+        for server in &configuration.servers {
+            let id = server.id;
+            let address = CString::new(server.address.as_str()).unwrap();
+            let role = match server.role {
+                RaftRole::Standby => raft_role::RAFT_STANDBY,
+                RaftRole::Voter => raft_role::RAFT_VOTER,
+                RaftRole::Spare => raft_role::RAFT_SPARE,
+            } as _;
+            let rc = unsafe { sys::configurationAdd(&mut config, id, address.as_ptr(), role) };
+            if rc != raft_result::OK {
+                return Err(anyhow!("failed to add server to configuration"));
+            }
+        }
+
+        let mut config_buf = raft_buffer::default();
+        let rc = unsafe { sys::configurationEncode(&config, &mut config_buf) };
+        if rc != raft_result::OK {
+            return Err(anyhow!("failed to encode configuration"));
+        }
+
+        let mut header = [0u8; 32];
+        unsafe {
+            sys::formatSnapshotMetaHeader(header.as_mut_ptr() as *mut _, self.index, &config_buf)
+        };
+        let result = meta
+            .write_all(header.as_slice())
+            .and_then(|_| meta.write_all(unsafe { config_buf.as_bytes() }));
+        unsafe { sys::raft_free(config_buf.base) };
+        result?; // Avoid leaking `config_buf` content.
+
+        Ok(())
+    }
+}
+
 impl DqliteSnapshotBuilder<Empty> {
     pub fn add_database<T: DqliteDatabaseWriter>(
         self,
@@ -1017,6 +1157,30 @@ impl DqliteSnapshotBuilder<Empty> {
             databases,
         }
     }
+
+    pub fn add_databases<T: DqliteDatabaseWriter>(
+        self,
+        dbs: impl IntoIterator<Item = (CString, T)>,
+    ) -> DqliteSnapshotBuilder<T> {
+        let Self {
+            term,
+            index,
+            timestamp,
+            compressed,
+            databases,
+            configuration,
+        } = self;
+        debug_assert!(databases.is_empty());
+        let databases = dbs.into_iter().collect();
+        DqliteSnapshotBuilder {
+            term,
+            index,
+            timestamp,
+            compressed,
+            configuration,
+            databases,
+        }
+    }
 }
 
 impl<T> DqliteSnapshotBuilder<T>
@@ -1025,6 +1189,11 @@ where
 {
     pub fn add_database(mut self, name: CString, content: T) -> Self {
         self.databases.push((name, content));
+        self
+    }
+
+    pub fn add_databases(mut self, dbs: impl IntoIterator<Item = (CString, T)>) -> Self {
+        self.databases.extend(dbs);
         self
     }
 }
@@ -1083,7 +1252,6 @@ impl<T> DqliteDirCreator<T> {
 }
 
 impl DqliteDirCreator<Empty> {
-    #[allow(unused)]
     pub fn with_snapshot<T>(
         self,
         f: impl FnOnce(DqliteSnapshotBuilder<Empty>) -> DqliteSnapshotBuilder<T>,
@@ -1161,7 +1329,7 @@ impl<T> DqliteDirCreator<T>
 where
     T: DqliteDatabaseWriter,
 {
-    pub fn create(self) -> Result<()> {
+    pub fn create(mut self) -> Result<()> {
         self.create_dir()?;
         self.write_metadata()?;
         self.write_segments()?;
@@ -1273,152 +1441,10 @@ impl<T> DqliteDirCreator<T>
 where
     T: DqliteDatabaseWriter,
 {
-    fn write_snapshots(&self) -> Result<()> {
-        for snapshot in &self.snapshots {
-            self.write_snapshot(snapshot, &self.dir)?;
+    fn write_snapshots(&mut self) -> Result<()> {
+        for snapshot in &mut self.snapshots {
+            snapshot.write_to(&self.dir)?;
         }
-        Ok(())
-    }
-
-    fn write_snapshot(&self, s: &DqliteSnapshotBuilder<T>, folder: &Path) -> Result<()> {
-        let mut path = {
-            let term = s.term;
-            let index = s.index;
-            let timestamp = s.timestamp.duration_since(UNIX_EPOCH)?.as_millis();
-            folder.join(format!("snapshot-{term}-{index}-{timestamp}"))
-        };
-
-        let file = File::create(&path)?;
-        if s.compressed {
-            self.write_compressed_snapshot_data(s, file)?;
-        } else {
-            self.write_snapshot_data(s, file)?;
-        }
-
-        path.set_extension("meta");
-        self.write_snapshot_metadata(s, File::create(&path)?)?;
-
-        Ok(())
-    }
-
-    fn write_compressed_snapshot_data(
-        &self,
-        s: &DqliteSnapshotBuilder<T>,
-        data: impl Write,
-    ) -> Result<()> {
-        // Unfortunately dqlite requires the full content type to be stored
-        // in the header of a single compressed frame.
-        // This means that it is necessary to loop twice over the data:
-        // first to compute the total size, then to actually write it.
-        let mut size = 16u64; // The header
-
-        for (name, database) in &s.databases {
-            let main_size = database.main_size() as u64;
-            let wal_size = database.wal_size() as u64;
-
-            let header = snapshotDatabase {
-                filename: name.as_ptr(),
-                main_size,
-                wal_size,
-            };
-
-            let header_size = unsafe { sys::snapshotDatabase__sizeof(&header) } as u64;
-            size += header_size;
-            size += main_size;
-            size += wal_size;
-        }
-
-        let frame_info = FrameInfo::new()
-            .content_checksum(true)
-            .content_size(Some(size))
-            .block_mode(BlockMode::Linked);
-        let mut encoder = FrameEncoder::with_frame_info(frame_info, data);
-        self.write_snapshot_data(s, &mut encoder)?;
-        encoder.finish()?;
-
-        Ok(())
-    }
-
-    fn write_snapshot_data(
-        &self,
-        s: &DqliteSnapshotBuilder<T>,
-        mut data: impl Write,
-    ) -> Result<()> {
-        let mut write_buf = raft_buffer::default();
-        let rc = unsafe { sys::encodeSnapshotHeader(s.databases.len() as _, &mut write_buf) };
-        if rc != raft_result::OK {
-            return Err(anyhow!("failed to encode snapshot header"));
-        }
-        let result = data.write_all(unsafe { write_buf.as_bytes() });
-        unsafe { sys::raft_free(write_buf.base) };
-        result?; // Avoid leaking `header_buf` content.
-
-        for (name, database) in &s.databases {
-            let main_size = database.main_size() as u64;
-
-            let wal_size = database.wal_size() as u64;
-            let header = snapshotDatabase {
-                filename: name.as_ptr(),
-                main_size,
-                wal_size,
-            };
-
-            let header_size = unsafe { sys::snapshotDatabase__sizeof(&header) };
-            let mut write_buf = vec![0u8; header_size];
-            let mut cursor = write_buf.as_mut_ptr() as *mut c_char;
-            unsafe { sys::snapshotDatabase__encode(&header, &mut cursor) };
-
-            data.write_all(&write_buf)?;
-            // TODO: wrap a writer so that we are sure to write exactly main_size and wal_size bytes.
-            database.write_main(&mut data)?;
-            database.write_wal(&mut data)?;
-        }
-
-        Ok(())
-    }
-
-    fn write_snapshot_metadata(
-        &self,
-        s: &DqliteSnapshotBuilder<T>,
-        mut meta: impl Write,
-    ) -> Result<()> {
-        let mut config = raft_configuration::default();
-        unsafe { sys::configurationInit(&mut config) };
-
-        let configuration = s
-            .configuration
-            .as_ref()
-            .expect("cannot write snapshot without configuration");
-        for server in &configuration.servers {
-            let id = server.id;
-            let address = CString::new(server.address.as_str()).unwrap();
-            let role = match server.role {
-                RaftRole::Standby => raft_role::RAFT_STANDBY,
-                RaftRole::Voter => raft_role::RAFT_VOTER,
-                RaftRole::Spare => raft_role::RAFT_SPARE,
-            } as _;
-            let rc = unsafe { sys::configurationAdd(&mut config, id, address.as_ptr(), role) };
-            if rc != raft_result::OK {
-                return Err(anyhow!("failed to add server to configuration"));
-            }
-        }
-
-        let mut config_buf = raft_buffer::default();
-        let rc = unsafe { sys::configurationEncode(&config, &mut config_buf) };
-        if rc != raft_result::OK {
-            return Err(anyhow!("failed to encode configuration"));
-        }
-
-        let mut header = [0u8; 32];
-        unsafe {
-            sys::formatSnapshotMetaHeader(header.as_mut_ptr() as *mut _, s.index, &config_buf)
-        };
-        let result = meta
-            .write_all(header.as_slice())
-            .and_then(|_| meta.write_all(unsafe { config_buf.as_bytes() }));
-        unsafe { sys::raft_free(config_buf.base) };
-        result?; // Avoid leaking `config_buf` content.
-
         Ok(())
     }
 }
@@ -1641,20 +1667,20 @@ mod tests {
     }
 
     impl DqliteDatabaseWriter for &TestDatabaseSnapshot {
-        fn main_size(&self) -> usize {
-            self.main.len()
+        fn main_size(&self) -> Result<u64> {
+            Ok(self.main.len() as u64)
         }
 
-        fn wal_size(&self) -> usize {
-            self.wal.len()
+        fn wal_size(&self) -> Result<u64> {
+            Ok(self.wal.len() as u64)
         }
 
-        fn write_main(&self, out: &mut impl Write) -> Result<()> {
+        fn write_main(&mut self, out: &mut impl Write) -> Result<()> {
             out.write_all(&self.main)?;
             Ok(())
         }
 
-        fn write_wal(&self, out: &mut impl Write) -> Result<()> {
+        fn write_wal(&mut self, out: &mut impl Write) -> Result<()> {
             out.write_all(&self.wal)?;
             Ok(())
         }
