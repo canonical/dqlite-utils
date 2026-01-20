@@ -51,16 +51,16 @@ impl FromStr for Command {
                 None => return Ok(Self::Noop),
             };
 
-            if command == ".help" {
-                return Ok(Self::Help(HelpCommand::try_from_args(args)?));
-            }
-            match RootCommand::try_from_input(command, args) {
-                Ok(cmd) => return Ok(Self::Root(cmd)),
-                Err(err) if err.is::<UnknownCommand>() => {}
-                Err(err) => return Err(err),
-            }
-            let snapshot_command = SnapshotShellCommand::try_from_input(command, args)?;
-            return Ok(Self::Snapshot(snapshot_command));
+            let ret = match command.parse()? {
+                CommandKind::Noop => Self::Noop,
+                CommandKind::Help => Self::Help(HelpCommand::try_from_args(args)?),
+                CommandKind::Root(kind) => Self::Root(RootCommand::try_from_input(kind, args)?),
+                CommandKind::Snapshot(kind) => {
+                    Self::Snapshot(SnapshotShellCommand::try_from_input(kind, args)?)
+                }
+                CommandKind::Sql => unreachable!(), // No SQL command starts with a `.`
+            };
+            return Ok(ret);
         }
         Ok(Self::Sql(SqlCommand::try_from_raw(raw)?))
     }
@@ -116,8 +116,8 @@ pub enum RootCommand {
 }
 
 impl RootCommand {
-    fn try_from_input(command: &str, args: &[String]) -> Result<Self> {
-        match command.parse()? {
+    fn try_from_input(kind: RootCommandKind, args: &[String]) -> Result<Self> {
+        match kind {
             RootCommandKind::Log => Ok(Self::Log(LogCommand::try_from_args(args)?)),
             RootCommandKind::Quit => Ok(Self::Quit(QuitCommand::try_from_args(args)?)),
             RootCommandKind::Snapshot => Ok(Self::Snapshot(SnapshotCommand::try_from_args(args)?)),
@@ -157,7 +157,21 @@ impl FromStr for CommandKind {
     type Err = Error;
 
     fn from_str(raw: &str) -> Result<Self> {
-        Ok(Self::Root(RootCommandKind::from_str(raw)?))
+        match raw {
+            "" => return Ok(Self::Noop),
+            ".help" => return Ok(Self::Help),
+            _ => {}
+        }
+        if !raw.starts_with('.') {
+            return Ok(Self::Sql);
+        }
+        match RootCommandKind::from_str(raw) {
+            Ok(cmd) => return Ok(Self::Root(cmd)),
+            Err(err) if err.is::<UnknownCommand>() => {}
+            Err(err) => return Err(err),
+        }
+        let snapshot_command = SnapshotShellCommandKind::from_str(raw)?;
+        Ok(Self::Snapshot(snapshot_command))
     }
 }
 
@@ -172,13 +186,13 @@ impl CommandKind {
         }
     }
 
-    fn help(&self) -> Help {
+    fn help(&self) -> Option<Help> {
         match self {
-            Self::Help => HelpCommand::help(),
-            Self::Noop => panic!("cannot get help of no-op"),
-            Self::Root(kind) => kind.help(),
-            Self::Snapshot(kind) => kind.help(),
-            Self::Sql => SqlCommand::help(),
+            Self::Help => Some(HelpCommand::help()),
+            Self::Noop => None,
+            Self::Root(kind) => Some(kind.help()),
+            Self::Snapshot(kind) => Some(kind.help()),
+            Self::Sql => None,
         }
     }
 }
