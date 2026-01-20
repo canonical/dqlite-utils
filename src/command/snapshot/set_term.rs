@@ -42,7 +42,7 @@ impl SetTermCommand {
                 UPDATE metadata
                 SET raft_term = ?
             ",
-            params![term],
+            params![term as i64],
         )?;
         Ok(())
     }

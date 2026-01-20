@@ -63,7 +63,7 @@ impl AddServerCommand {
                 VALUES (:id, :address, :role);
             ",
             named_params! {
-                ":id": id,
+                ":id": id as i64,
                 ":address": address,
                 ":role": role as u8,
             },
