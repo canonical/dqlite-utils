@@ -43,7 +43,7 @@ impl SetIndexCommand {
                 UPDATE metadata
                 SET raft_index = ?
             ",
-            params![index],
+            params![index as i64],
         )?;
         Ok(())
     }

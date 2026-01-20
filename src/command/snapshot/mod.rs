@@ -256,8 +256,8 @@ impl RaftMetadata {
             (),
             |row| {
                 Ok(Self {
-                    term: row.get("raft_term")?,
-                    index: row.get("raft_index")?,
+                    term: row.get::<_, i64>("raft_term")? as u64,
+                    index: row.get::<_, i64>("raft_index")? as u64,
                     timestamp: UtcDateTime::from_unix_timestamp(row.get("timestamp")?)
                         .map_err(|err| rusqlite::Error::UserFunctionError(err.into()))?,
                 })
@@ -283,7 +283,7 @@ impl RaftServers {
             .query(())?
             .map(|row| {
                 Ok(RaftServer {
-                    id: row.get("id")?,
+                    id: row.get::<_, i64>("id")? as u64,
                     address: row.get("address")?,
                     role: RaftRole::try_from(row.get::<_, u8>("role")?)
                         .map_err(|err| rusqlite::Error::UserFunctionError(err.into()))?,
