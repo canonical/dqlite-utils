@@ -1,0 +1,26 @@
+name: dqlite-utils
+base: core24
+version: '0.1.0' # TODO(kcza): take me from `cargo metadata`
+summary: A utility to monitor dqlite on-disk state
+description: |
+  `dqlite-utils` is an observability tool for inspecting the on-disk state of a dqlite node. The inspected dqlite node does not have to be stopped and does not have to be the leader allowing issues to be debugged without interacting with a live process or the rest of the cluster.
+# adopt-info: dqlite-utils
+
+grade: stable
+confinement: strict
+
+apps:
+  dqlite-utils:
+    command: bin/dqlite-utils
+    plugs:
+      - home
+      - removable-media
+
+parts:
+  dqlite-utils:
+    # See 'snapcraft plugins'
+    plugin: rust
+    source: .
+    override-pull:
+      snapcraftctl pull
+      snapcraftctl set-version "$(cargo metadata | jq --raw-output --exit-status .packages[0].version)"
