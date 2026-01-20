@@ -7,7 +7,7 @@ description: |
 adopt-info: dqlite-utils
 license: MIT
 
-website: canonical.com/dqlite
+website: https://canonical.com/dqlite
 source-code: https://github.com/canonical/dqlite-utils
 issues: https://github.com/canonical/dqlite-utils/issues
 
