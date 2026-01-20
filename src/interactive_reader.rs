@@ -188,7 +188,7 @@ impl<T: CommandHelper> Validator for Helper<T> {
     }
 
     fn validate(&self, ctx: &mut ValidationContext) -> rustyline::Result<ValidationResult> {
-        let input = ctx.input();
+        let input = ctx.input().trim();
         if input.is_empty() {
             return Ok(ValidationResult::Valid(None));
         }
