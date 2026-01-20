@@ -1023,7 +1023,7 @@ where
     }
 
     fn write_compressed_snapshot_data(&mut self, data: impl Write) -> Result<()> {
-        // Unfortunately dqlite requires the full content type to be stored
+        // Unfortunately dqlite requires the full content length to be stored
         // in the header of a single compressed frame.
         // This means that it is necessary to loop twice over the data:
         // first to compute the total size, then to actually write it.

@@ -169,20 +169,20 @@ impl DqliteDatabaseWriter for AttachedDb<'_> {
 }
 
 fn write_file(file: &mut ConnectionFile<'_>, out: &mut impl Write) -> Result<()> {
-    let len = file
-        .len()
-        .expect("internal error: cannot get length of main file") as usize;
+    let len = file.len()? as usize;
     let mut offset = 0;
-    let mut buf = [0; 512];
+    let mut buf = [0; 4096];
     while offset < len {
-        match file.read_at(&mut buf, offset as u64) {
+        let to_read = std::cmp::min(buf.len(), len - offset);
+        let buf = &mut buf[..to_read];
+        match file.read_at(buf, offset as u64) {
             Ok(()) => {}
             Err(err) if err.into_rc() == sqlite3::SQLITE_IOERR_SHORT_READ => {}
             Err(err) => {
                 return Err(err.into());
             }
         }
-        out.write_all(&buf)?;
+        out.write_all(buf)?;
         offset += buf.len();
     }
     Ok(())
