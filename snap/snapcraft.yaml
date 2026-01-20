@@ -28,7 +28,7 @@ parts:
       rustup default stable
 
       craftctl default
-      craftctl set version="$(cargo metadata | jq --raw-output --exit-status .packages[0].version)"
+      craftctl set version="$(cargo metadata --format-version=1 | jq --raw-output --exit-status .packages[0].version)"
 
 package-repositories:
   - type: apt
