@@ -24,3 +24,6 @@
 .vscode/
 
 .cargo/
+
+# Built snaps
+*.snap
