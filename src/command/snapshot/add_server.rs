@@ -9,10 +9,9 @@ use crate::{Context, Result};
 
 #[derive(Debug)]
 pub(crate) struct AddServerCommand {
-    // TODO(kcza): make this optional.
-    id: u64,
     address: String,
     role: RaftRole,
+    id: Option<u64>,
 }
 
 impl AddServerCommand {
@@ -20,25 +19,24 @@ impl AddServerCommand {
         Help::builder()
             .name(".add-server")
             .summary("add a server to the snapshot")
-            .add_arg("id", "the raft ID of the server")
             .add_arg("address", "the server's address")
             .add_optional_arg(
                 "role",
                 "the role of the new server (standby, voter or spare, default: voter)",
             )
+            .add_optional_arg("id", "the raft ID of the server, generated if unspecified")
             .build()
             .expect("internal error: help invalid")
     }
 
     pub(crate) fn try_from_args(args: &[String]) -> Result<Self> {
-        let (id, address, role) = match args {
-            [] => return Err(MissingArgumentError("id").into()),
-            [_] => return Err(MissingArgumentError("address").into()),
-            [id, address] => (id, address, None),
-            [id, address, role] => (id, address, Some(role.to_lowercase())),
+        let (address, role, id) = match args {
+            [] => return Err(MissingArgumentError("address").into()),
+            [address] => (address, None, None),
+            [address, role] => (address, Some(role.to_lowercase()), None),
+            [address, role, id] => (address, Some(role.to_lowercase()), Some(id)),
             [_, _, _, tail @ ..] => return Err(UnrecognizedArgumentsError(tail.to_vec()).into()),
         };
-        let id = id.parse()?;
         let address = address.to_owned();
         let role = role
             .as_deref()
@@ -50,11 +48,12 @@ impl AddServerCommand {
             })
             .transpose()?
             .unwrap_or(RaftRole::Voter);
-        Ok(Self { id, address, role })
+        let id = id.map(|id| id.parse()).transpose()?;
+        Ok(Self { address, role, id })
     }
 
     pub(crate) fn run(self, ctx: &mut Context) -> Result<()> {
-        let Self { id, address, role } = self;
+        let Self { address, role, id } = self;
         let shell = ctx.shell.snapshot().ok_or_else(|| {
             anyhow!("internal error: .add-server command not called in snapshot shell")
         })?;
