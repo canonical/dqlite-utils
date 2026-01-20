@@ -37,6 +37,9 @@ dqlite-utils --dir /path/to/dqlite/data
 
 To use `dqlite-utils` non-interactively, pass commands via the `-c` flag.
 
+To see available commands, type and run `.help` or `.help`.
+For help on a specific command, type and run `.help .name-of-command`.
+
 ### Inspect the Node Status
 
 The `.status` command shows a brief summary the current state of the Raft state machine.
