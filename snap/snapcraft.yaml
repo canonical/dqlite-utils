@@ -24,10 +24,7 @@ parts:
       - libdqlite1.18-unstable-dev
     build-snaps:
       - jq
-    override-pull: |
-      # TODO(kcza): replace this, it's dumb.
-      rustup default stable
-
+    override-build: |
       craftctl default
       craftctl set version="$(cargo metadata --no-deps --format-version=1 | jq --raw-output --exit-status .packages[0].version)"
 
