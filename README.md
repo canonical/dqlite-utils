@@ -37,7 +37,7 @@ dqlite-utils --dir /path/to/dqlite/data
 
 To use `dqlite-utils` non-interactively, pass commands via the `-c` flag.
 
-To see available commands, type and run `.help` or `.help`.
+To see available commands, type and run `.help`.
 For help on a specific command, type and run `.help .name-of-command`.
 
 ### Inspect the Node Status
@@ -98,7 +98,7 @@ For example, to create a new snapshot in `snapshot-dir/` which contains a single
 
 ```bash
 .snapshot
-snapshot> .add-server 254.12.54.72
+snapshot> .add-server 237.54.182.68:12345
 snapshot> ATTACH DATABASE "existing.db" AS existing;
 snapshot> .finish snapshot-dir
 ```
@@ -115,7 +115,7 @@ index: 1
 timestamp: 2026-01-20T13:35:26.000000000Z
 configuration:
 - id: 1
-  address: 123.123.123.123:12345
+  address: 237.54.182.68:12345
   role: voter
 ```
 
