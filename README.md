@@ -87,3 +87,34 @@ Use the `--compact` flag to show a condensed view without detailed information:
 │ 297 COMMIT db2
 │ 296 BARRIER
 ```
+
+### Create a snapshot
+
+To create a snapshot to load into a dqlite cluster, use the `.snapshot` shell.
+For example, to create a new snapshot in `snapshot-dir/` which contains a single server and includes some `existing.db`, type and run the following commands.
+
+```bash
+.snapshot
+snapshot> .add-server 254.12.54.72
+snapshot> ATTACH DATABASE "existing.db" AS existing;
+snapshot> .finish snapshot-dir
+```
+
+You should see a snapshot inside of `snapshot-dir` and that the REPL has returned to its default shell.
+
+When creating a snapshot, to edit Raft metadata, use the `.set-index`, `.set-term` and `.set-timestamp` commands.
+To see the current state of the snapshot being created, type and run `.info`.
+You will see output like this:
+
+```bash
+term: 1
+index: 1
+timestamp: 2026-01-20T13:35:26.000000000Z
+configuration:
+- id: 1
+  address: 123.123.123.123:12345
+  role: voter
+```
+
+To abort snapshot creation, type and run the `.abort` command.
+You will see the REPL’s default shell.
