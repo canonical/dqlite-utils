@@ -20,6 +20,7 @@ parts:
     plugin: rust
     source: .
     build-packages:
+      - clang
       - libdqlite1.18-unstable-dev
     build-snaps:
       - jq
