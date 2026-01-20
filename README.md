@@ -39,10 +39,10 @@ To use `dqlite-utils` non-interactively, pass commands via the `-c` flag.
 
 ### Inspect the Node Status
 
-The `status` command shows a brief summary the current state of the Raft state machine.
+The `.status` command shows a brief summary the current state of the Raft state machine.
 
 ```bash
-> status
+> .status
 dir: .
 term: 1
 current_index: 20011
@@ -51,13 +51,13 @@ first_index: 10242
 
 ### Inspect the Raft Log
 
-To view the log, use the `log` command.
+To view the log, use the `.log` command.
 You will see a list of all commands applied to the dqlite state machine, for example:
 
 ```bash
-> log
+> .log
 ╭ TERM 3
-│ 300 FRAMES db1
+│ 300 COMMIT db1
 │   tx_id: 12345
 │   truncate: 0
 │   pages: 1, 2, 3
@@ -68,7 +68,7 @@ You will see a list of all commands applied to the dqlite state machine, for exa
 │       role: Voter
 │ 298 CHECKPOINT db1
 ├ TERM 2
-│ 297 FRAMES db2
+│ 297 COMMIT db2
 │   tx_id: 12340
 │   truncate: 0
 │   pages: 5, 6
@@ -78,12 +78,12 @@ You will see a list of all commands applied to the dqlite state machine, for exa
 Use the `--compact` flag to show a condensed view without detailed information:
 
 ```bash
-> log --compact
+> .log --compact
 ╭ TERM 3
-│ 300 FRAMES db1
+│ 300 COMMIT db1
 │ 299 CONFIG
 │ 298 CHECKPOINT db1
 ├ TERM 2
-│ 297 FRAMES db2
+│ 297 COMMIT db2
 │ 296 BARRIER
 ```
