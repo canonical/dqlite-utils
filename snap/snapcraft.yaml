@@ -1,10 +1,9 @@
 name: dqlite-utils
 base: core24
-version: '0.1.0' # TODO(kcza): take me from `cargo metadata`
 summary: A utility to monitor dqlite on-disk state
 description: |
   `dqlite-utils` is an observability tool for inspecting the on-disk state of a dqlite node. The inspected dqlite node does not have to be stopped and does not have to be the leader allowing issues to be debugged without interacting with a live process or the rest of the cluster.
-# adopt-info: dqlite-utils
+adopt-info: dqlite-utils
 
 grade: stable
 confinement: strict
@@ -18,16 +17,19 @@ apps:
 
 parts:
   dqlite-utils:
-    # See 'snapcraft plugins'
     plugin: rust
     source: .
     build-packages:
-      - libdqlite1.18
-      - software-properties-common
-    override-pull:
-      snapcraftctl pull
-      snapcraftctl set-version "$(cargo metadata | jq --raw-output --exit-status .packages[0].version)"
+      - libdqlite1.18-unstable-dev
+    build-snaps:
+      - jq
+    override-pull: |
+      // TODO(kcza): replace this, it's dumb.
+      rustup default stable
 
-      add-apt-repository ppa:ppa:dqlite/dev
-      apt update
-      apt install libdqlite1.18-unstable
+      craftctl default
+      craftctl set version="$(cargo metadata | jq --raw-output --exit-status .packages[0].version)"
+
+package-repositories:
+  - type: apt
+    ppa: dqlite/dev
