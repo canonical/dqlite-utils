@@ -76,34 +76,33 @@ impl InfoCommand {
             }
         }
 
-        let mut schema_info_printed = false;
         let mut schemas = conn.attached_schemas()?;
         let mut schemas_iter = schemas.try_iter()?;
-        while let Some(schema) = schemas_iter.next()? {
-            let name = schema.name();
-            if name == "temp" {
-                // `temp` is ignored as it cannot be used as a schema name.
-                continue;
-            }
-
-            if !schema_info_printed {
-                println!("attached_schemas:");
-            }
-            schema_info_printed = true;
-
-            let file = match schema.file()? {
-                "" => "-",
-                file => file,
-            };
-            printdoc!(
-                "
-                    - name: {name}
-                      path: {file}
-                "
-            )
-        }
-        if !schema_info_printed {
+        let mut schema = schemas_iter.next()?;
+        if schema.is_none() {
             println!("attached_schemas: -");
+        } else {
+            println!("attached_schemas:");
+            while let Some(curr_schema) = &schema {
+                let name = curr_schema.name();
+                if name == "temp" {
+                    // `temp` is ignored as it cannot be used as a schema name.
+                    schema = schemas_iter.next()?;
+                    continue;
+                }
+
+                let file = match curr_schema.file()? {
+                    "" => "-",
+                    file => file,
+                };
+                printdoc!(
+                    "
+                        - name: {name}
+                          path: {file}
+                    "
+                );
+                schema = schemas_iter.next()?;
+            }
         }
 
         Ok(())
