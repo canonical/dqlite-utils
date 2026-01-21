@@ -3,6 +3,7 @@ use std::io::{self, IsTerminal, StdoutLock, Write};
 use std::process::{Child, Command, Stdio};
 
 use owo_colors::{OwoColorize, Stream, Style};
+use rusqlite::{Connection, Rows, Statement};
 
 use crate::Result;
 
@@ -72,5 +73,47 @@ pub(crate) trait TerminalStylizeExt {
 impl<T: OwoColorize + Debug + Display> TerminalStylizeExt for T {
     fn terminal_style(&self, style: owo_colors::Style) -> impl Debug + Display {
         self.if_supports_color(Stream::Stdout, move |t| t.style(style))
+    }
+}
+
+pub(crate) trait AttachedSchemasConnectionExt {
+    fn attached_schemas(&self) -> Result<AttachedSchemas<'_>>;
+}
+
+impl AttachedSchemasConnectionExt for Connection {
+    fn attached_schemas(&self) -> Result<AttachedSchemas<'_>> {
+        AttachedSchemas::new(self)
+    }
+}
+
+pub(crate) struct AttachedSchemas<'conn> {
+    query: Statement<'conn>,
+}
+
+impl<'conn> AttachedSchemas<'conn> {
+    fn new(conn: &'conn Connection) -> Result<Self> {
+        let query = conn.prepare("PRAGMA database_list;")?;
+        Ok(Self { query })
+    }
+
+    pub(crate) fn try_iter(&mut self) -> Result<AttachedSchemasIter<'_>> {
+        let Self { query } = self;
+        let rows = query.query(())?;
+        Ok(AttachedSchemasIter { rows })
+    }
+}
+
+pub(crate) struct AttachedSchemasIter<'query> {
+    rows: Rows<'query>,
+}
+
+impl<'query> AttachedSchemasIter<'query> {
+    pub(crate) fn next(&mut self) -> Result<Option<&str>> {
+        let row = match self.rows.next()? {
+            Some(row) => row,
+            None => return Ok(None),
+        };
+        let name = row.get_ref("name")?.as_str()?;
+        Ok(Some(name))
     }
 }

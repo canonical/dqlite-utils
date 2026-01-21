@@ -13,6 +13,7 @@ use crate::command::snapshot::{RaftMetadata, RaftServers};
 use crate::command::{MissingArgumentError, UnrecognizedArgumentsError};
 use crate::dqlite::{DqliteDatabaseWriter, DqliteDir, RaftConfiguration};
 use crate::rusqlite_ext::files::{ConnectionFile, ConnectionFilesExt};
+use crate::utils::AttachedSchemasConnectionExt;
 use crate::{Context, Result, Shell};
 
 #[derive(Debug)]
@@ -66,14 +67,9 @@ impl FinishCommand {
 
         let attached_dbs = {
             let mut attached_dbs = Vec::with_capacity(10);
-            let mut stmt = txn.prepare("PRAGMA database_list;")?;
-            let mut rows = stmt.query(())?;
-            while let Some(row) = rows.next()? {
-                let name = row.get_ref("name")?.as_str()?;
-                if name == "raft" || name == "temp" {
-                    // `raft` only contains metadata, this is encoded elsewhere. `temp` is ignored as it cannot be used as a schema name.
-                    continue;
-                }
+            let mut schemas = txn.attached_schemas()?;
+            let mut schemas_iter = schemas.try_iter()?;
+            while let Some(name) = schemas_iter.next()? {
                 attached_dbs.push(AttachedDb::new(&txn, name)?)
             }
             attached_dbs
