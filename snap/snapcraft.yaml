@@ -1,0 +1,39 @@
+name: dqlite-utils
+title: Dqlite Utils
+base: core24
+summary: A utility to monitor dqlite on-disk state
+description: |
+  `dqlite-utils` is an observability tool for inspecting the on-disk state of a dqlite node. The inspected dqlite node does not have to be stopped and does not have to be the leader allowing issues to be debugged without interacting with a live process or the rest of the cluster.
+adopt-info: dqlite-utils
+license: MIT
+
+website: https://canonical.com/dqlite
+source-code: https://github.com/canonical/dqlite-utils
+issues: https://github.com/canonical/dqlite-utils/issues
+
+grade: stable
+confinement: strict
+
+apps:
+  dqlite-utils:
+    command: bin/dqlite-utils
+    plugs:
+      - home
+      - removable-media
+
+parts:
+  dqlite-utils:
+    plugin: rust
+    source: .
+    build-packages:
+      - clang
+      - libdqlite1.18-unstable-dev
+    build-snaps:
+      - jq
+    override-build: |
+      craftctl default
+      craftctl set version="$(cargo metadata --no-deps --format-version=1 | jq --raw-output --exit-status .packages[0].version)"
+
+package-repositories:
+  - type: apt
+    ppa: dqlite/dev
