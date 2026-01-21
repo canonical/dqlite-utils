@@ -1,14 +1,12 @@
-use std::ffi::{CStr, CString, OsStr, c_void};
+use std::ffi::{OsStr, c_void};
 use std::marker::PhantomData;
 use std::mem;
-use std::ops::Deref;
-use std::os::unix::ffi::OsStrExt;
 use std::ptr::{self, NonNull};
 
 use libsqlite3_sys::{self as sqlite3, sqlite3_file, sqlite3_io_methods};
 use rusqlite::Connection;
 
-use crate::rusqlite_ext::{Result, SqliteCode, SqliteError};
+use crate::rusqlite_ext::{Result, SmallCString, SqliteCode, SqliteError};
 
 #[allow(unused)]
 pub trait ConnectionFilesExt {
@@ -16,57 +14,7 @@ pub trait ConnectionFilesExt {
     fn journal_file(&self, db: Option<&OsStr>) -> Result<Option<ConnectionFile<'_>>>;
 }
 
-enum SmallCString<const MAX_SIZE: usize = 128> {
-    CString(CString),
-    Stack { len: usize, buf: [u8; MAX_SIZE] },
-}
-
-impl<const MAX_SIZE: usize> SmallCString<MAX_SIZE> {
-    const MAX_SIZE: usize = MAX_SIZE;
-}
-
-impl Deref for SmallCString {
-    type Target = CStr;
-
-    fn deref(&self) -> &Self::Target {
-        match self {
-            SmallCString::CString(cstr) => cstr,
-            SmallCString::Stack { len, buf } => {
-                let slice = &buf[..*len];
-                unsafe { CStr::from_bytes_with_nul_unchecked(slice) }
-            }
-        }
-    }
-}
-
-impl From<&str> for SmallCString {
-    fn from(s: &str) -> Self {
-        Self::from(s.as_bytes())
-    }
-}
-
-impl From<&OsStr> for SmallCString {
-    fn from(s: &OsStr) -> Self {
-        Self::from(s.as_bytes())
-    }
-}
-
-impl From<&[u8]> for SmallCString {
-    fn from(s: &[u8]) -> Self {
-        if s.len() < Self::MAX_SIZE {
-            let mut stack = [0u8; Self::MAX_SIZE];
-            stack[..s.len()].copy_from_slice(s);
-            assert!(stack[s.len()] == 0);
-            SmallCString::Stack {
-                len: s.len() + 1,
-                buf: stack,
-            }
-        } else {
-            SmallCString::CString(CString::new(s).unwrap())
-        }
-    }
-}
-
+#[allow(unused)]
 impl ConnectionFilesExt for Connection {
     fn main_file(&self, db: Option<&OsStr>) -> Result<ConnectionFile<'_>> {
         let handle = unsafe { get_file_handle(self, db, false)? };

@@ -2,12 +2,15 @@ use libsqlite3_sys as sqlite3;
 use static_assertions::const_assert;
 use std::{
     error::Error,
-    ffi::c_int,
+    ffi::{CStr, CString, OsStr, c_int},
     fmt::{self, Display},
     num::NonZero,
+    ops::Deref,
+    os::unix::ffi::OsStrExt,
 };
 
 pub mod config;
+pub mod file_control;
 pub mod files;
 pub mod vfs;
 
@@ -129,6 +132,57 @@ impl<T> WriteOutputResultExt<T> for Result<T> {
                 SqliteCode::OK
             }
             Err(e) => SqliteCode(e.0.get()),
+        }
+    }
+}
+
+enum SmallCString<const MAX_SIZE: usize = 128> {
+    CString(CString),
+    Stack { len: usize, buf: [u8; MAX_SIZE] },
+}
+
+impl<const MAX_SIZE: usize> SmallCString<MAX_SIZE> {
+    const MAX_SIZE: usize = MAX_SIZE;
+}
+
+impl Deref for SmallCString {
+    type Target = CStr;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            SmallCString::CString(cstr) => cstr,
+            SmallCString::Stack { len, buf } => {
+                let slice = &buf[..*len];
+                unsafe { CStr::from_bytes_with_nul_unchecked(slice) }
+            }
+        }
+    }
+}
+
+impl From<&str> for SmallCString {
+    fn from(s: &str) -> Self {
+        Self::from(s.as_bytes())
+    }
+}
+
+impl From<&OsStr> for SmallCString {
+    fn from(s: &OsStr) -> Self {
+        Self::from(s.as_bytes())
+    }
+}
+
+impl From<&[u8]> for SmallCString {
+    fn from(s: &[u8]) -> Self {
+        if s.len() < Self::MAX_SIZE {
+            let mut stack = [0u8; Self::MAX_SIZE];
+            stack[..s.len()].copy_from_slice(s);
+            assert!(stack[s.len()] == 0);
+            SmallCString::Stack {
+                len: s.len() + 1,
+                buf: stack,
+            }
+        } else {
+            SmallCString::CString(CString::new(s).unwrap())
         }
     }
 }
