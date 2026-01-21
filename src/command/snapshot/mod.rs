@@ -10,8 +10,8 @@ use std::str::FromStr;
 
 use anyhow::Context as _;
 use fallible_iterator::FallibleIterator;
-use rusqlite::hooks::{AuthAction, AuthContext, Authorization};
 use rusqlite::Connection;
+use rusqlite::hooks::{AuthAction, AuthContext, Authorization};
 use strum::EnumIter;
 use time::UtcDateTime;
 
@@ -140,19 +140,17 @@ impl SnapshotShell {
             Aa::Pragma {
                 pragma_name,
                 pragma_value: Some(pragma_value),
-            } => {
-                match pragma_name {
-                    "data_store_directory" | "journal_size_limit" | "page_size" | "synchronous" => {
-                        return Authorization::Deny
-                    }
-                    "journal_mode" => {
-                        if pragma_value != "WAL" {
-                            return Authorization::Deny;
-                        }
-                    }
-                    _ => {}
+            } => match pragma_name {
+                "data_store_directory" | "journal_size_limit" | "page_size" | "synchronous" => {
+                    return Authorization::Deny;
                 }
-            }
+                "journal_mode" => {
+                    if pragma_value != "WAL" {
+                        return Authorization::Deny;
+                    }
+                }
+                _ => {}
+            },
             _ => {}
         }
 
