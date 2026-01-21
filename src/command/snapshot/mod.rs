@@ -122,7 +122,7 @@ impl SnapshotShell {
         Ok(ret)
     }
 
-    fn authorizer<'r>(ctx: AuthContext<'r>) -> Authorization {
+    fn authorizer<'ctx>(ctx: AuthContext<'ctx>) -> Authorization {
         use AuthAction as Aa;
 
         let AuthContext {
