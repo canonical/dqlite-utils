@@ -1255,10 +1255,7 @@ impl DqliteDirCreator<Empty> {
     pub fn with_snapshot<T>(
         self,
         f: impl FnOnce(DqliteSnapshotBuilder<Empty>) -> DqliteSnapshotBuilder<T>,
-    ) -> DqliteDirCreator<T>
-    where
-        T: DqliteDatabaseWriter,
-    {
+    ) -> DqliteDirCreator<T> {
         let Self {
             dir,
             term,
