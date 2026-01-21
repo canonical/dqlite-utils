@@ -10,6 +10,7 @@ use std::str::FromStr;
 
 use anyhow::Context as _;
 use fallible_iterator::FallibleIterator;
+use rusqlite::hooks::{AuthAction, AuthContext, Authorization};
 use rusqlite::Connection;
 use strum::EnumIter;
 use time::UtcDateTime;
@@ -117,7 +118,57 @@ impl SnapshotShell {
         ret.set_main_name(c"raft");
         ret.execute_batch(SCHEMA)
             .context("internal error: cannot create raft_data table")?;
+        ret.authorizer(Some(Self::authorizer))?;
         Ok(ret)
+    }
+
+    fn authorizer<'r>(ctx: AuthContext<'r>) -> Authorization {
+        use AuthAction as Aa;
+
+        let AuthContext {
+            action,
+            database_name,
+            accessor: _,
+        } = ctx;
+
+        match action {
+            Aa::Unknown { .. }
+            | Aa::CreateTempIndex { .. }
+            | Aa::CreateTempTable { .. }
+            | Aa::CreateTempTrigger { .. }
+            | Aa::CreateTempView { .. } => return Authorization::Deny,
+            Aa::Pragma {
+                pragma_name,
+                pragma_value: Some(pragma_value),
+            } => {
+                match pragma_name {
+                    "data_store_directory" | "journal_size_limit" | "page_size" | "synchronous" => {
+                        return Authorization::Deny
+                    }
+                    "journal_mode" => {
+                        if pragma_value != "WAL" {
+                            return Authorization::Deny;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
+
+        if database_name.is_none_or(|name| name == "raft") {
+            match action {
+                Aa::DropTable { .. }
+                | Aa::Insert {
+                    table_name: "metadata",
+                }
+                | Aa::Delete {
+                    table_name: "metadata",
+                } => return Authorization::Deny,
+                _ => {}
+            }
+        }
+        Authorization::Allow
     }
 
     pub(crate) fn prompt(&self) -> &Prompt {
