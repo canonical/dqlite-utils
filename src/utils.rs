@@ -113,7 +113,7 @@ impl<'stmt> AttachedSchemasIter<'stmt> {
             Some(row) => row,
             None => {
                 return Ok(None);
-            },
+            }
         };
         let name = row.get_ref("name")?.as_str()?;
         Ok(Some(AttachedSchema { row, name }))
