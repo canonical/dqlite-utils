@@ -82,6 +82,7 @@ impl InfoCommand {
         while let Some(schema) = schemas_iter.next()? {
             let name = schema.name();
             if name == "temp" {
+                // `temp` is ignored as it cannot be used as a schema name.
                 continue;
             }
 
