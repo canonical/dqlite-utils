@@ -69,7 +69,11 @@ impl FinishCommand {
             let mut attached_dbs = Vec::with_capacity(10);
             let mut schemas = txn.attached_schemas()?;
             let mut schemas_iter = schemas.try_iter()?;
-            while let Some(name) = schemas_iter.next()? {
+            while let Some(schema) = schemas_iter.next()? {
+                let name = schema.name();
+                if name == "raft" || name == "temp" {
+                    continue;
+                }
                 attached_dbs.push(AttachedDb::new(&txn, name)?)
             }
             attached_dbs

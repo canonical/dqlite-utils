@@ -8,6 +8,7 @@ use crate::command::UnrecognizedArgumentsError;
 use crate::command::help::Help;
 use crate::command::snapshot::{RaftMetadata, RaftServers};
 use crate::dqlite::{RaftRole, RaftServer};
+use crate::utils::AttachedSchemasConnectionExt;
 use crate::{Context, Result};
 
 #[derive(Debug)]
@@ -74,6 +75,36 @@ impl InfoCommand {
                 );
             }
         }
+
+        let mut schema_info_printed = false;
+        let mut schemas = conn.attached_schemas()?;
+        let mut schemas_iter = schemas.try_iter()?;
+        while let Some(schema) = schemas_iter.next()? {
+            let name = schema.name();
+            if name == "temp" {
+                continue;
+            }
+
+            if !schema_info_printed {
+                println!("attached_schemas:");
+            }
+            schema_info_printed = true;
+
+            let file = match schema.file()? {
+                "" => "-",
+                file => file,
+            };
+            printdoc!(
+                "
+                    - name: {name}
+                      path: {file}
+                "
+            )
+        }
+        if !schema_info_printed {
+            println!("attached_schemas: -");
+        }
+
         Ok(())
     }
 }

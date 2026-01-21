@@ -3,7 +3,7 @@ use std::io::{self, IsTerminal, StdoutLock, Write};
 use std::process::{Child, Command, Stdio};
 
 use owo_colors::{OwoColorize, Stream, Style};
-use rusqlite::{Connection, Rows, Statement};
+use rusqlite::{Connection, Row, Rows, Statement};
 
 use crate::Result;
 
@@ -103,17 +103,34 @@ impl<'conn> AttachedSchemas<'conn> {
     }
 }
 
-pub(crate) struct AttachedSchemasIter<'query> {
-    rows: Rows<'query>,
+pub(crate) struct AttachedSchemasIter<'stmt> {
+    rows: Rows<'stmt>,
 }
 
-impl<'query> AttachedSchemasIter<'query> {
-    pub(crate) fn next(&mut self) -> Result<Option<&str>> {
+impl<'stmt> AttachedSchemasIter<'stmt> {
+    pub(crate) fn next(&mut self) -> Result<Option<AttachedSchema<'_, 'stmt>>> {
         let row = match self.rows.next()? {
             Some(row) => row,
-            None => return Ok(None),
+            None => {
+                return Ok(None);
+            },
         };
         let name = row.get_ref("name")?.as_str()?;
-        Ok(Some(name))
+        Ok(Some(AttachedSchema { row, name }))
+    }
+}
+
+pub(crate) struct AttachedSchema<'row, 'stmt> {
+    name: &'row str,
+    row: &'row Row<'stmt>,
+}
+
+impl<'stmt> AttachedSchema<'_, 'stmt> {
+    pub(crate) fn name(&self) -> &str {
+        self.name
+    }
+
+    pub(crate) fn file(&self) -> Result<&str> {
+        Ok(self.row.get_ref("file")?.as_str()?)
     }
 }
