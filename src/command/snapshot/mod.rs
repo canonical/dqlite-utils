@@ -131,41 +131,54 @@ impl SnapshotShell {
             accessor: _,
         } = ctx;
 
+        // All-schema rules
         match action {
-            Aa::Unknown { .. }
-            | Aa::CreateTempIndex { .. }
-            | Aa::CreateTempTable { .. }
-            | Aa::CreateTempTrigger { .. }
-            | Aa::CreateTempView { .. } => return Authorization::Deny,
-            Aa::Pragma {
-                pragma_name,
-                pragma_value: Some(pragma_value),
-            } => match pragma_name {
-                "data_store_directory" | "journal_size_limit" | "page_size" | "synchronous" => {
+            Aa::Attach { filename } => {
+                let filename = filename.strip_prefix("file:").unwrap_or(filename);
+                if matches!(filename, "" | ":memory:") {
                     return Authorization::Deny;
                 }
-                "journal_mode" => {
-                    if pragma_value != "WAL" {
-                        return Authorization::Deny;
-                    }
-                }
-                _ => {}
-            },
+            }
+            Aa::Detach {
+                database_name: "raft",
+            } => {
+                // Belt-and-bracers check in case `raft` is no longer the `main`
+                // database in future.
+                return Authorization::Deny;
+            }
+            Aa::Unknown { .. } => return Authorization::Deny,
             _ => {}
         }
 
+        // Per-schema rules
         if database_name.is_none_or(|name| name == "raft") {
             match action {
-                Aa::DropTable { .. }
+                Aa::AlterTable { .. }
+                | Aa::CreateIndex { .. }
+                | Aa::CreateTable { .. }
+                | Aa::CreateTrigger { .. }
+                | Aa::CreateView { .. }
+                | Aa::CreateVtable { .. }
+                | Aa::Delete {
+                    table_name: "metadata",
+                }
+                | Aa::DropIndex { .. }
+                | Aa::DropTable { .. }
+                | Aa::DropTrigger { .. }
+                | Aa::DropView { .. }
+                | Aa::DropVtable { .. }
                 | Aa::Insert {
                     table_name: "metadata",
                 }
-                | Aa::Delete {
-                    table_name: "metadata",
-                } => return Authorization::Deny,
+                | Aa::Pragma {
+                    pragma_name: "writable_schema",
+                    pragma_value: Some(_),
+                }
+                | Aa::Reindex { .. } => return Authorization::Deny,
                 _ => {}
             }
         }
+
         Authorization::Allow
     }
 
