@@ -85,8 +85,8 @@ impl InfoCommand {
             println!("attached_schemas:");
             while let Some(curr_schema) = &schema {
                 let name = curr_schema.name();
-                if name == "temp" {
-                    // `temp` is ignored as it cannot be used as a schema name.
+                if name == "raft" || name == "temp" {
+                    // `raft` only contains metadata, this does not appear as a schema name in the written snapshot. `temp` is ignored as it cannot be used as a schema name.
                     schema = schemas_iter.next()?;
                     continue;
                 }
