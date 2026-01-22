@@ -87,18 +87,18 @@ impl AttachedSchemasConnectionExt for Connection {
 }
 
 pub(crate) struct AttachedSchemas<'conn> {
-    query: Statement<'conn>,
+    stmt: Statement<'conn>,
 }
 
 impl<'conn> AttachedSchemas<'conn> {
     fn new(conn: &'conn Connection) -> Result<Self> {
-        let query = conn.prepare("PRAGMA database_list;")?;
-        Ok(Self { query })
+        let stmt = conn.prepare("PRAGMA database_list;")?;
+        Ok(Self { stmt })
     }
 
     pub(crate) fn try_iter(&mut self) -> Result<AttachedSchemasIter<'_>> {
-        let Self { query } = self;
-        let rows = query.query(())?;
+        let Self { stmt } = self;
+        let rows = stmt.query(())?;
         Ok(AttachedSchemasIter { rows })
     }
 }
