@@ -86,7 +86,8 @@ impl InfoCommand {
             while let Some(curr_schema) = &schema {
                 let name = curr_schema.name();
                 if matches!(name, "raft" | "temp" | "") {
-                    // `raft` only contains metadata, this is encoded elsewhere. `temp` is ignored as it cannot be used as a schema name. Temporary databases are ignored as they cannot journal in WAL mode.
+                    // The rationale for ignoring the schema in this case is
+                    // identical to that used in the `.finish` command.
                     schema = schemas_iter.next()?;
                     continue;
                 }
