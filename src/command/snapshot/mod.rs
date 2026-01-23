@@ -514,7 +514,7 @@ mod tests {
                 println!("Summary: {name}");
 
                 if let Some(setup) = setup {
-                    SnapshotShell::execute_authorizer(conn, setup).unwrap();
+                    SnapshotShell::execute_without_authorizer(conn, setup).unwrap();
                 }
 
                 conn.execute_batch(sql)?;
@@ -524,7 +524,7 @@ mod tests {
     }
 
     impl SnapshotShell {
-        fn execute_authorizer(conn: &Connection, sql: &str) -> Result<()> {
+        fn execute_without_authorizer(conn: &Connection, sql: &str) -> Result<()> {
             conn.authorizer::<fn(AuthContext<'_>) -> _>(None).unwrap();
             let ret = conn.execute_batch(sql);
             conn.authorizer(Some(Self::authorizer)).unwrap();
