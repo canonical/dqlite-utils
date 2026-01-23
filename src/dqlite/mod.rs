@@ -251,7 +251,7 @@ impl DqliteDir {
                 DqliteSegment::Closed { indexes, .. } => Some(*indexes.start()),
                 DqliteSegment::Open { .. } => snapshots.first().map(|s| s.index + 1),
             })
-            .or(snapshots.first().map(|s| s.index))
+            .or_else(|| snapshots.first().map(|s| s.index))
             .unwrap_or(1);
 
         Ok(Self {
@@ -312,14 +312,10 @@ impl DqliteDir {
 
     pub fn current_index(&self) -> Result<u64> {
         let first_index = self.first_index();
-        let last_closed_index = self
-            .closed_segments()
-            .last()
-            .map(|segment| match segment {
-                DqliteSegment::Closed { indexes, .. } => indexes.end(),
-                _ => unreachable!(),
-            })
-            .cloned();
+        let last_closed_index = self.closed_segments().last().map(|segment| match segment {
+            DqliteSegment::Closed { indexes, .. } => *indexes.end(),
+            _ => unreachable!(),
+        });
         let num_entries_in_open_segments = self
             .open_segments()
             .iter()
