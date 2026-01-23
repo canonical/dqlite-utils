@@ -1,9 +1,11 @@
+mod dialect;
+
 use anyhow::anyhow;
 use owo_colors::Style;
 use rusqlite::types::ValueRef;
-use sqlparser::dialect::SQLiteDialect;
 use sqlparser::parser::Parser;
 
+use crate::command::sql::dialect::DqliteDialect;
 use crate::utils::TerminalStylizeExt;
 use crate::{Context, Result};
 
@@ -14,7 +16,8 @@ pub(crate) struct SqlCommand {
 
 impl SqlCommand {
     pub(crate) fn try_from_raw(raw: &str) -> Result<Self> {
-        let mut parser = Parser::new(&SQLiteDialect {})
+        let dialect = DqliteDialect::new();
+        let mut parser = Parser::new(&dialect)
             .with_recursion_limit(100)
             .try_with_sql(raw)?;
         parser.try_parse(|parser| parser.parse_statements())?;

@@ -25,7 +25,7 @@ use self::prompt::Prompt;
 use self::utils::TerminalStylizeExt;
 
 pub type Error = anyhow::Error;
-pub type Result<T> = anyhow::Result<T>;
+pub type Result<T, E = Error> = anyhow::Result<T, E>;
 
 fn main() -> ExitCode {
     match exec(Args::parse()) {
