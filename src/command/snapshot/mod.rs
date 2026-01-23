@@ -135,6 +135,10 @@ impl SnapshotShell {
         match action {
             Aa::Attach { filename } => {
                 let filename = filename.strip_prefix("file:").unwrap_or(filename);
+                let filename = filename
+                    .split_once('?')
+                    .map(|(filename, _)| filename)
+                    .unwrap_or(filename);
                 if matches!(filename, "" | ":memory:") {
                     return Authorization::Deny;
                 }
