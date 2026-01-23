@@ -93,9 +93,9 @@ impl InfoCommand {
                 "" => "-",
                 file => file,
             };
+            println!();
             printdoc!(
                 "
-
                     - name: {name}
                       path: {file}
                 "
