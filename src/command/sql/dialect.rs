@@ -1,9 +1,6 @@
 use std::iter::Peekable;
 use std::str::Chars;
 
-use anyhow::anyhow;
-use owo_colors::Style;
-use rusqlite::types::ValueRef;
 use sqlparser::ast::{
     ColumnOption, Expr, GranteesType, Ident, ObjectNamePart, Statement, VacuumStatement,
 };
@@ -11,27 +8,21 @@ use sqlparser::dialect::{Dialect, Precedence, SQLiteDialect};
 use sqlparser::keywords::Keyword;
 use sqlparser::parser::{Parser, ParserError};
 
-use crate::utils::TerminalStylizeExt;
-use crate::{Context, Result};
-
-#[derive(Debug)]
-pub(crate) struct SqlCommand {
-    raw: String,
-}
-
 // Override upstream SQLiteDialect as it's missing some features
 #[derive(Debug)]
-struct DqliteDialect(SQLiteDialect);
+pub struct DqliteDialect(SQLiteDialect);
 
 impl DqliteDialect {
-    fn new() -> Self {
+    pub fn new() -> Self {
         DqliteDialect(SQLiteDialect {})
     }
 
     fn parse_vacuum(&self, parser: &mut Parser) -> Result<Statement, ParserError> {
-        parser.parse_optional_ident()?;
+        // NOTE: The schema name and output file name are discarded as `VacuumStatement`
+        // does not currently support them.
+        let _schema = parser.parse_optional_ident()?;
         if parser.parse_keyword(Keyword::INTO) {
-            parser.parse_literal_string()?;
+            let _output_file = parser.parse_literal_string()?;
         }
         return Ok(Statement::Vacuum(VacuumStatement {
             full: false,
@@ -56,6 +47,7 @@ impl Dialect for DqliteDialect {
     }
 
     // Below are just delegations to SQLiteDialect
+
     fn dialect(&self) -> std::any::TypeId {
         self.0.dialect()
     }
@@ -87,8 +79,8 @@ impl Dialect for DqliteDialect {
         self.0.identifier_quote_style(identifier)
     }
 
-    fn is_custom_operator_part(&self, _ch: char) -> bool {
-        self.0.is_custom_operator_part(_ch)
+    fn is_custom_operator_part(&self, ch: char) -> bool {
+        self.0.is_custom_operator_part(ch)
     }
 
     fn supports_string_literal_backslash_escape(&self) -> bool {
@@ -538,67 +530,5 @@ impl Dialect for DqliteDialect {
 
     fn supports_semantic_view_table_factor(&self) -> bool {
         self.0.supports_semantic_view_table_factor()
-    }
-}
-
-impl SqlCommand {
-    pub(crate) fn try_from_raw(raw: &str) -> Result<Self> {
-        let dialect = DqliteDialect::new();
-        let mut parser = Parser::new(&dialect)
-            .with_recursion_limit(100)
-            .try_with_sql(raw)?;
-        parser.try_parse(|parser| parser.parse_statements())?;
-
-        let raw = raw.to_owned();
-        Ok(Self { raw })
-    }
-
-    pub(crate) fn run(self, ctx: &Context) -> Result<()> {
-        let Self { raw } = self;
-        let conn = ctx.shell.connection().ok_or_else(|| {
-            anyhow!(
-                "sql execution not available in {} shell",
-                ctx.shell.kind().name()
-            )
-        })?;
-        let mut stmt = conn.prepare(&raw)?;
-        {
-            let column_count = stmt.column_count();
-
-            // Print header
-            if column_count > 0 {
-                for i in 0..column_count {
-                    print!("{}  ", stmt.column_name(i)?);
-                }
-                println!("\n---");
-            }
-
-            // Print content
-            let mut rows = stmt.query(())?;
-            while let Some(row) = rows.next()? {
-                for i in 0..column_count {
-                    match row.get_ref(i)? {
-                        ValueRef::Blob(blob) => print!("<blob:({}B)>  ", blob.len()),
-                        ValueRef::Null => print!("NULL  "),
-                        ValueRef::Integer(value) => print!("{}  ", value),
-                        ValueRef::Real(value) => print!("{}  ", value),
-                        ValueRef::Text(text) => {
-                            print!("{}  ", String::from_utf8_lossy(text));
-                        }
-                    }
-                }
-                println!();
-            }
-        }
-
-        if !stmt.readonly() {
-            const ROWS_AFFECTED_STYLE: Style = Style::new().dimmed();
-            println!(
-                "{} {}",
-                conn.changes().terminal_style(ROWS_AFFECTED_STYLE),
-                "rows affected".terminal_style(ROWS_AFFECTED_STYLE)
-            );
-        }
-        Ok(())
     }
 }
