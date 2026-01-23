@@ -358,10 +358,7 @@ mod tests {
     use std::io::Cursor;
 
     use googletest::expect_that;
-    use googletest::matchers::{
-        contains_substring, displays_as, err, ok, anything,
-    };
-    use rusqlite::params;
+    use googletest::matchers::{anything, contains_substring, displays_as, err, ok};
     use strum::IntoEnumIterator;
 
     use super::*;
@@ -384,7 +381,10 @@ mod tests {
         let dummy_db_name = tempdir.path().join("some.db");
 
         // All-schema rule tests.
-        Test::new("attach").allow(format!("ATTACH DATABASE {:?} AS foo;", dummy_db_name.display()));
+        Test::new("attach").allow(format!(
+            "ATTACH DATABASE {:?} AS foo;",
+            dummy_db_name.display()
+        ));
         Test::new("create-table").allow(format!(
             "
                 ATTACH DATABASE {:?} AS foo;
@@ -495,10 +495,7 @@ mod tests {
             fn allow(self, sql: impl AsRef<str>) {
                 let sql = sql.as_ref();
                 let txn = self.conn.unchecked_transaction().unwrap();
-                expect_that!(
-                    self.run(sql),
-                    ok(anything()),
-                );
+                expect_that!(self.run(sql), ok(anything()));
                 txn.rollback().unwrap();
             }
 
@@ -517,7 +514,7 @@ mod tests {
                 println!("Summary: {name}");
 
                 if let Some(setup) = setup {
-                    SnapshotShell::run_without_authorizer(conn, setup).unwrap();
+                    SnapshotShell::execute_authorizer(conn, setup).unwrap();
                 }
 
                 conn.execute_batch(sql)?;
@@ -527,15 +524,13 @@ mod tests {
     }
 
     impl SnapshotShell {
-        fn run_without_authorizer(conn: &Connection, sql: &str) -> Result<()> {
+        fn execute_authorizer(conn: &Connection, sql: &str) -> Result<()> {
             conn.authorizer::<fn(AuthContext<'_>) -> _>(None).unwrap();
-            let run = || -> Result<()> {
-                conn.prepare(sql)?.execute(params![])?;
-                Ok(())
-            };
+            let run = || conn.execute_batch(sql);
             let ret = run();
             conn.authorizer(Some(Self::authorizer)).unwrap();
-            ret
+            ret?;
+            Ok(())
         }
     }
 }
