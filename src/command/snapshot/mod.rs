@@ -139,7 +139,7 @@ impl SnapshotShell {
                     .split_once('?')
                     .map(|(filename, _)| filename)
                     .unwrap_or(filename);
-                if matches!(filename, "" | ":memory:") {
+                if matches!(filename, ":memory:") {
                     return Authorization::Deny;
                 }
             }
@@ -392,10 +392,7 @@ mod tests {
             ",
             dummy_db_name.display(),
         ));
-        Test::new("attach-temp").deny("ATTACH DATABASE '' AS tmp;");
-        Test::new("attach-temp-with-param").deny("ATTACH DATABASE '?k=v' AS tmp;");
-        Test::new("attach-temp-with-prefix").deny("ATTACH DATABASE 'file:' AS tmp;");
-        Test::new("attach-temp-with-prefix-and-param").deny("ATTACH DATABASE 'file:?k=v' AS tmp;");
+        Test::new("vacuum").with_transaction(false).allow("VACUUM;");
         Test::new("attach-in-memory").deny("ATTACH DATABASE ':memory:' AS mem;");
         Test::new("attach-in-memory-param").deny("ATTACH DATABASE ':memory:?k=v' AS mem;");
         Test::new("attach-in-memory-with-prefix").deny("ATTACH DATABASE 'file::memory:' AS mem;");
@@ -477,12 +474,16 @@ mod tests {
         struct Test {
             name: &'static str,
             setup: Option<&'static str>,
+            transaction: bool,
         }
 
         impl Test {
             fn new(name: &'static str) -> Self {
-                let setup = None;
-                Self { name, setup }
+                Self {
+                    name,
+                    setup: None,
+                    transaction: true,
+                }
             }
 
             fn setup(mut self, sql: &'static str) -> Self {
@@ -490,27 +491,47 @@ mod tests {
                 self
             }
 
+            fn with_transaction(mut self, transaction: bool) -> Self {
+                self.transaction = transaction;
+                self
+            }
+
             fn allow(self, sql: impl AsRef<str>) {
                 let sql = sql.as_ref();
                 let mut conn = SnapshotShell::open_connection().unwrap();
-                let txn = conn.transaction().unwrap();
-                expect_that!(self.run(&txn, sql), ok(anything()));
-                txn.rollback().unwrap();
+                if self.transaction {
+                    let txn = conn.transaction().unwrap();
+                    expect_that!(self.run(&txn, sql), ok(anything()));
+                    txn.rollback().unwrap();
+                } else {
+                    expect_that!(self.run(&conn, sql), ok(anything()));
+                }
             }
 
             fn deny(self, sql: impl AsRef<str>) {
                 let sql = sql.as_ref();
                 let mut conn = SnapshotShell::open_connection().unwrap();
-                let txn = conn.transaction().unwrap();
-                expect_that!(
-                    self.run(&txn, sql),
-                    err(displays_as(contains_substring("not authorized")))
-                );
-                txn.rollback().unwrap();
+                if self.transaction {
+                    let txn = conn.transaction().unwrap();
+                    expect_that!(
+                        self.run(&txn, sql),
+                        err(displays_as(contains_substring("not authorized")))
+                    );
+                    txn.rollback().unwrap();
+                } else {
+                    expect_that!(
+                        self.run(&conn, sql),
+                        err(displays_as(contains_substring("not authorized")))
+                    );
+                }
             }
 
             fn run(&self, conn: &Connection, sql: &str) -> Result<()> {
-                let Self { name, setup } = self;
+                let Self {
+                    name,
+                    setup,
+                    transaction: _,
+                } = self;
                 println!("Summary: {name}");
 
                 if let Some(setup) = setup {

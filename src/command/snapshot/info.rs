@@ -85,9 +85,14 @@ impl InfoCommand {
             println!("attached_schemas:");
             while let Some(curr_schema) = &schema {
                 let name = curr_schema.name();
-                if name == "raft" || name == "temp" {
-                    // `raft` only contains metadata, this does not appear as a schema name in the written snapshot. `temp` is ignored as it cannot be used as a schema name.
+                if matches!(name, "raft" | "temp") {
+                    // The rationale for ignoring the schema in this case is
+                    // identical to that used in the `.finish` command.
                     schema = schemas_iter.next()?;
+                    continue;
+                }
+                if curr_schema.file()?.is_empty() {
+                    // Temporary databases cannot journal in WAL mode.
                     continue;
                 }
 
