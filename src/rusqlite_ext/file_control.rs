@@ -68,7 +68,7 @@ pub trait FileControlExt {
     /// Gets the name of the VFS this file belongs to.
     ///
     /// See [`SQLITE_FCNTL_VFSNAME`](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlvfsname).
-    fn vfs_name(&self, db: Option<&OsStr>) -> Result<SmallCString>;
+    fn vfs_name(&self, db: Option<&OsStr>) -> Result<String, rusqlite::Error>;
 
     // TODO: SQLITE_FCNTL_TEMPFILENAME
 }
@@ -204,19 +204,26 @@ impl FileControlExt for Connection {
         Ok(())
     }
 
-    fn vfs_name(&self, db: Option<&OsStr>) -> Result<SmallCString> {
+    fn vfs_name(&self, db: Option<&OsStr>) -> Result<String, rusqlite::Error> {
         let mut name_ptr: *const i8 = ptr::null();
         file_control(
             self,
             db,
             sqlite3::SQLITE_FCNTL_VFSNAME,
             &mut name_ptr as *mut *const i8 as *mut c_void,
-        )?;
+        )
+        .map_err(|e| rusqlite::Error::SqliteFailure(sqlite3::Error::new(e.into_rc()), None))?;
         if name_ptr.is_null() {
-            return Err(SqliteError::from_rc(sqlite3::SQLITE_ERROR).unwrap());
+            return Err(rusqlite::Error::SqliteFailure(
+                sqlite3::Error::new(sqlite3::SQLITE_ERROR),
+                Some("VFS returned null name pointer".to_owned()),
+            ));
         }
         let cstr = unsafe { CStr::from_ptr(name_ptr) };
-        Ok(SmallCString::from(cstr.to_bytes()))
+        match str::from_utf8(cstr.to_bytes()) {
+            Ok(s) => Ok(s.to_owned()),
+            Err(e) => Err(rusqlite::Error::Utf8Error(e)),
+        }
     }
 }
 

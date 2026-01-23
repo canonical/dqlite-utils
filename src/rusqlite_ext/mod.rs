@@ -83,7 +83,7 @@ impl From<SqliteError> for SqliteCode {
 }
 
 /// A specialised result type for [`Vfs`] operations.
-pub type Result<T> = std::result::Result<T, SqliteError>;
+pub type Result<T, E = SqliteError> = std::result::Result<T, E>;
 
 impl From<SqliteCode> for Result<()> {
     fn from(code: SqliteCode) -> Self {
