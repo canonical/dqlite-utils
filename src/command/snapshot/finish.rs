@@ -135,7 +135,7 @@ impl FinishCommand {
             let db_page_size = db.page_size(conn)?;
             let expected_page_size = expected_page_size.get_or_init(|| db_page_size);
             if db_page_size != *expected_page_size {
-                return Err(anyhow!("pages sizes do not match"));
+                return Err(anyhow!("page sizes do not match"));
             }
         }
         Ok(())
