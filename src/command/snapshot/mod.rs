@@ -526,8 +526,7 @@ mod tests {
     impl SnapshotShell {
         fn execute_authorizer(conn: &Connection, sql: &str) -> Result<()> {
             conn.authorizer::<fn(AuthContext<'_>) -> _>(None).unwrap();
-            let run = || conn.execute_batch(sql);
-            let ret = run();
+            let ret = conn.execute_batch(sql);
             conn.authorizer(Some(Self::authorizer)).unwrap();
             ret?;
             Ok(())
