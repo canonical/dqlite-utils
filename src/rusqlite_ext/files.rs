@@ -8,13 +8,11 @@ use rusqlite::Connection;
 
 use crate::rusqlite_ext::{Result, SmallCString, SqliteCode, SqliteError};
 
-#[allow(unused)]
 pub trait ConnectionFilesExt {
     fn main_file(&self, db: Option<&OsStr>) -> Result<ConnectionFile<'_>>;
     fn journal_file(&self, db: Option<&OsStr>) -> Result<Option<ConnectionFile<'_>>>;
 }
 
-#[allow(unused)]
 impl ConnectionFilesExt for Connection {
     fn main_file(&self, db: Option<&OsStr>) -> Result<ConnectionFile<'_>> {
         let handle = unsafe { get_file_handle(self, db, false)? };

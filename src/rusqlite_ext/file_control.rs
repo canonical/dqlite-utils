@@ -12,62 +12,62 @@ use crate::rusqlite_ext::{Result, SmallCString, SqliteError, vfs::LockLevel};
 pub trait FileControlExt {
     /// Gets the current lock state.
     ///
-    /// See [SQLITE_FCNTL_LOCKSTATE](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntllockstate).
+    /// See [`SQLITE_FCNTL_LOCKSTATE`](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntllockstate).
     fn lock_level(&self, db: Option<&OsStr>) -> Result<LockLevel>;
 
     /// Gets the last OS error number.
     ///
-    /// See [SQLITE_FCNTL_LAST_ERRNO](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntllasterrno).
+    /// See [`SQLITE_FCNTL_LAST_ERRNO`](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntllasterrno).
     fn last_errno(&self, db: Option<&OsStr>) -> Result<i32>;
 
     /// Sets the database chunk size.
     ///
-    /// See [SQLITE_FCNTL_CHUNK_SIZE](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlchunksize).
+    /// See [`SQLITE_FCNTL_CHUNK_SIZE`](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlchunksize).
     fn set_chunk_size(&mut self, db: Option<&OsStr>, size: u32) -> Result<()>;
 
     /// Sets the max mmap size.
     ///
-    /// See [SQLITE_FCNTL_MMAP_SIZE](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlmmapsize).
+    /// See [`SQLITE_FCNTL_MMAP_SIZE`](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlmmapsize).
     fn set_mmap_size(&mut self, db: Option<&OsStr>, size: u64) -> Result<()>;
 
     /// Gets the max mmap size.
     ///
-    /// See [SQLITE_FCNTL_MMAP_SIZE](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlmmapsize).
+    /// See [`SQLITE_FCNTL_MMAP_SIZE`](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlmmapsize).
     fn mmap_size(&self, db: Option<&OsStr>) -> Result<u64>;
 
     /// Reports whether the file has moved.
     ///
-    /// See [SQLITE_FCNTL_HAS_MOVED](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcnthasmoved).
+    /// See [`SQLITE_FCNTL_HAS_MOVED`](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcnthasmoved).
     fn has_moved(&self, db: Option<&OsStr>) -> Result<bool>;
 
     /// Sets the lock timeout.
     ///
-    /// See [SQLITE_FCNTL_LOCK_TIMEOUT](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntllocktimeout).
+    /// See [`SQLITE_FCNTL_LOCK_TIMEOUT`](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntllocktimeout).
     fn set_lock_timeout(&mut self, db: Option<&OsStr>, timeout: Duration) -> Result<Duration>;
 
     /// Gets WAL persistence.
     ///
-    /// See [SQLITE_FCNTL_PERSIST_WAL](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlpersistwal).
+    /// See [`SQLITE_FCNTL_PERSIST_WAL`](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlpersistwal).
     fn is_wal_persistent(&self, db: Option<&OsStr>) -> Result<bool>;
 
     /// Sets WAL persistence.
     ///
-    /// See [SQLITE_FCNTL_PERSIST_WAL](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlpersistwal).
+    /// See [`SQLITE_FCNTL_PERSIST_WAL`](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlpersistwal).
     fn set_wal_persistent(&mut self, db: Option<&OsStr>, persist: bool) -> Result<()>;
 
     /// Gets whether powersafe overwrite is enabled.
     ///
-    /// See [SQLITE_FCNTL_POWERSAFE_OVERWRITE](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlpowersafeoverwrite).
+    /// See [`SQLITE_FCNTL_POWERSAFE_OVERWRITE`](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlpowersafeoverwrite).
     fn powersafe_overwrite(&self, db: Option<&OsStr>) -> Result<bool>;
 
     /// Sets whether powersafe overwrite is enabled.
     ///
-    /// See [SQLITE_FCNTL_POWERSAFE_OVERWRITE](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlpowersafeoverwrite).
+    /// See [`SQLITE_FCNTL_POWERSAFE_OVERWRITE`](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlpowersafeoverwrite).
     fn set_powersafe_overwrite(&mut self, db: Option<&OsStr>, powersafe: bool) -> Result<()>;
 
     /// Gets the name of the VFS this file belongs to.
     ///
-    /// See [SQLITE_FCNTL_VFSNAME](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlvfsname).
+    /// See [`SQLITE_FCNTL_VFSNAME`](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlvfsname).
     fn vfs_name(&self, db: Option<&OsStr>) -> Result<SmallCString>;
 
     // TODO: SQLITE_FCNTL_TEMPFILENAME
@@ -114,12 +114,12 @@ impl FileControlExt for Connection {
         if size > i64::MAX as u64 {
             return Err(SqliteError::from_rc(sqlite3::SQLITE_MISUSE).unwrap());
         }
-        let mut arg = size as sqlite3_int64;
+        let mut size = size as sqlite3_int64;
         file_control(
             self,
             db,
             sqlite3::SQLITE_FCNTL_MMAP_SIZE,
-            &mut arg as *mut sqlite3_int64 as *mut c_void,
+            &mut size as *mut sqlite3_int64 as *mut c_void,
         )?;
         Ok(())
     }
@@ -172,12 +172,12 @@ impl FileControlExt for Connection {
     }
 
     fn set_wal_persistent(&mut self, db: Option<&OsStr>, persist: bool) -> Result<()> {
-        let arg: c_int = if persist { 1 } else { 0 };
+        let persist: c_int = if persist { 1 } else { 0 };
         file_control(
             self,
             db,
             sqlite3::SQLITE_FCNTL_PERSIST_WAL,
-            &arg as *const c_int as *mut c_void,
+            &persist as *const c_int as *mut c_void,
         )?;
         Ok(())
     }
@@ -194,12 +194,12 @@ impl FileControlExt for Connection {
     }
 
     fn set_powersafe_overwrite(&mut self, db: Option<&OsStr>, powersafe: bool) -> Result<()> {
-        let arg: c_int = if powersafe { 1 } else { 0 };
+        let powersafe: c_int = if powersafe { 1 } else { 0 };
         file_control(
             self,
             db,
             sqlite3::SQLITE_FCNTL_POWERSAFE_OVERWRITE,
-            &arg as *const c_int as *mut c_void,
+            &powersafe as *const c_int as *mut c_void,
         )?;
         Ok(())
     }
