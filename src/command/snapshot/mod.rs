@@ -139,13 +139,6 @@ impl SnapshotShell {
                     return Authorization::Deny;
                 }
             }
-            Aa::Detach {
-                database_name: "raft",
-            } => {
-                // Belt-and-bracers check in case `raft` is no longer the `main`
-                // database in future.
-                return Authorization::Deny;
-            }
             Aa::Unknown { .. } => return Authorization::Deny,
             _ => {}
         }
