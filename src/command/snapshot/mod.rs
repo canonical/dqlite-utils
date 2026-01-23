@@ -392,9 +392,7 @@ mod tests {
             ",
             dummy_db_name.display(),
         ));
-        Test::new("vacuum")
-            .with_transaction(false)
-            .allow("VACUUM;");
+        Test::new("vacuum").with_transaction(false).allow("VACUUM;");
         Test::new("attach-in-memory").deny("ATTACH DATABASE ':memory:' AS mem;");
         Test::new("attach-in-memory-param").deny("ATTACH DATABASE ':memory:?k=v' AS mem;");
         Test::new("attach-in-memory-with-prefix").deny("ATTACH DATABASE 'file::memory:' AS mem;");
