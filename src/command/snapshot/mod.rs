@@ -477,14 +477,12 @@ mod tests {
         struct Test {
             name: &'static str,
             setup: Option<&'static str>,
-            conn: Connection,
         }
 
         impl Test {
             fn new(name: &'static str) -> Self {
                 let setup = None;
-                let conn = SnapshotShell::open_connection().unwrap();
-                Self { name, setup, conn }
+                Self { name, setup }
             }
 
             fn setup(mut self, sql: &'static str) -> Self {
@@ -494,23 +492,25 @@ mod tests {
 
             fn allow(self, sql: impl AsRef<str>) {
                 let sql = sql.as_ref();
-                let txn = self.conn.unchecked_transaction().unwrap();
-                expect_that!(self.run(sql), ok(anything()));
+                let mut conn = SnapshotShell::open_connection().unwrap();
+                let txn = conn.transaction().unwrap();
+                expect_that!(self.run(&txn, sql), ok(anything()));
                 txn.rollback().unwrap();
             }
 
             fn deny(self, sql: impl AsRef<str>) {
                 let sql = sql.as_ref();
-                let txn = self.conn.unchecked_transaction().unwrap();
+                let mut conn = SnapshotShell::open_connection().unwrap();
+                let txn = conn.transaction().unwrap();
                 expect_that!(
-                    self.run(sql),
+                    self.run(&txn, sql),
                     err(displays_as(contains_substring("not authorized")))
                 );
                 txn.rollback().unwrap();
             }
 
-            fn run(&self, sql: &str) -> Result<()> {
-                let Self { name, setup, conn } = self;
+            fn run(&self, conn: &Connection, sql: &str) -> Result<()> {
+                let Self { name, setup } = self;
                 println!("Summary: {name}");
 
                 if let Some(setup) = setup {
