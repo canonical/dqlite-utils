@@ -85,10 +85,14 @@ impl InfoCommand {
             println!("attached_schemas:");
             while let Some(curr_schema) = &schema {
                 let name = curr_schema.name();
-                if matches!(name, "raft" | "temp" | "") {
+                if matches!(name, "raft" | "temp") {
                     // The rationale for ignoring the schema in this case is
                     // identical to that used in the `.finish` command.
                     schema = schemas_iter.next()?;
+                    continue;
+                }
+                if curr_schema.file()?.is_empty() {
+                    // Temporary databases cannot journal in WAL mode.
                     continue;
                 }
 
