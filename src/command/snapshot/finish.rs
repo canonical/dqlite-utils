@@ -1,3 +1,4 @@
+use std::cell::OnceCell;
 use std::ffi::{CString, OsStr};
 use std::fs::{self};
 use std::io::{ErrorKind, Write};
@@ -6,7 +7,7 @@ use std::time::SystemTime;
 
 use anyhow::{Context as _, anyhow};
 use libsqlite3_sys as sqlite3;
-use rusqlite::{Connection, TransactionBehavior};
+use rusqlite::{Connection, TransactionBehavior, params};
 
 use crate::command::help::Help;
 use crate::command::snapshot::{RaftMetadata, RaftServers};
@@ -80,6 +81,8 @@ impl FinishCommand {
             attached_dbs
         };
 
+        Self::check_dbs(&attached_dbs, &txn)?;
+
         // Heuristic to ensure clean directory. Clearly there's a TOCTOU issue here,
         // but if a user chooses to write a snapshot into an actively-changing
         // directory then on their head, be it.
@@ -104,7 +107,11 @@ impl FinishCommand {
                     .with_index(index)
                     .with_timestamp(timestamp)
                     .with_configuration(configuration)
-                    .add_databases(attached_dbs.into_iter().map(|db| (db.name.clone(), db)))
+                    .add_databases(attached_dbs.into_iter().map(|db| {
+                        let name = CString::new(db.name.as_bytes())
+                            .expect("cannot make CString from db name");
+                        (name, db)
+                    }))
             })
             .create();
         if let Err(err) = res {
@@ -119,10 +126,24 @@ impl FinishCommand {
 
         Ok(())
     }
+
+    fn check_dbs(dbs: &[AttachedDb<'_>], conn: &Connection) -> Result<()> {
+        let expected_page_size = OnceCell::new();
+        for db in dbs {
+            db.check(conn)?;
+
+            let db_page_size = db.page_size(conn)?;
+            let expected_page_size = expected_page_size.get_or_init(|| db_page_size);
+            if db_page_size != *expected_page_size {
+                return Err(anyhow!("pages sizes do not match"));
+            }
+        }
+        Ok(())
+    }
 }
 
 struct AttachedDb<'conn> {
-    name: CString,
+    name: String,
     main: ConnectionFile<'conn>,
     journal: Option<ConnectionFile<'conn>>,
 }
@@ -132,12 +153,32 @@ impl<'conn> AttachedDb<'conn> {
         let name_os_str = OsStr::new(name);
         let main = conn.main_file(Some(name_os_str))?;
         let journal = conn.journal_file(Some(name_os_str))?;
-        let name = CString::new(name)?;
+        let name = name.to_owned();
         Ok(Self {
             name,
             main,
             journal,
         })
+    }
+
+    fn page_size(&self, conn: &Connection) -> Result<u32> {
+        let name = &self.name;
+        let page_size = conn.query_one(&format!("PRAGMA {name}.page_size;"), params![], |row| {
+            row.get("page_size")
+        })?;
+        Ok(page_size)
+    }
+
+    fn check(&self, conn: &Connection) -> Result<()> {
+        let name = &self.name;
+        let wal_mode =
+            conn.query_one(&format!("PRAGMA {name}.journal_mode;"), params![], |row| {
+                Ok(row.get_ref("journal_mode")?.as_str()? == "wal")
+            })?;
+        if !wal_mode {
+            return Err(anyhow!("journal mode of schema {name} is not 'wal'"));
+        }
+        Ok(())
     }
 }
 
