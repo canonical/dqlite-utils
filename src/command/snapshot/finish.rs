@@ -71,8 +71,8 @@ impl FinishCommand {
             let mut schemas_iter = schemas.try_iter()?;
             while let Some(schema) = schemas_iter.next()? {
                 let name = schema.name();
-                if name == "raft" || name == "temp" {
-                    // `raft` only contains metadata, this is encoded elsewhere. `temp` is ignored as it cannot be used as a schema name.
+                if matches!(name, "raft" | "temp" | "") {
+                    // `raft` only contains metadata, this is encoded elsewhere. `temp` is ignored as it cannot be used as a schema name. Temporary databases are ignored as they cannot journal in WAL mode.
                     continue;
                 }
                 attached_dbs.push(AttachedDb::new(&txn, name)?)
