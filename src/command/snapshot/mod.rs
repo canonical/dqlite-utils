@@ -358,7 +358,10 @@ mod tests {
     use std::io::Cursor;
 
     use googletest::expect_that;
-    use googletest::matchers::contains_substring;
+    use googletest::matchers::{
+        contains_substring, displays_as, err, ok, anything,
+    };
+    use rusqlite::params;
     use strum::IntoEnumIterator;
 
     use super::*;
@@ -372,6 +375,167 @@ mod tests {
         };
         for command_kind in SnapshotShellCommandKind::iter() {
             expect_that!(help_output, contains_substring(command_kind.name()));
+        }
+    }
+
+    #[googletest::test]
+    fn test_authorizer() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let dummy_db_name = tempdir.path().join("some.db");
+
+        // All-schema rule tests.
+        Test::new("attach").allow(format!("ATTACH DATABASE {:?} AS foo;", dummy_db_name.display()));
+        Test::new("create-table").allow(format!(
+            "
+                ATTACH DATABASE {:?} AS foo;
+                CREATE TABLE foo.bar (name TEXT);
+            ",
+            dummy_db_name.display(),
+        ));
+        Test::new("attach-temp").deny("ATTACH DATABASE '' AS tmp;");
+        Test::new("attach-temp-with-param").deny("ATTACH DATABASE '?k=v' AS tmp;");
+        Test::new("attach-temp-with-prefix").deny("ATTACH DATABASE 'file:' AS tmp;");
+        Test::new("attach-temp-with-prefix-and-param").deny("ATTACH DATABASE 'file:?k=v' AS tmp;");
+        Test::new("attach-in-memory").deny("ATTACH DATABASE ':memory:' AS mem;");
+        Test::new("attach-in-memory-param").deny("ATTACH DATABASE ':memory:?k=v' AS mem;");
+        Test::new("attach-in-memory-with-prefix").deny("ATTACH DATABASE 'file::memory:' AS mem;");
+        Test::new("attach-in-memory-with-prefix-and-param")
+            .deny("ATTACH DATABASE 'file::memory:?k=v' AS mem;");
+
+        // Raft schema tests.
+        Test::new("select").allow("SELECT * FROM metadata;");
+        Test::new("alter-table").deny(
+            "
+                ALTER TABLE metadata
+                ADD COLUMN interloper TEXT;
+            ",
+        );
+        Test::new("create-index").deny("CREATE INDEX interloper ON metadata (timestamp);");
+        Test::new("create-table").deny("CREATE TABLE interloper (name TEXT);");
+        Test::new("create-trigger").deny(
+            "
+                CREATE TRIGGER interloper
+                BEFORE UPDATE ON metadata
+                BEGIN
+                    SELECT * FROM metadata;
+                END;
+            ",
+        );
+        Test::new("create-view").deny(
+            "
+                CREATE VIEW interloper
+                AS SELECT * FROM metadata;
+            ",
+        );
+        Test::new("create-virtual-table").deny(
+            "
+                CREATE VIRTUAL TABLE interloper
+                USING dbstat;
+            ",
+        );
+        Test::new("delete").deny("DELETE FROM metadata;");
+        Test::new("drop-index")
+            .setup("CREATE INDEX interloper ON metadata (timestamp);")
+            .deny("DROP INDEX interloper;");
+        Test::new("drop-table")
+            .setup("CREATE TABLE interloper (name TEXT);")
+            .deny("DROP TABLE interloper;");
+        Test::new("drop-trigger")
+            .setup(
+                "
+                    CREATE TRIGGER interloper
+                    BEFORE UPDATE ON metadata
+                    BEGIN
+                        SELECT * FROM metadata;
+                    END;
+                ",
+            )
+            .deny("DROP TRIGGER interloper;");
+        Test::new("drop-view")
+            .setup(
+                "
+                    CREATE VIEW interloper
+                    AS SELECT * FROM metadata;
+                ",
+            )
+            .deny("DROP VIEW interloper;");
+        Test::new("drop-vtable")
+            .setup(
+                "
+                    CREATE VIRTUAL TABLE interloper
+                    USING dbstat;
+                ",
+            )
+            .deny("DROP TABLE interloper;");
+        Test::new("insert").deny("INSERT INTO metadata (timestamp) VALUES (1);");
+        Test::new("pragma-writabl_schema").deny("PRAGMA writable_schema = 1;");
+        Test::new("reindex")
+            .setup("CREATE INDEX interloper ON metadata (timestamp);")
+            .deny("REINDEX interloper;");
+
+        // Test types.
+        struct Test {
+            name: &'static str,
+            setup: Option<&'static str>,
+            conn: Connection,
+        }
+
+        impl Test {
+            fn new(name: &'static str) -> Self {
+                let setup = None;
+                let conn = SnapshotShell::open_connection().unwrap();
+                Self { name, setup, conn }
+            }
+
+            fn setup(mut self, sql: &'static str) -> Self {
+                self.setup = Some(sql);
+                self
+            }
+
+            fn allow(self, sql: impl AsRef<str>) {
+                let sql = sql.as_ref();
+                let txn = self.conn.unchecked_transaction().unwrap();
+                expect_that!(
+                    self.run(sql),
+                    ok(anything()),
+                );
+                txn.rollback().unwrap();
+            }
+
+            fn deny(self, sql: impl AsRef<str>) {
+                let sql = sql.as_ref();
+                let txn = self.conn.unchecked_transaction().unwrap();
+                expect_that!(
+                    self.run(sql),
+                    err(displays_as(contains_substring("not authorized")))
+                );
+                txn.rollback().unwrap();
+            }
+
+            fn run(&self, sql: &str) -> Result<()> {
+                let Self { name, setup, conn } = self;
+                println!("Summary: {name}");
+
+                if let Some(setup) = setup {
+                    SnapshotShell::run_without_authorizer(conn, setup).unwrap();
+                }
+
+                conn.execute_batch(sql)?;
+                Ok(())
+            }
+        }
+    }
+
+    impl SnapshotShell {
+        fn run_without_authorizer(conn: &Connection, sql: &str) -> Result<()> {
+            conn.authorizer::<fn(AuthContext<'_>) -> _>(None).unwrap();
+            let run = || -> Result<()> {
+                conn.prepare(sql)?.execute(params![])?;
+                Ok(())
+            };
+            let ret = run();
+            conn.authorizer(Some(Self::authorizer)).unwrap();
+            ret
         }
     }
 }
