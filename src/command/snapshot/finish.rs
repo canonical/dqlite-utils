@@ -3,10 +3,12 @@ use std::ffi::{CString, OsStr};
 use std::fs::{self};
 use std::io::{ErrorKind, Write};
 use std::path::PathBuf;
+use std::sync::LazyLock;
 use std::time::SystemTime;
 
 use anyhow::{Context as _, anyhow};
 use libsqlite3_sys as sqlite3;
+use regex::Regex;
 use rusqlite::{Connection, TransactionBehavior, params};
 
 use crate::command::help::Help;
@@ -150,23 +152,22 @@ struct AttachedDb<'conn> {
 
 impl<'conn> AttachedDb<'conn> {
     fn new(conn: &'conn Connection, name: &str) -> Result<Self> {
+        static VALID_IDENTIFIER: LazyLock<Regex> =
+            LazyLock::new(|| Regex::new("^[a-zA-Z0-9]+$").unwrap());
+        if !VALID_IDENTIFIER.is_match(name) {
+            return Err(anyhow!("cannot use {name} as a schema name"));
+        }
+
         let name_os_str = OsStr::new(name);
         let main = conn.main_file(Some(name_os_str))?;
         let journal = conn.journal_file(Some(name_os_str))?;
+
         let name = name.to_owned();
         Ok(Self {
             name,
             main,
             journal,
         })
-    }
-
-    fn page_size(&self, conn: &Connection) -> Result<u32> {
-        let name = &self.name;
-        let page_size = conn.query_one(&format!("PRAGMA {name}.page_size;"), params![], |row| {
-            row.get("page_size")
-        })?;
-        Ok(page_size)
     }
 
     fn check(&self, conn: &Connection) -> Result<()> {
@@ -179,6 +180,14 @@ impl<'conn> AttachedDb<'conn> {
             return Err(anyhow!("journal mode of schema {name} is not 'wal'"));
         }
         Ok(())
+    }
+
+    fn page_size(&self, conn: &Connection) -> Result<u32> {
+        let name = &self.name;
+        let page_size = conn.query_one(&format!("PRAGMA {name}.page_size;"), params![], |row| {
+            row.get("page_size")
+        })?;
+        Ok(page_size)
     }
 }
 
