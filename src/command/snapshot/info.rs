@@ -79,13 +79,11 @@ impl InfoCommand {
         print!("attached_schemas: ");
         let mut schemas = conn.attached_schemas()?;
         let mut schemas_iter = schemas.try_iter()?;
-        let mut schema = schemas_iter.next()?;
         let mut schema_printed = false;
-        while let Some(curr_schema) = &schema {
+        while let Some(curr_schema) = schemas_iter.next()? {
             let name = curr_schema.name();
             if name == "raft" || name == "temp" {
                 // `raft` only contains metadata, this does not appear as a schema name in the written snapshot. `temp` is ignored as it cannot be used as a schema name.
-                schema = schemas_iter.next()?;
                 continue;
             }
 
@@ -101,7 +99,6 @@ impl InfoCommand {
                 "
             );
             schema_printed = true;
-            schema = schemas_iter.next()?;
         }
         if !schema_printed {
             println!("-");
