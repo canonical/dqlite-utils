@@ -137,7 +137,9 @@ impl FinishCommand {
             let db_page_size = db.page_size(conn)?;
             let expected_page_size = expected_page_size.get_or_init(|| db_page_size);
             if db_page_size != *expected_page_size {
-                return Err(anyhow!("page sizes do not match"));
+                return Err(anyhow!(
+                    "page size mismatch: found both {db_page_size} and {expected_page_size}"
+                ));
             }
         }
         Ok(())
@@ -172,10 +174,9 @@ impl<'conn> AttachedDb<'conn> {
 
     fn check(&self, conn: &Connection) -> Result<()> {
         let name = &self.name;
-        let wal_mode =
-            conn.query_one(&format!("PRAGMA {name}.journal_mode;"), params![], |row| {
-                Ok(row.get_ref("journal_mode")?.as_str()? == "wal")
-            })?;
+        let wal_mode = conn.pragma_query_value(Some(name), "journal_mode", |row| {
+            Ok(row.get_ref("journal_mode")?.as_str()? == "wal")
+        })?;
         if !wal_mode {
             return Err(anyhow!("journal mode of schema {name} is not 'wal'"));
         }
@@ -183,10 +184,8 @@ impl<'conn> AttachedDb<'conn> {
     }
 
     fn page_size(&self, conn: &Connection) -> Result<u32> {
-        let name = &self.name;
-        let page_size = conn.query_one(&format!("PRAGMA {name}.page_size;"), params![], |row| {
-            row.get("page_size")
-        })?;
+        let page_size =
+            conn.pragma_query_value(Some(&self.name), "page_size", |row| row.get("page_size"))?;
         Ok(page_size)
     }
 }
