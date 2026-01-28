@@ -16,8 +16,8 @@ pub struct Args {
     pub dir_path: Option<PathBuf>,
 
     /// Number of times to retry opening the folder.
-    #[arg(long = "retry-count", default_value_t = 3)]
-    pub retry_count: u32,
+    #[arg(long = "max-retries", default_value_t = 3)]
+    pub max_retries: u32,
 }
 
 impl Args {

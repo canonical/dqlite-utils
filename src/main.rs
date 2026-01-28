@@ -41,14 +41,14 @@ fn exec(args: Args) -> Result<()> {
     let Args {
         raw_commands,
         dir_path,
-        retry_count,
+        max_retries,
     } = args;
 
     let mut ctx = Context::new();
     if let Some(dir_path) = dir_path {
-        ctx.open(&dir_path, retry_count)
+        ctx.open(&dir_path, max_retries)
             .with_context(|| anyhow!("cannot open {}", dir_path.display()))?;
-    } else if let Err(err) = ctx.open(PathBuf::from("."), retry_count) {
+    } else if let Err(err) = ctx.open(PathBuf::from("."), max_retries) {
         if !err.is::<NoMetadataError>() {
             return Err(err).with_context(|| anyhow!("cannot open current directory"));
         }
