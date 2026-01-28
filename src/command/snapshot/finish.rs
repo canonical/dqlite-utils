@@ -178,7 +178,7 @@ impl<'conn> AttachedDb<'conn> {
             Ok(row.get_ref("journal_mode")?.as_str()? == "wal")
         })?;
         if !wal_mode {
-            return Err(anyhow!("journal mode of schema {name} is not 'wal'"));
+            return Err(anyhow!("journal mode of schema {name} must be 'wal'"));
         }
         Ok(())
     }
