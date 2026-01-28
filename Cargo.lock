@@ -297,6 +297,7 @@ dependencies = [
  "owo-colors",
  "pkg-config",
  "rand",
+ "regex",
  "rusqlite",
  "rustyline",
  "shell-words",
