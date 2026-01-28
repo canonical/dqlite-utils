@@ -157,7 +157,7 @@ impl<'conn> AttachedDb<'conn> {
         static VALID_IDENTIFIER: LazyLock<Regex> =
             LazyLock::new(|| Regex::new("^[a-zA-Z0-9]+$").unwrap());
         if !VALID_IDENTIFIER.is_match(name) {
-            return Err(anyhow!("cannot use {name} as a schema name"));
+            return Err(anyhow!("cannot use '{name}' as a schema name"));
         }
 
         let name_os_str = OsStr::new(name);
