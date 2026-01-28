@@ -14,6 +14,10 @@ pub struct Args {
     /// Dqlite data directory
     #[arg(long = "dir", global = true)]
     pub dir_path: Option<PathBuf>,
+
+    /// Number of times to retry opening the folder.
+    #[arg(long = "max-retries", default_value_t = 3)]
+    pub max_retries: u32,
 }
 
 impl Args {
