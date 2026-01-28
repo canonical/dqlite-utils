@@ -143,15 +143,15 @@ impl Context {
         Self::default()
     }
 
-    fn open(&mut self, dir_path: impl Into<PathBuf>, mut retry_count: u32) -> Result<()> {
+    fn open(&mut self, dir_path: impl Into<PathBuf>, retry_count: u32) -> Result<()> {
         let dir_path = dir_path.into();
+        let mut attempt = 0;
         let dir = loop {
+            attempt += 1;
             match DqliteDir::open(&dir_path) {
                 Ok(dir) => break dir,
-                Err(_) if retry_count > 0 => {
-                    retry_count -= 1;
-                }
-                Err(err) => return Err(err),
+                Err(err) if attempt >= retry_count => return Err(err),
+                Err(_) => continue,
             }
         };
         self.dqlite = Some(dir);
