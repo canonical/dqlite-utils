@@ -13,7 +13,7 @@ use anyhow::Result;
 
 use libsqlite3_sys as sqlite3;
 use rusqlite::{
-    Connection, Statement, Transaction, named_params, params,
+    Connection, Statement, Transaction, named_params,
     types::{ToSqlOutput, ValueRef},
 };
 
@@ -162,14 +162,14 @@ impl DqliteVfs {
                 let mut config_stmt = tx.prepare(
                     "
                         INSERT INTO raft_configuration(id, address, role)
-                        VALUES (?, ?, ?)
+                        VALUES (:id, :address, :role)
                     ",
                 )?;
                 for server in &snapshot.configuration.servers {
-                    config_stmt.execute(params![
-                        server.id as i64,
-                        server.address,
-                        server.role.as_raw(),
+                    config_stmt.execute(named_params![
+                        ":id": server.id as i64,
+                        ":address": server.address,
+                        ":role": server.role.as_raw(),
                     ])?;
                 }
             }
@@ -188,22 +188,27 @@ impl DqliteVfs {
     }
 
     fn load_segments_from(tx: &Transaction, dqlite: &DqliteDir, start_index: u64) -> Result<()> {
-        let mut log_entry_stmt = tx.prepare("INSERT INTO raft_log(idx, term) VALUES (?, ?)")?;
+        let mut log_entry_stmt = tx.prepare(
+            "
+                INSERT INTO raft_log(idx, term)
+                VALUES (:idx, :term)
+            ")?;
         let mut config_stmt = tx.prepare(
             "
                 INSERT INTO raft_configuration(log_idx, id, address, role)
-                VALUES (?, ?, ?, ?)
+                VALUES (:log_idx, :id, :address, :role)
             ",
         )?;
         let mut page_stmt = tx.prepare(
             "
-                INSERT INTO dqlite_page(data) VALUES (?)
+                INSERT INTO dqlite_page(data)
+                VALUES (:data)
             ",
         )?;
         let mut db_stmt = tx.prepare(
             "
                 INSERT INTO dqlite_transaction(log_idx, database, page_number, page_id)
-                VALUES (?, ?, ?, ?)
+                VALUES (:log_idx, :database, :page_number, :page_id)
             ",
         )?;
         let mut index = dqlite.first_index();
@@ -221,16 +226,19 @@ impl DqliteVfs {
                 if entry_index <= start_index {
                     continue;
                 }
-                log_entry_stmt.execute(params![entry_index as i64, entry.term as i64])?;
+                log_entry_stmt.execute(named_params![
+                    ":idx": entry_index as i64,
+                    ":term": entry.term as i64,
+                ])?;
 
                 match &entry.content {
                     DqliteLogEntryContent::Change(configuration) => {
                         for server in &configuration.servers {
-                            config_stmt.execute(params![
-                                entry_index as i64,
-                                server.id as i64,
-                                server.address,
-                                server.role.as_raw(),
+                            config_stmt.execute(named_params![
+                                ":log_idx": entry_index as i64,
+                                ":id": server.id as i64,
+                                ":address": server.address,
+                                ":role": server.role.as_raw(),
                             ])?;
                         }
                     }
@@ -238,13 +246,15 @@ impl DqliteVfs {
                         filename, frames, ..
                     } => {
                         for frame in frames {
-                            page_stmt.execute(params![&frame.data])?;
+                            page_stmt.execute(named_params![
+                                ":data": &frame.data,
+                            ])?;
                             let page_id = tx.last_insert_rowid();
-                            db_stmt.execute(params![
-                                entry_index as i64,
-                                ToSqlOutput::Borrowed(ValueRef::Text(filename.as_bytes())),
-                                frame.page_number as i64,
-                                page_id,
+                            db_stmt.execute(named_params![
+                                ":log_idx": entry_index as i64,
+                                ":database": ToSqlOutput::Borrowed(ValueRef::Text(filename.as_bytes())),
+                                ":page_number": frame.page_number as i64,
+                                ":page_id": page_id,
                             ])?;
                         }
                     }
@@ -269,7 +279,7 @@ impl DqliteVfs {
         Ok(())
     }
 
-    pub fn databases(&self) -> Result<Vec<&'_ str>> {
+    pub fn databases(&self) -> Result<Vec<String>> {
         let conn = self
             .connection
             .lock()
@@ -278,7 +288,7 @@ impl DqliteVfs {
         let mut result = Vec::new();
         for db in &self.databases {
             if read_database_size(&conn, raft_index, db)? > 0 {
-                result.push(db.as_str());
+                result.push(db.clone());
             }
         }
         Ok(result)
@@ -297,13 +307,13 @@ impl<'stmt> SnapshotLoader<'stmt> {
         let page_stmt = conn.prepare(
             "
                 INSERT INTO dqlite_page(data)
-                VALUES (?)
+                VALUES (:data)
             ",
         )?;
         let db_stmt = conn.prepare(
             "
                 REPLACE INTO dqlite_database(database, page_number, page_id)
-                VALUES (?, ?, ?)
+                VALUES (:database, :page_number, :page_id)
             ",
         )?;
         Ok(SnapshotLoader {
@@ -341,7 +351,7 @@ struct DatabaseLoader<'db, 'stmt> {
 }
 
 impl<'db, 'stmt> DqliteDatabaseLoader for DatabaseLoader<'db, 'stmt> {
-    fn load_main(&mut self, read: impl std::io::Read) -> Result<()> {
+    fn load_main(&mut self, read: impl Read) -> Result<()> {
         let mut bufreader = BufReader::new(read);
         let mut page = vec![0u8; self.loader.page_size];
         let mut page_number = 1;
@@ -351,12 +361,14 @@ impl<'db, 'stmt> DqliteDatabaseLoader for DatabaseLoader<'db, 'stmt> {
                 break;
             }
             bufreader.read_exact(&mut page)?;
-            self.loader.page_stmt.execute(params![page])?;
+            self.loader.page_stmt.execute(named_params![
+                ":data": &page,
+            ])?;
             let page_id = self.loader.conn.last_insert_rowid();
-            self.loader.db_stmt.execute(params![
-                str::from_utf8(self.database.as_bytes())?,
-                page_number,
-                page_id,
+            self.loader.db_stmt.execute(named_params![
+                ":database": str::from_utf8(self.database.as_bytes())?,
+                ":page_number": page_number,
+                ":page_id": page_id,
             ])?;
             page_number += 1;
         }
@@ -364,7 +376,7 @@ impl<'db, 'stmt> DqliteDatabaseLoader for DatabaseLoader<'db, 'stmt> {
         Ok(())
     }
 
-    fn load_wal(&mut self, read: impl std::io::Read) -> Result<()> {
+    fn load_wal(&mut self, read: impl Read) -> Result<()> {
         let mut bufreader = BufReader::new(read);
         bufreader.fill_buf()?;
         if bufreader.buffer().len() == 0 {
@@ -394,19 +406,21 @@ impl<'db, 'stmt> DqliteDatabaseLoader for DatabaseLoader<'db, 'stmt> {
             let page_number = u32::from_be_bytes(frame_header[0..4].try_into().unwrap());
             debug_assert!(page_number > 0);
 
-            self.loader.page_stmt.execute(params![page])?;
+            self.loader.page_stmt.execute(named_params![
+                ":data": &page,
+            ])?;
             let page_id = self.loader.conn.last_insert_rowid();
-            self.loader.db_stmt.execute(params![
-                str::from_utf8(self.database.as_bytes())?,
-                page_number,
-                page_id,
+            self.loader.db_stmt.execute(named_params![
+                ":database": str::from_utf8(self.database.as_bytes())?,
+                ":page_number": page_number,
+                ":page_id": page_id,
             ])?;
         }
 
         // Make sure to remove any unreferenced page, if any
         // FIXME: not nice and forces an additional index.
         // FIXME: remove pages that are above database size.
-        self.loader.conn.execute(
+        self.loader.conn.execute_batch(
             "
                 DELETE FROM dqlite_page
                 WHERE id NOT IN (
@@ -414,7 +428,6 @@ impl<'db, 'stmt> DqliteDatabaseLoader for DatabaseLoader<'db, 'stmt> {
                     FROM dqlite_database
                 )
             ",
-            params![],
         )?;
 
         Ok(())

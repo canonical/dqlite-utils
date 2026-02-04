@@ -1531,7 +1531,11 @@ unsafe extern "C" fn x_file_control<T: Vfs>(
                     // but it is still unexpected IMHO.
                     // Now, clearly this is a SQLite quirk/bug, but to work around it, we can just return
                     // the pragma name as the result.
-                    let result_string = result.as_deref().or(arg).unwrap_or(name);
+                    let result_string = match (&result, arg) {
+                        (Some(result), _) => result,
+                        (None, Some(arg)) => arg,
+                        _ => name,
+                    };
                     args[0] = unsafe {
                         sqlite3::sqlite3_mprintf(
                             c"%.*s".as_ptr() as *const c_char,

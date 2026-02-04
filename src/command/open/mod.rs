@@ -1,8 +1,11 @@
 mod vfs;
 use std::{cell::OnceCell, fmt::Debug, str::FromStr};
 
-use anyhow::{Error, Result, anyhow};
-use rusqlite::Connection;
+use anyhow::{Context as _, Error, Result, anyhow};
+use rusqlite::{
+    Connection,
+    hooks::{AuthAction, AuthContext, Authorization},
+};
 
 use self::vfs::DqliteVfs;
 use crate::{
@@ -23,6 +26,7 @@ pub struct OpenState {
 
 impl OpenState {
     fn load(&self, dqlite: &DqliteDir, page_size: usize) -> Result<()> {
+        // TODO: use `get_mut_or_init` when stabilized. See https://github.com/rust-lang/rust/issues/121641
         if self.vfs_registration_guard.get().is_some() {
             return Ok(());
         }
@@ -34,7 +38,7 @@ impl OpenState {
             .register("dqlite")?;
         self.vfs_registration_guard
             .set(guard)
-            .or(Err(anyhow!("internal error: vfs already registered")))?;
+            .or_else(|_| Err(anyhow!("internal error: vfs already registered")))?;
         Ok(())
     }
 
@@ -51,35 +55,53 @@ impl Debug for OpenState {
 }
 
 #[derive(Debug)]
-pub(crate) struct OpenCommand {}
+pub(crate) struct OpenCommand {
+    index: Option<u64>,
+}
 
 impl OpenCommand {
     pub(crate) fn help() -> Help {
         Help::builder()
             .name(".open")
             .summary("open a shell on a point-in-time dqlite state")
+            .add_optional_arg(
+                "index",
+                "the index of the point-in-time state to open, or 'latest' (default)",
+            )
             .build()
             .expect("internal error: help invalid")
     }
 
     pub(crate) fn try_from_args(args: &[String]) -> Result<Self> {
-        if !args.is_empty() {
-            return Err(UnrecognizedArgumentsError(args.to_vec()).into());
-        }
-        Ok(Self {})
+        let index = match args {
+            [] => None,
+            [arg] if arg == "latest" => None,
+            [arg] => {
+                let index = arg
+                    .parse::<u64>()
+                    .map_err(|e| anyhow!("invalid index '{}': {}", arg, e))?;
+                Some(index)
+            }
+            _ => {
+                return Err(UnrecognizedArgumentsError(args.to_vec()).into());
+            }
+        };
+        Ok(Self { index })
     }
 
     pub(crate) fn run(self, ctx: &mut Context) -> Result<()> {
-        let connection: Connection = Connection::open_in_memory()?;
-        connection.set_main_name(c"raft");
-        let shell = OpenShell::new(connection);
+        let shell = OpenShell::new(self.index)?;
 
-        // TODO: set authorizer callback to prevent writes
-        // TODO: use a virtual table to access the snapshot data? Or just copy that here? Not sure...
         {
-            let mut state = ctx.open_state();
+            let state = ctx.open_state();
             state.load(ctx.dqlite()?, 4096)?; // TODO get the page size from the snapshot
-            shell.load_databases(state.vfs().unwrap().databases()?.as_ref())?;
+            if let Some(index) = self.index {
+                state
+                    .vfs()
+                    .expect("internal error: unregistered VFS")
+                    .set_current_index(index)?;
+            }
+            shell.attach_databases(state.vfs().unwrap().databases()?.into_iter())?;
         }
 
         ctx.shell = Shell::Open(shell);
@@ -99,16 +121,21 @@ impl OpenShell {
             .name("open shell")
             .summary("query a point-in-time dqlite state")
             .add_command(CloseCommand::help())
-            .add_command(IndexCommand::help())
             .add_command(DatabasesCommand::help())
+            .add_command(IndexCommand::help())
             .skip_usage()
             .build()
             .expect("internal error: help invalid")
     }
 
-    pub(crate) fn new(connection: Connection) -> Self {
-        let prompt = Prompt::new("open");
-        Self { connection, prompt }
+    pub(crate) fn new(index: Option<u64>) -> Result<Self> {
+        let connection = Self::open_connection()?;
+        let prompt = if let Some(index) = index {
+            Prompt::new(format!("open@{index}"))
+        } else {
+            Prompt::new("open@latest")
+        };
+        Ok(Self { connection, prompt })
     }
 
     pub(crate) fn prompt(&self) -> &Prompt {
@@ -119,16 +146,30 @@ impl OpenShell {
         &self.connection
     }
 
+    fn open_connection() -> Result<Connection> {
+        let ret = Connection::open_in_memory()
+            .context("internal error: cannot open connection to in-memory database")?;
+        ret.set_main_name(c"raft");
+        ret.authorizer(Some(Self::authorizer))?;
+        // TODO: use a virtual table to access the snapshot/index metadata? Or just copy that here? Not sure...
+        Ok(ret)
+    }
+
+    fn authorizer(_ctx: AuthContext<'_>) -> Authorization {
+        Authorization::Allow // Allow everything for now
+    }
+
     fn databases(&self) -> Result<Vec<String>> {
         let mut stmt = self.connection.prepare_cached(
             "
-                PRAGMA database_list;
+                SELECT name
+                FROM pragma_database_list()
             ",
         )?;
         let mut result = Vec::new();
         let mut rows = stmt.query([])?;
         while let Some(row) = rows.next()? {
-            let name: String = row.get(1)?;
+            let name: String = row.get(0)?;
             if name == "temp" || name == "raft" {
                 continue;
             }
@@ -137,26 +178,27 @@ impl OpenShell {
         Ok(result)
     }
 
-    fn load_databases(&self, databases: &[&str]) -> Result<()> {
+    fn attach_databases<'a>(&'a self, databases: impl Iterator<Item = String>) -> Result<()> {
         for db in databases {
             self.connection.execute_batch(&format!(
                 "
-                    ATTACH DATABASE 'file:{db}?vfs=dqlite' AS '{db}';
+                    ATTACH DATABASE 'file:{db}?vfs=dqlite' AS '{db}'
                 "
             ))?;
         }
         Ok(())
     }
 
-    fn unload_databases(&self) -> Result<()> {
+    fn detach_databases(&self) -> Result<()> {
         for db in self.databases()? {
-            if db != "raft" {
-                self.connection.execute_batch(&format!(
-                    "
-                        DETACH DATABASE '{db}';
-                    "
-                ))?;
+            if db == "raft" {
+                continue;
             }
+            self.connection.execute_batch(&format!(
+                "
+                    DETACH DATABASE '{db}'
+                "
+            ))?;
         }
         Ok(())
     }
@@ -285,16 +327,20 @@ impl IndexCommand {
     }
 
     pub(crate) fn run(self, ctx: &mut Context) -> Result<()> {
-        let shell = match &ctx.shell {
-            Shell::Open(shell) => shell,
-            _ => return Err(anyhow!(".index command can only be used in open shell")),
-        };
+        if ctx.shell.open().is_none() {
+            return Err(anyhow!(".index command can only be used in open shell"));
+        }
 
-        let state = ctx.open_state();
-        let vfs = state.vfs().expect("internal error: unregistered VFS");
-        vfs.set_current_index(self.index)?;
-        shell.unload_databases()?;
-        shell.load_databases(vfs.databases()?.as_ref())?;
+        let databases = {
+            let state = ctx.open_state();
+            let vfs = state.vfs().expect("internal error: unregistered VFS");
+            vfs.set_current_index(self.index)?;
+            vfs.databases()?
+        };
+        let shell = ctx.shell.open_mut().unwrap();
+        shell.detach_databases()?;
+        shell.attach_databases(databases.into_iter())?;
+        shell.prompt = Prompt::new(format!("open@{}", self.index));
 
         Ok(())
     }
@@ -327,13 +373,12 @@ impl DatabasesCommand {
 
         println!("name  raft_last_update");
         println!("---");
-
         let connection = shell.connection();
         for db in shell.databases()? {
             let last_raft_index: String =
                 connection
                     .pragma_query_value(Some(db.as_str()), "raft_last_update", |v| v.get(0))?;
-            println!("{}  {}", db, last_raft_index);
+            println!("{db}  {last_raft_index}");
         }
 
         Ok(())
@@ -343,10 +388,7 @@ impl DatabasesCommand {
 #[cfg(test)]
 mod tests {
     use std::{
-        cell::RefCell,
-        ffi::{CString, OsStr},
-        ops::{Range, RangeFrom, RangeTo},
-        time::{Duration, SystemTime},
+        cell::RefCell, ffi::{CString, OsStr}, io::Write, ops::{Range, RangeFrom, RangeTo}, time::{Duration, SystemTime}
     };
 
     use anyhow::Result;
@@ -385,10 +427,10 @@ mod tests {
         }
 
         fn wal_size(&self) -> Result<u64> {
-            Ok(0) // Not used
+            Ok(0) // No WAL.
         }
 
-        fn write_main(&mut self, out: &mut impl std::io::Write) -> Result<()> {
+        fn write_main(&mut self, out: &mut impl Write) -> Result<()> {
             let mut main = self.main.borrow_mut();
             let main_size = main.len()? as usize;
             let mut buf = vec![0u8; self.page_size];
@@ -401,7 +443,7 @@ mod tests {
             Ok(())
         }
 
-        fn write_wal(&mut self, _out: &mut impl std::io::Write) -> Result<()> {
+        fn write_wal(&mut self, _out: &mut impl Write) -> Result<()> {
             Ok(())
         }
     }
@@ -506,7 +548,7 @@ mod tests {
             let wal_size = conn
                 .journal_file(Some(OsStr::new(db)))
                 .unwrap()
-                .unwrap()
+                .expect("internal error: WAL file does not exist")
                 .len()
                 .unwrap();
             if wal_size <= 32 {
@@ -550,7 +592,7 @@ mod tests {
                         id INTEGER PRIMARY KEY,
                         name TEXT NOT NULL,
                         email TEXT NOT NULL UNIQUE,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP
                     );
                     CREATE TABLE IF NOT EXISTS products (
                         id INTEGER PRIMARY KEY,
@@ -560,7 +602,7 @@ mod tests {
                     CREATE TABLE IF NOT EXISTS orders (
                         id INTEGER PRIMARY KEY,
                         user_id INTEGER NOT NULL REFERENCES users(id),
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP
                     );
                     CREATE TABLE IF NOT EXISTS order_items (
                         id INTEGER PRIMARY KEY,

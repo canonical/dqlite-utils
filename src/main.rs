@@ -211,6 +211,13 @@ impl Shell {
         }
     }
 
+    fn open_mut(&mut self) -> Option<&mut OpenShell> {
+        match self {
+            Self::Open(shell) => Some(shell),
+            _ => None,
+        }
+    }
+
     fn connection(&self) -> Option<&Connection> {
         match self {
             Self::Root(_) => None,
