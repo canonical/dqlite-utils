@@ -372,7 +372,7 @@ pub trait VfsFile {
 
     /// Sets the parent connection.
     ///
-    /// See [SQLITE_FCNTL_PDB](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlpdb)
+    /// See [`SQLITE_FCNTL_PDB`](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlpdb)
     fn set_parent_connection(&mut self, conn: Connection) {
         let _ = conn;
     }
