@@ -1,16 +1,20 @@
+mod close;
+mod databases;
+mod index;
 mod vfs;
+
 use std::{cell::OnceCell, fmt::Debug, str::FromStr};
 
 use anyhow::{Context as _, Error, Result, anyhow};
 use rusqlite::{
     Connection,
-    hooks::{AuthAction, AuthContext, Authorization},
+    hooks::{AuthContext, Authorization},
 };
 
 use self::vfs::DqliteVfs;
 use crate::{
     Context, Shell,
-    command::{Help, UnknownCommand, UnrecognizedArgumentsError},
+    command::{Help, UnknownCommand, UnrecognizedArgumentsError, open::{close::CloseCommand, databases::DatabasesCommand, index::IndexCommand}},
     dqlite::DqliteDir,
     prompt::Prompt,
     rusqlite_ext::{
@@ -277,118 +281,14 @@ impl FromStr for OpenShellCommandKind {
     }
 }
 
-#[derive(Debug)]
-pub struct CloseCommand;
-
-impl CloseCommand {
-    pub(crate) fn help() -> Help {
-        Help::builder()
-            .name(".close")
-            .summary("exit the open shell and close the connection")
-            .build()
-            .expect("internal error: help invalid")
-    }
-
-    pub(crate) fn try_from_args(args: &[String]) -> Result<Self> {
-        if !args.is_empty() {
-            return Err(UnrecognizedArgumentsError(args.to_vec()).into());
-        }
-        Ok(Self)
-    }
-
-    pub(crate) fn run(self, ctx: &mut Context) -> Result<()> {
-        ctx.shell = Shell::default();
-        Ok(())
-    }
-}
-
-#[derive(Debug)]
-pub struct IndexCommand {
-    index: u64,
-}
-
-impl IndexCommand {
-    pub(crate) fn help() -> Help {
-        Help::builder()
-            .name(".index")
-            .summary("set the raft index to query for all databases")
-            .build()
-            .expect("internal error: help invalid")
-    }
-
-    pub(crate) fn try_from_args(args: &[String]) -> Result<Self> {
-        if args.len() != 1 {
-            return Err(UnrecognizedArgumentsError(args.to_vec()).into());
-        }
-        let index = args[0]
-            .parse::<u64>()
-            .map_err(|e| anyhow!("invalid index '{}': {}", args[0], e))?;
-        Ok(Self { index })
-    }
-
-    pub(crate) fn run(self, ctx: &mut Context) -> Result<()> {
-        if ctx.shell.open().is_none() {
-            return Err(anyhow!(".index command can only be used in open shell"));
-        }
-
-        let databases = {
-            let state = ctx.open_state();
-            let vfs = state.vfs().expect("internal error: unregistered VFS");
-            vfs.set_current_index(self.index)?;
-            vfs.databases()?
-        };
-        let shell = ctx.shell.open_mut().unwrap();
-        shell.detach_databases()?;
-        shell.attach_databases(databases.into_iter())?;
-        shell.prompt = Prompt::new(format!("open@{}", self.index));
-
-        Ok(())
-    }
-}
-
-#[derive(Debug)]
-pub struct DatabasesCommand {}
-
-impl DatabasesCommand {
-    pub(crate) fn help() -> Help {
-        Help::builder()
-            .name(".databases")
-            .summary("list databases available in the open shell")
-            .build()
-            .expect("internal error: help invalid")
-    }
-
-    pub(crate) fn try_from_args(args: &[String]) -> Result<Self> {
-        if !args.is_empty() {
-            return Err(UnrecognizedArgumentsError(args.to_vec()).into());
-        }
-        Ok(Self {})
-    }
-
-    pub(crate) fn run(self, ctx: &mut Context) -> Result<()> {
-        let shell = match &ctx.shell {
-            Shell::Open(shell) => shell,
-            _ => return Err(anyhow!(".databases command can only be used in open shell")),
-        };
-
-        println!("name  raft_last_update");
-        println!("---");
-        let connection = shell.connection();
-        for db in shell.databases()? {
-            let last_raft_index: String =
-                connection
-                    .pragma_query_value(Some(db.as_str()), "raft_last_update", |v| v.get(0))?;
-            println!("{db}  {last_raft_index}");
-        }
-
-        Ok(())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::{
-        cell::RefCell, ffi::{CString, OsStr}, io::Write, ops::{Range, RangeFrom, RangeTo}, time::{Duration, SystemTime}
+        cell::RefCell,
+        ffi::{CString, OsStr},
+        io::Write,
+        ops::{Range, RangeFrom, RangeTo},
+        time::{Duration, SystemTime},
     };
 
     use anyhow::Result;
