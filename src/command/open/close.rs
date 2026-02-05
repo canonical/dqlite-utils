@@ -1,8 +1,9 @@
 use anyhow::Result;
 
-use crate::{Context, Shell, command::{Help, UnrecognizedArgumentsError}};
-
-
+use crate::{
+    Context, Shell,
+    command::{Help, UnrecognizedArgumentsError},
+};
 
 #[derive(Debug)]
 pub struct CloseCommand;

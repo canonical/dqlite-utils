@@ -1,6 +1,10 @@
 use anyhow::{Result, anyhow};
 
-use crate::{Context, command::{Help, UnrecognizedArgumentsError}, prompt::Prompt};
+use crate::{
+    Context,
+    command::{Help, UnrecognizedArgumentsError},
+    prompt::Prompt,
+};
 
 #[derive(Debug)]
 pub struct IndexCommand {

@@ -14,7 +14,10 @@ use rusqlite::{
 use self::vfs::DqliteVfs;
 use crate::{
     Context, Shell,
-    command::{Help, UnknownCommand, UnrecognizedArgumentsError, open::{close::CloseCommand, databases::DatabasesCommand, index::IndexCommand}},
+    command::{
+        Help, UnknownCommand, UnrecognizedArgumentsError,
+        open::{close::CloseCommand, databases::DatabasesCommand, index::IndexCommand},
+    },
     dqlite::DqliteDir,
     prompt::Prompt,
     rusqlite_ext::{

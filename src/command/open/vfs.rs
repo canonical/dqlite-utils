@@ -192,7 +192,8 @@ impl DqliteVfs {
             "
                 INSERT INTO raft_log(idx, term)
                 VALUES (:idx, :term)
-            ")?;
+            ",
+        )?;
         let mut config_stmt = tx.prepare(
             "
                 INSERT INTO raft_configuration(log_idx, id, address, role)
