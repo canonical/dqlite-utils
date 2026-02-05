@@ -399,6 +399,16 @@ impl TryFrom<u8> for RaftRole {
     }
 }
 
+impl RaftRole {
+    pub fn as_raw(&self) -> c_uint {
+        match self {
+            RaftRole::Standby => raft_role::RAFT_STANDBY,
+            RaftRole::Voter => raft_role::RAFT_VOTER,
+            RaftRole::Spare => raft_role::RAFT_SPARE,
+        }
+    }
+}
+
 impl RaftServer {
     fn new(server: &raft_server) -> Result<Self> {
         let role = match server.role as _ {
