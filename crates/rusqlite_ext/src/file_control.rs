@@ -7,7 +7,7 @@ use std::{
 
 use rusqlite::Connection;
 
-use crate::rusqlite_ext::{Result, SmallCString, SqliteError, vfs::LockLevel};
+use crate::{Result, SmallCString, SqliteError, vfs::LockLevel};
 
 pub trait FileControlExt {
     /// Gets the current lock state.

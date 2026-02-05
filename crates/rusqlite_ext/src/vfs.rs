@@ -1824,7 +1824,7 @@ mod tests {
 
     use libsqlite3_sys as sqlite3;
 
-    use crate::rusqlite_ext::SqliteCode;
+    use crate::SqliteCode;
 
     use super::*;
 

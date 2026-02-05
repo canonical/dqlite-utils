@@ -1,12 +1,12 @@
 use std::io::{self, ErrorKind, Write};
 
 use anyhow::Result;
+use dqlite::{DqliteDir, DqliteLogEntry, DqliteLogEntryContent, DqliteSegment, RaftServer};
 use indoc::writedoc;
 use owo_colors::Style;
 
 use crate::Context;
 use crate::command::help::Help;
-use crate::dqlite::{DqliteDir, DqliteLogEntry, DqliteLogEntryContent, DqliteSegment, RaftServer};
 use crate::utils::{Pager, TerminalStylizeExt};
 
 use super::UnrecognizedArgumentsError;

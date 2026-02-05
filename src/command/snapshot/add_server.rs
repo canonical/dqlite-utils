@@ -1,10 +1,10 @@
 use anyhow::anyhow;
 use libsqlite3_sys as sqlite3;
 use rusqlite::{ErrorCode, named_params};
+use dqlite::RaftRole;
 
 use crate::command::help::Help;
 use crate::command::{MissingArgumentError, UnrecognizedArgumentsError};
-use crate::dqlite::RaftRole;
 use crate::{Context, Result};
 
 #[derive(Debug)]

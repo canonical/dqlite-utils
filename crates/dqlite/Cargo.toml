@@ -1,0 +1,21 @@
+[package]
+name = "dqlite"
+version = "0.1.0"
+rust-version = "1.91"
+edition = "2024"
+build = "build.rs"
+
+[dependencies]
+anyhow = "1.0.100"
+lz4_flex = "0.12.0"
+thiserror = "2.0.17"
+libsqlite3-sys = { git = "https://github.com/rusqlite/rusqlite", rev = "890be7bab5a8cef767b2c373ae14b19959c4f3de" }
+rusqlite = { git = "https://github.com/rusqlite/rusqlite", rev = "890be7bab5a8cef767b2c373ae14b19959c4f3de", features = ["bundled-full"] }
+rusqlite_ext = { path = "../rusqlite_ext" }
+
+[build-dependencies]
+bindgen = "0.72.1"
+pkg-config = "0.3.32"
+
+[dev-dependencies]
+tempfile = "3.23.0"

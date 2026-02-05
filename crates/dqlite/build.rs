@@ -26,30 +26,32 @@ impl ParseCallbacks for BindgenRules {
     }
 }
 
-fn main() {
-    let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
-
-    println!("rustc-link-lib=static=dqlite");
-
+fn find_lib(lib_name: &str, version: &str) -> Result<(), pkg_config::Error> {
+    print!("looking for library {}...", lib_name);
     let lib = pkg_config::Config::new()
         .statik(true)
-        .atleast_version("1.18.4")
+        .atleast_version(version)
         // Override decision from pkg_config maintainer to silently ignore the user will and
         // link dynamically when the library is found in /usr.
         .cargo_metadata(false)
-        .probe("dqlite")
-        .expect("Failed to find libdqlite");
+        .probe(lib_name)?;
 
-    // This does not handle all use cases, but handles the dqlite one.
     for include_path in lib.include_paths {
         println!("cargo:include={}", include_path.display());
     }
-
     for path in lib.link_paths {
         println!("cargo:rustc-link-search=native={}", path.display());
     }
+    Ok(())
+}
 
+fn main() {
+    let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
+
+    find_lib("dqlite", "1.18.4").expect("Failed to link dqlite statically");
     println!("cargo:rustc-link-lib=static=dqlite");
+
+    find_lib("libuv", "1.34.0").expect("Failed to link libuv statically");
     println!("cargo:rustc-link-lib=static=uv");
 
     let bindings = bindgen::Builder::default()

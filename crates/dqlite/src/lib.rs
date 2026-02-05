@@ -1,3 +1,4 @@
+pub mod vfs;
 mod sys;
 
 use std::{
@@ -18,7 +19,7 @@ use std::{
 use anyhow::{Context, Error, Result, anyhow};
 use lz4_flex::frame::{BlockMode, FrameDecoder, FrameEncoder, FrameInfo};
 
-use crate::dqlite::sys::{cursor, dqlite_result};
+use crate::sys::{cursor, dqlite_result};
 
 use self::sys::{
     RAFT_ERRMSG_BUF_SIZE, command_checkpoint, command_frames, command_open, command_undo, frames_t,

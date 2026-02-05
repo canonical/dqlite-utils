@@ -1,0 +1,15 @@
+[package]
+name = "rusqlite_ext"
+version = "0.1.0"
+rust-version = "1.91"
+edition = "2024"
+
+[dependencies]
+bitflags = "2.10.0"
+libsqlite3-sys = { git = "https://github.com/rusqlite/rusqlite", rev = "890be7bab5a8cef767b2c373ae14b19959c4f3de" }
+rand = "0.9.2"
+rusqlite = { git = "https://github.com/rusqlite/rusqlite", rev = "890be7bab5a8cef767b2c373ae14b19959c4f3de", features = ["bundled-full"] }
+static_assertions = "1.1.0"
+
+[dev-dependencies]
+tempfile = "3.23.0"

@@ -9,6 +9,7 @@ mod set_timestamp;
 use std::str::FromStr;
 
 use anyhow::Context as _;
+use dqlite::{RaftRole, RaftServer};
 use fallible_iterator::FallibleIterator;
 use rusqlite::Connection;
 use rusqlite::hooks::{AuthAction, AuthContext, Authorization};
@@ -17,9 +18,8 @@ use time::UtcDateTime;
 
 use crate::command::help::{Help, HelpCommand};
 use crate::command::{UnknownCommand, UnrecognizedArgumentsError};
-use crate::dqlite::{RaftRole, RaftServer};
 use crate::prompt::Prompt;
-use crate::rusqlite_ext::config::ConnectionConfigExt;
+use rusqlite_ext::config::ConnectionConfigExt;
 use crate::{Context, Error, Result, Shell};
 
 use self::abort::AbortCommand;

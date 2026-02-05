@@ -1,19 +1,17 @@
 mod args;
 mod command;
-mod dqlite;
 mod interactive_reader;
 mod prompt;
-mod rusqlite_ext;
 mod utils;
 
 use std::cell::{RefCell, RefMut};
-use std::fmt::Display;
 use std::io::{self, IsTerminal};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use anyhow::{Context as _, anyhow};
+use anyhow::{anyhow, Context as _};
 use clap::Parser;
+use dqlite::{DqliteDir, NoMetadataError};
 use owo_colors::Style;
 use rusqlite::Connection;
 use rustyline::error::ReadlineError;
@@ -22,7 +20,6 @@ use crate::command::{OpenShell, OpenState};
 
 use self::args::Args;
 use self::command::{Command, Help, RootShell, SnapshotShell};
-use self::dqlite::{DqliteDir, NoMetadataError};
 use self::interactive_reader::CommandHelper;
 use self::interactive_reader::InteractiveCommandReader;
 use self::prompt::Prompt;

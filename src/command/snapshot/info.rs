@@ -1,13 +1,13 @@
 use std::fmt;
 
 use anyhow::anyhow;
+use dqlite::{RaftRole, RaftServer};
 use indoc::printdoc;
 use time::format_description::well_known::Iso8601;
 
 use crate::command::UnrecognizedArgumentsError;
 use crate::command::help::Help;
 use crate::command::snapshot::{RaftMetadata, RaftServers};
-use crate::dqlite::{RaftRole, RaftServer};
 use crate::utils::AttachedSchemasConnectionExt;
 use crate::{Context, Result};
 

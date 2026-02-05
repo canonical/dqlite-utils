@@ -9,24 +9,20 @@ use std::{
     },
 };
 
+use crate::{
+    DqliteDatabaseLoader, DqliteDir, DqliteLogEntryContent, DqliteSegment, DqliteSnapshotLoader,
+};
 use anyhow::Result;
-
 use libsqlite3_sys as sqlite3;
 use rusqlite::{
     Connection, Statement, Transaction, named_params,
     types::{ToSqlOutput, ValueRef},
 };
-
-use crate::{
-    dqlite::{
-        DqliteDatabaseLoader, DqliteDir, DqliteLogEntryContent, DqliteSegment, DqliteSnapshotLoader,
-    },
-    rusqlite_ext::{
-        self, SqliteError,
-        vfs::{
-            FileType, IoCapabilities, LockLevel, OpenFlags, PragmaError, PragmaResult, SyncOptions,
-            Vfs, VfsFile, VfsPath,
-        },
+use rusqlite_ext::{
+    self, SqliteError,
+    vfs::{
+        FileType, IoCapabilities, LockLevel, OpenFlags, PragmaError, PragmaResult, SyncOptions,
+        Vfs, VfsFile, VfsPath,
     },
 };
 

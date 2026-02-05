@@ -1,29 +1,28 @@
 mod close;
 mod databases;
 mod index;
-mod vfs;
 
 use std::{cell::OnceCell, fmt::Debug, str::FromStr};
 
 use anyhow::{Context as _, Error, Result, anyhow};
+use dqlite::DqliteDir;
+use dqlite::vfs::DqliteVfs;
 use rusqlite::{
     Connection,
     hooks::{AuthContext, Authorization},
 };
+use rusqlite_ext::{
+    config::ConnectionConfigExt,
+    vfs::{VfsRegistration, VfsRegistrationGuard},
+};
 
-use self::vfs::DqliteVfs;
 use crate::{
     Context, Shell,
     command::{
         Help, UnknownCommand, UnrecognizedArgumentsError,
         open::{close::CloseCommand, databases::DatabasesCommand, index::IndexCommand},
     },
-    dqlite::DqliteDir,
     prompt::Prompt,
-    rusqlite_ext::{
-        config::ConnectionConfigExt,
-        vfs::{VfsRegistration, VfsRegistrationGuard},
-    },
 };
 
 #[derive(Default)]
@@ -286,6 +285,14 @@ impl FromStr for OpenShellCommandKind {
 
 #[cfg(test)]
 mod tests {
+    use anyhow::Result;
+    use dqlite::{
+        DqliteDatabaseWriter, DqliteDir, DqliteFrame, DqliteLogEntry, DqliteLogEntryContent,
+        DqliteSegmentBuilder, DqliteSnapshotBuilder, Empty, RaftConfiguration, RaftRole,
+        RaftServer,
+    };
+    use rusqlite::Connection;
+    use rusqlite_ext::files::{ConnectionFile, ConnectionFilesExt};
     use std::{
         cell::RefCell,
         ffi::{CString, OsStr},
@@ -293,20 +300,9 @@ mod tests {
         ops::{Range, RangeFrom, RangeTo},
         time::{Duration, SystemTime},
     };
-
-    use anyhow::Result;
-    use rusqlite::Connection;
     use tempfile::tempdir;
 
-    use crate::{
-        command::open::OpenState,
-        dqlite::{
-            DqliteDatabaseWriter, DqliteDir, DqliteFrame, DqliteLogEntry, DqliteLogEntryContent,
-            DqliteSegmentBuilder, DqliteSnapshotBuilder, Empty, RaftConfiguration, RaftRole,
-            RaftServer,
-        },
-        rusqlite_ext::files::{ConnectionFile, ConnectionFilesExt},
-    };
+    use crate::command::open::OpenState;
 
     struct ConnectionWriter<'a> {
         main: RefCell<ConnectionFile<'a>>,

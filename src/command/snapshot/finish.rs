@@ -7,15 +7,15 @@ use std::sync::LazyLock;
 use std::time::SystemTime;
 
 use anyhow::{Context as _, anyhow};
+use dqlite::{DqliteDatabaseWriter, DqliteDir, RaftConfiguration};
 use libsqlite3_sys as sqlite3;
 use regex::Regex;
 use rusqlite::{Connection, TransactionBehavior};
+use rusqlite_ext::files::{ConnectionFile, ConnectionFilesExt};
 
 use crate::command::help::Help;
 use crate::command::snapshot::{RaftMetadata, RaftServers};
 use crate::command::{MissingArgumentError, UnrecognizedArgumentsError};
-use crate::dqlite::{DqliteDatabaseWriter, DqliteDir, RaftConfiguration};
-use crate::rusqlite_ext::files::{ConnectionFile, ConnectionFilesExt};
 use crate::utils::AttachedSchemasConnectionExt;
 use crate::{Context, Result, Shell};
 
