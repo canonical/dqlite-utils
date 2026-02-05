@@ -38,7 +38,7 @@ impl OpenState {
             .register("dqlite")?;
         self.vfs_registration_guard
             .set(guard)
-            .or_else(|_| Err(anyhow!("internal error: vfs already registered")))?;
+            .map_err(|_| anyhow!("internal error: vfs already registered"))?;
         Ok(())
     }
 

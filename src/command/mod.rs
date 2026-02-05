@@ -95,7 +95,8 @@ impl Command {
             (cmd @ Self::Snapshot(_), _) => Err(CommandUnavailable::new(&cmd, &ctx.shell).into()),
             (Self::Open(cmd), Shell::Open(_)) => cmd.run(ctx),
             (cmd @ Self::Open(_), _) => Err(CommandUnavailable::new(&cmd, &ctx.shell).into()),
-            (Self::Sql(cmd), _) => cmd.run(ctx),
+            (Self::Sql(cmd), Shell::Snapshot(_) | Shell::Open(_)) => cmd.run(ctx),
+            (cmd @ Self::Sql(_), _) => Err(CommandUnavailable::new(&cmd, &ctx.shell).into()),
         }
     }
 }
