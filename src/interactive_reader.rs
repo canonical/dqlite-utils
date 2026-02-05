@@ -3,6 +3,7 @@ use std::ffi::CString;
 use std::fmt::{Display, Write};
 use std::path::PathBuf;
 
+use libsqlite3_sys as sqlite3;
 use owo_colors::Style;
 use rustyline::completion::Completer;
 use rustyline::config::BellStyle;
@@ -11,7 +12,6 @@ use rustyline::hint::{Hinter, HistoryHinter};
 use rustyline::history::DefaultHistory;
 use rustyline::validate::{ValidationContext, ValidationResult, Validator};
 use rustyline::{CompletionType, Config, Editor, Helper as RustylineHelper};
-use libsqlite3_sys as sqlite3;
 
 use crate::command::Command;
 use crate::prompt::Prompt;
