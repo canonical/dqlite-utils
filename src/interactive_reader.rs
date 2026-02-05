@@ -204,7 +204,7 @@ impl<T: CommandHelper> Validator for Helper<T> {
 
 impl<T> Helper<T> {
     fn validate_sql(&self, to_validate: &str) -> rustyline::Result<ValidationResult> {
-        let sql = CString::new(to_validate).unwrap();
+        let sql = CString::new(to_validate).expect("internal error: sql contains invalid UTF-8");
         let sql_ptr = sql.as_ptr();
         let complete = unsafe { sqlite3::sqlite3_complete(sql_ptr) != 0 };
         if !complete {
