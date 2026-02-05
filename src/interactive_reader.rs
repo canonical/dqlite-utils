@@ -1,7 +1,9 @@
 use std::borrow::Cow;
+use std::ffi::CString;
 use std::fmt::{Display, Write};
 use std::path::PathBuf;
 
+use libsqlite3_sys as sqlite3;
 use owo_colors::Style;
 use rustyline::completion::Completer;
 use rustyline::config::BellStyle;
@@ -202,7 +204,10 @@ impl<T: CommandHelper> Validator for Helper<T> {
 
 impl<T> Helper<T> {
     fn validate_sql(&self, to_validate: &str) -> rustyline::Result<ValidationResult> {
-        if !to_validate.trim_end().ends_with(';') {
+        let sql = CString::new(to_validate).expect("internal error: sql contains invalid UTF-8");
+        let sql_ptr = sql.as_ptr();
+        let complete = unsafe { sqlite3::sqlite3_complete(sql_ptr) != 0 };
+        if !complete {
             return Ok(ValidationResult::Incomplete);
         }
         Ok(ValidationResult::Valid(None))
