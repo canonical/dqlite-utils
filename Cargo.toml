@@ -18,7 +18,7 @@ rusqlite = { version = "0.38.0", features = ["bundled-full"] }
 rustyline = "17.0.2"
 shell-words = "1.1.0"
 static_assertions = "1.1.0"
-strum = { version = "0.27.2", features = ["derive"] }
+strum = { version = "0.28.0", features = ["derive"] }
 thiserror = "2.0.17"
 time = { version = "0.3.44", features = ["formatting", "parsing"] }
 fallible-iterator = "0.3.0"
