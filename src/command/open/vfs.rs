@@ -107,7 +107,7 @@ impl DqliteVfs {
                 | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
         )?;
 
-        conn.pragma_update(None, "foreign_keys", &true)?;
+        conn.pragma_update(None, "foreign_keys", true)?;
 
         let first_index = {
             let tx = conn.transaction()?;
@@ -214,11 +214,11 @@ impl DqliteVfs {
         )?;
         let mut index = dqlite.first_index();
         for segment in dqlite.segments() {
-            if let DqliteSegment::Closed { indexes, .. } = segment {
-                if *indexes.end() <= start_index {
-                    index = *indexes.end() + 1;
-                    continue;
-                }
+            if let DqliteSegment::Closed { indexes, .. } = segment
+                && *indexes.end() <= start_index
+            {
+                index = *indexes.end() + 1;
+                continue;
             }
 
             let entries = segment.entries()?;
@@ -358,7 +358,7 @@ impl<'db, 'stmt> DqliteDatabaseLoader for DatabaseLoader<'db, 'stmt> {
         let mut page_number = 1;
         loop {
             bufreader.fill_buf()?;
-            if bufreader.buffer().len() == 0 {
+            if bufreader.buffer().is_empty() {
                 break;
             }
             bufreader.read_exact(&mut page)?;
@@ -380,7 +380,7 @@ impl<'db, 'stmt> DqliteDatabaseLoader for DatabaseLoader<'db, 'stmt> {
     fn load_wal(&mut self, read: impl Read) -> Result<()> {
         let mut bufreader = BufReader::new(read);
         bufreader.fill_buf()?;
-        if bufreader.buffer().len() == 0 {
+        if bufreader.buffer().is_empty() {
             return Ok(()); // Empty WAL
         }
 
@@ -397,7 +397,7 @@ impl<'db, 'stmt> DqliteDatabaseLoader for DatabaseLoader<'db, 'stmt> {
 
         loop {
             bufreader.fill_buf()?;
-            if bufreader.buffer().len() == 0 {
+            if bufreader.buffer().is_empty() {
                 break;
             }
 
@@ -557,7 +557,7 @@ impl VfsFile for File {
     // I also think it doesn't happen for read-only VFSes like this one, but need to double-check.
     // This VFS returns sector_size == page_size, so it should be fine.
     fn read_at(&mut self, buf: &mut [u8], offset: u64) -> rusqlite_ext::Result<()> {
-        assert!(offset % self.page_size as u64 == 0);
+        assert!(offset.is_multiple_of(self.page_size as u64));
         assert!(buf.len() == self.page_size || buf.len() == HEADER_SIZE);
 
         let conn = self
@@ -641,7 +641,7 @@ impl VfsFile for File {
 
 fn read_database_size(conn: &Connection, raft_index: u64, database: &str) -> rusqlite::Result<u64> {
     let header = &mut [0u8; HEADER_SIZE];
-    if read_database_page(&conn, raft_index, database, 1, header)? {
+    if read_database_page(conn, raft_index, database, 1, header)? {
         Ok(decode_database_size(header))
     } else {
         Ok(0)

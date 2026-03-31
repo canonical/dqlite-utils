@@ -185,7 +185,7 @@ impl OpenShell {
         Ok(result)
     }
 
-    fn attach_databases<'a>(&'a self, databases: impl Iterator<Item = String>) -> Result<()> {
+    fn attach_databases(&self, databases: impl Iterator<Item = String>) -> Result<()> {
         for db in databases {
             self.connection.execute_batch(&format!(
                 "
