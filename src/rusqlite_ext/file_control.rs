@@ -220,10 +220,7 @@ impl FileControlExt for Connection {
             ));
         }
         let cstr = unsafe { CStr::from_ptr(name_ptr) };
-        match str::from_utf8(cstr.to_bytes()) {
-            Ok(s) => Ok(s.to_owned()),
-            Err(e) => Err(rusqlite::Error::Utf8Error(e)),
-        }
+        Ok(str::from_utf8(cstr.to_bytes())?.to_owned())
     }
 }
 
