@@ -13,7 +13,7 @@ indoc = "2.0.7"
 libsqlite3-sys = "0.36.0"
 lz4_flex = "0.13.0"
 owo-colors = { version = "4.2.3", features = ["supports-colors"] }
-rand = "0.9.2"
+rand = "0.10.0"
 rusqlite = { version = "0.38.0", features = ["bundled-full"] }
 rustyline = "17.0.2"
 shell-words = "1.1.0"
