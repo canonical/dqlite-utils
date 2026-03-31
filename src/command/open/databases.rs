@@ -1,9 +1,7 @@
 use anyhow::{Result, anyhow};
 
-use crate::{
-    Context, Shell,
-    command::{Help, UnrecognizedArgumentsError},
-};
+use crate::command::{Help, UnrecognizedArgumentsError};
+use crate::{Context, Shell};
 
 #[derive(Debug)]
 pub struct DatabasesCommand {}

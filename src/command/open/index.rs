@@ -1,11 +1,10 @@
 use anyhow::{Result, anyhow};
 
-use crate::{
-    Context,
-    command::{Help, UnrecognizedArgumentsError},
-    prompt::Prompt,
-};
+use crate::Context;
+use crate::command::{Help, UnrecognizedArgumentsError};
+use crate::prompt::Prompt;
 
+// FIXME: it would be nice to merge this command with `.set-index` from snapshot shell to be consistent with open shell commands.
 #[derive(Debug)]
 pub struct IndexCommand {
     index: u64,
@@ -31,6 +30,7 @@ impl IndexCommand {
     }
 
     pub(crate) fn run(self, ctx: &mut Context) -> Result<()> {
+        let Self { index } = self;
         if ctx.shell.open().is_none() {
             return Err(anyhow!(".index command can only be used in open shell"));
         }
@@ -38,13 +38,14 @@ impl IndexCommand {
         let databases = {
             let state = ctx.open_state();
             let vfs = state.vfs().expect("internal error: unregistered VFS");
-            vfs.set_current_index(self.index)?;
+            vfs.set_current_index(index)?;
             vfs.databases()?
         };
         let shell = ctx.shell.open_mut().unwrap();
+        // Flush cache
         shell.detach_databases()?;
-        shell.attach_databases(databases.into_iter())?;
-        shell.prompt = Prompt::new(format!("open@{}", self.index));
+        shell.attach_databases(databases)?;
+        shell.prompt = Prompt::new(format!("open(@{index})"));
 
         Ok(())
     }

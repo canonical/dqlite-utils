@@ -1,36 +1,24 @@
-use std::{
-    borrow::Cow,
-    ffi::OsStr,
-    io::{self, BufRead, BufReader, Read},
-    os::unix::ffi::OsStrExt,
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicU64, Ordering},
-    },
-};
+use std::borrow::Cow;
+use std::ffi::OsStr;
+use std::io::Write;
+use std::io::{self, BufRead, BufReader, Read};
+use std::os::unix::ffi::OsStrExt;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
-
 use libsqlite3_sys as sqlite3;
-use rusqlite::{
-    Connection, Statement, Transaction, named_params,
-    types::{ToSqlOutput, ValueRef},
-};
+use rusqlite::types::{ToSqlOutput, ValueRef};
+use rusqlite::{Connection, Statement, Transaction, named_params};
 
-use crate::{
-    dqlite::{
-        DqliteDatabaseLoader, DqliteDir, DqliteLogEntryContent, DqliteSegment, DqliteSnapshotLoader,
-    },
-    rusqlite_ext::{
-        self, SqliteError,
-        vfs::{
-            FileType, IoCapabilities, LockLevel, OpenFlags, PragmaError, PragmaResult, SyncOptions,
-            Vfs, VfsFile, VfsPath,
-        },
-    },
+use crate::dqlite::{
+    DqliteDatabaseLoader, DqliteDir, DqliteLogEntryContent, DqliteSegment, DqliteSnapshotLoader,
 };
-
-use std::io::Write;
+use crate::rusqlite_ext::vfs::{
+    FileType, IoCapabilities, LockLevel, OpenFlags, PragmaError, PragmaResult, SyncOptions, Vfs,
+    VfsFile, VfsPath,
+};
+use crate::rusqlite_ext::{self, SqliteError};
 
 const HEADER_SIZE: usize = 100;
 const SCHEMA: &str = "

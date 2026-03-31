@@ -3,28 +3,24 @@ mod databases;
 mod index;
 mod vfs;
 
-use std::{cell::OnceCell, fmt::Debug, str::FromStr};
+use std::cell::OnceCell;
+use std::fmt::Debug;
+use std::str::FromStr;
 
 use anyhow::{Context as _, Error, Result, anyhow};
-use rusqlite::{
-    Connection,
-    hooks::{AuthContext, Authorization},
-};
+use rusqlite::Connection;
+use rusqlite::hooks::{AuthContext, Authorization};
 
 use self::vfs::DqliteVfs;
-use crate::{
-    Context, Shell,
-    command::{
-        Help, UnknownCommand, UnrecognizedArgumentsError,
-        open::{close::CloseCommand, databases::DatabasesCommand, index::IndexCommand},
-    },
-    dqlite::DqliteDir,
-    prompt::Prompt,
-    rusqlite_ext::{
-        config::ConnectionConfigExt,
-        vfs::{VfsRegistration, VfsRegistrationGuard},
-    },
-};
+use crate::command::open::close::CloseCommand;
+use crate::command::open::databases::DatabasesCommand;
+use crate::command::open::index::IndexCommand;
+use crate::command::{Help, UnknownCommand, UnrecognizedArgumentsError};
+use crate::dqlite::DqliteDir;
+use crate::prompt::Prompt;
+use crate::rusqlite_ext::config::ConnectionConfigExt;
+use crate::rusqlite_ext::vfs::{VfsRegistration, VfsRegistrationGuard};
+use crate::{Context, Shell};
 
 #[derive(Default)]
 pub struct OpenState {
@@ -33,7 +29,7 @@ pub struct OpenState {
 
 impl OpenState {
     fn load(&self, dqlite: &DqliteDir, page_size: usize) -> Result<()> {
-        // TODO: use `get_mut_or_init` when stabilized. See https://github.com/rust-lang/rust/issues/121641
+        // TODO: use `get_mut_or_try_init` when stabilized. See https://github.com/rust-lang/rust/issues/121641
         if self.vfs_registration_guard.get().is_some() {
             return Ok(());
         }
@@ -56,6 +52,9 @@ impl OpenState {
 
 impl Debug for OpenState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let Self {
+            vfs_registration_guard: _,
+        } = self;
         let vfs = self.vfs();
         f.debug_struct("OpenState").field("vfs", &vfs).finish()
     }
@@ -85,7 +84,7 @@ impl OpenCommand {
             [arg] if arg == "latest" => None,
             [arg] => {
                 let index = arg
-                    .parse::<u64>()
+                    .parse()
                     .map_err(|e| anyhow!("invalid index '{}': {}", arg, e))?;
                 Some(index)
             }
@@ -108,7 +107,7 @@ impl OpenCommand {
                     .expect("internal error: unregistered VFS")
                     .set_current_index(index)?;
             }
-            shell.attach_databases(state.vfs().unwrap().databases()?.into_iter())?;
+            shell.attach_databases(state.vfs().unwrap().databases()?)?;
         }
 
         ctx.shell = Shell::Open(shell);
@@ -138,9 +137,9 @@ impl OpenShell {
     pub(crate) fn new(index: Option<u64>) -> Result<Self> {
         let connection = Self::open_connection()?;
         let prompt = if let Some(index) = index {
-            Prompt::new(format!("open@{index}"))
+            Prompt::new(format!("open(@{index})"))
         } else {
-            Prompt::new("open@latest")
+            Prompt::new("open(@latest)")
         };
         Ok(Self { connection, prompt })
     }
@@ -163,6 +162,7 @@ impl OpenShell {
     }
 
     fn authorizer(_ctx: AuthContext<'_>) -> Authorization {
+        // TODO: implement a proper authorizer
         Authorization::Allow // Allow everything for now
     }
 
@@ -185,7 +185,7 @@ impl OpenShell {
         Ok(result)
     }
 
-    fn attach_databases(&self, databases: impl Iterator<Item = String>) -> Result<()> {
+    fn attach_databases(&self, databases: impl IntoIterator<Item = String>) -> Result<()> {
         for db in databases {
             self.connection.execute_batch(&format!(
                 "
@@ -198,9 +198,6 @@ impl OpenShell {
 
     fn detach_databases(&self) -> Result<()> {
         for db in self.databases()? {
-            if db == "raft" {
-                continue;
-            }
             self.connection.execute_batch(&format!(
                 "
                     DETACH DATABASE '{db}'
