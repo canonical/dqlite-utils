@@ -16,7 +16,7 @@ lz4_flex = "0.13.0"
 owo-colors = { version = "4.2.3", features = ["supports-colors"] }
 rand = "0.10.0"
 rusqlite = { version = "0.39.0", features = ["bundled-full"] }
-rustyline = "17.0.2"
+rustyline = "18.0.0"
 shell-words = "1.1.0"
 static_assertions = "1.1.0"
 strum = { version = "0.28.0", features = ["derive"] }
