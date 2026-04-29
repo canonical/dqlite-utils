@@ -3,6 +3,7 @@ use anyhow::{Result, anyhow};
 use crate::Context;
 use crate::command::{Help, UnrecognizedArgumentsError};
 use crate::prompt::Prompt;
+use crate::utils::TerminalStylizeExt;
 
 // FIXME: it would be nice to merge this command with `.set-index` from snapshot shell to be consistent with open shell commands.
 #[derive(Debug)]
@@ -45,7 +46,11 @@ impl IndexCommand {
         // Flush cache
         shell.detach_databases()?;
         shell.attach_databases(databases)?;
-        shell.prompt = Prompt::new(format!("open(@{index})"));
+        shell.prompt = Prompt::new(format!(
+            "open{}{}",
+            "@".terminal_style(Prompt::DEFAULT_STYLE),
+            index.terminal_style(Prompt::INDEX_STYLE)
+        ));
 
         Ok(())
     }

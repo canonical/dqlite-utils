@@ -98,16 +98,16 @@ impl DqliteVfs {
         conn.pragma_update(None, "foreign_keys", true)?;
 
         let first_index = {
-            let tx = conn.transaction()?;
-            Self::create_schema(&tx)?;
+            let txn = conn.transaction()?;
+            Self::create_schema(&txn)?;
 
             // This is different from the "first_index" of the dqlite log, as the first index
             // cannot be read as it might be before the earliest snapshot, which means that it
             // contains a diff over an older snapshot that doesn't exist anymore and can't be
             // read as such.
-            let first_index = Self::load_first_snapshot(&tx, dqlite, page_size)?;
-            Self::load_segments_from(&tx, dqlite, first_index)?;
-            tx.commit()?;
+            let first_index = Self::load_first_snapshot(&txn, dqlite, page_size)?;
+            Self::load_segments_from(&txn, dqlite, first_index)?;
+            txn.commit()?;
             first_index
         };
 
@@ -128,26 +128,28 @@ impl DqliteVfs {
         };
 
         let last_index = dqlite.current_index()?;
+        let connection = Arc::new(Mutex::new(conn));
+        let current_index = AtomicU64::new(last_index);
         Ok(Self {
-            connection: Arc::new(Mutex::new(conn)),
+            connection,
             databases,
             page_size,
             first_index,
             last_index,
-            current_index: AtomicU64::new(last_index),
+            current_index,
         })
     }
 
-    fn create_schema(tx: &Transaction) -> Result<()> {
-        tx.execute_batch(SCHEMA)?;
+    fn create_schema(txn: &Transaction) -> Result<()> {
+        txn.execute_batch(SCHEMA)?;
         Ok(())
     }
 
-    fn load_first_snapshot(tx: &Transaction, dqlite: &DqliteDir, page_size: usize) -> Result<u64> {
+    fn load_first_snapshot(txn: &Transaction, dqlite: &DqliteDir, page_size: usize) -> Result<u64> {
         if let Some(snapshot) = dqlite.snapshots().first() {
             {
                 // Load the configuration
-                let mut config_stmt = tx.prepare(
+                let mut config_stmt = txn.prepare(
                     "
                         INSERT INTO raft_configuration(id, address, role)
                         VALUES (:id, :address, :role)
@@ -163,7 +165,7 @@ impl DqliteVfs {
             }
 
             // And the database data
-            snapshot.read(SnapshotLoader::new(tx, page_size)?)?;
+            snapshot.read(SnapshotLoader::new(txn, page_size)?)?;
             Ok(snapshot.index)
         } else if dqlite.first_index() == 1 {
             // No snapshot and log starts at index 1
@@ -175,26 +177,26 @@ impl DqliteVfs {
         }
     }
 
-    fn load_segments_from(tx: &Transaction, dqlite: &DqliteDir, start_index: u64) -> Result<()> {
-        let mut log_entry_stmt = tx.prepare(
+    fn load_segments_from(txn: &Transaction, dqlite: &DqliteDir, start_index: u64) -> Result<()> {
+        let mut log_entry_stmt = txn.prepare(
             "
                 INSERT INTO raft_log(idx, term)
                 VALUES (:idx, :term)
             ",
         )?;
-        let mut config_stmt = tx.prepare(
+        let mut config_stmt = txn.prepare(
             "
                 INSERT INTO raft_configuration(log_idx, id, address, role)
                 VALUES (:log_idx, :id, :address, :role)
             ",
         )?;
-        let mut page_stmt = tx.prepare(
+        let mut page_stmt = txn.prepare(
             "
                 INSERT INTO dqlite_page(data)
                 VALUES (:data)
             ",
         )?;
-        let mut db_stmt = tx.prepare(
+        let mut db_stmt = txn.prepare(
             "
                 INSERT INTO dqlite_transaction(log_idx, database, page_number, page_id)
                 VALUES (:log_idx, :database, :page_number, :page_id)
@@ -238,7 +240,7 @@ impl DqliteVfs {
                             page_stmt.execute(named_params![
                                 ":data": &frame.data,
                             ])?;
-                            let page_id = tx.last_insert_rowid();
+                            let page_id = txn.last_insert_rowid();
                             db_stmt.execute(named_params![
                                 ":log_idx": entry_index as i64,
                                 ":database": ToSqlOutput::Borrowed(ValueRef::Text(filename.as_bytes())),
@@ -513,7 +515,7 @@ fn get_change_index(
     database: &str,
     current_index: u64,
 ) -> rusqlite::Result<Option<i64>> {
-    let mut stmt = conn.prepare(
+    let mut stmt = conn.prepare_cached(
         "
             SELECT MAX(log_idx)
             FROM dqlite_transaction
@@ -530,6 +532,7 @@ fn get_change_index(
     )?;
     Ok(index)
 }
+
 pub struct File {
     connection: Arc<Mutex<Connection>>,
     raft_index: u64,
@@ -617,13 +620,12 @@ impl VfsFile for File {
     }
 
     fn pragma(&mut self, name: &str, arg: Option<&str>) -> PragmaResult {
-        if name != "raft_last_update" || arg.is_some() {
-            return Err(PragmaError::from(
+        match (name, arg) {
+            ("raft_last_update", None) => Ok(Some(Cow::Owned(self.raft_index.to_string()))),
+            _ => Err(PragmaError::from(
                 SqliteError::from_rc(sqlite3::SQLITE_NOTFOUND).unwrap(),
-            ));
+            )),
         }
-
-        Ok(Some(Cow::Owned(self.raft_index.to_string())))
     }
 }
 
@@ -654,7 +656,7 @@ fn read_database_page(
                 
                 UNION ALL
 
-                SELECT 0, page_id
+                SELECT -1, page_id
                 FROM dqlite_database
                 WHERE database = :database 
                     AND page_number = :page_number

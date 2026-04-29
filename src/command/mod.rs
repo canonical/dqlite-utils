@@ -7,7 +7,7 @@ mod sql;
 mod status;
 
 pub(crate) use self::help::Help;
-pub(crate) use self::open::{OpenShell, OpenState};
+pub(crate) use self::open::{DqliteDirContent, OpenShell};
 pub(crate) use self::snapshot::SnapshotShell;
 
 use std::str::FromStr;

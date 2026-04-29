@@ -209,6 +209,7 @@ impl DqliteDir {
         let mut n_segments = 0usize;
 
         let rc = unsafe {
+            // UvList sorts both snapshots and segments.
             sys::UvList(
                 CString::new(path.as_os_str().as_bytes()).unwrap().as_ptr(),
                 &mut snapshots,

@@ -10,6 +10,8 @@ pub struct Prompt {
 
 impl Prompt {
     pub(crate) const STYLE: Style = Style::new().bright_green().bold();
+    pub(crate) const DEFAULT_STYLE: Style = Style::new().remove_all_effects().default_color();
+    pub(crate) const INDEX_STYLE: Style = Style::new().bright_blue().bold();
 
     pub(crate) fn new(text: impl Display) -> Self {
         let content = Cow::from(format!("{text}> "));

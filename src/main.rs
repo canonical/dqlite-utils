@@ -6,8 +6,6 @@ mod prompt;
 mod rusqlite_ext;
 mod utils;
 
-use std::cell::{RefCell, RefMut};
-use std::fmt::Display;
 use std::io::{self, IsTerminal};
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -18,7 +16,7 @@ use owo_colors::Style;
 use rusqlite::Connection;
 use rustyline::error::ReadlineError;
 
-use crate::command::{OpenShell, OpenState};
+use crate::command::{DqliteDirContent, OpenShell};
 
 use self::args::Args;
 use self::command::{Command, Help, RootShell, SnapshotShell};
@@ -139,7 +137,7 @@ fn stdin_commands() -> impl Iterator<Item = Command> {
 pub struct Context {
     dqlite: Option<DqliteDir>,
     pub shell: Shell,
-    open_state: RefCell<OpenState>,
+    open_state: DqliteDirContent,
 }
 
 impl Context {
@@ -157,8 +155,8 @@ impl Context {
         Ok(self.dqlite.as_ref().ok_or(NoOpenDqliteDir)?)
     }
 
-    fn open_state(&self) -> RefMut<'_, OpenState> {
-        self.open_state.borrow_mut()
+    fn open_state(&self) -> &DqliteDirContent {
+        &self.open_state
     }
 }
 

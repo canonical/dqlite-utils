@@ -20,14 +20,16 @@ use crate::dqlite::DqliteDir;
 use crate::prompt::Prompt;
 use crate::rusqlite_ext::config::ConnectionConfigExt;
 use crate::rusqlite_ext::vfs::{VfsRegistration, VfsRegistrationGuard};
+use crate::utils::TerminalStylizeExt;
 use crate::{Context, Shell};
 
 #[derive(Default)]
-pub struct OpenState {
+pub struct DqliteDirContent {
+    /// Content can be accessed through the [`Self::vfs`] method.
     vfs_registration_guard: OnceCell<VfsRegistrationGuard<DqliteVfs>>,
 }
 
-impl OpenState {
+impl DqliteDirContent {
     fn load(&self, dqlite: &DqliteDir, page_size: usize) -> Result<()> {
         // TODO: use `get_mut_or_try_init` when stabilized. See https://github.com/rust-lang/rust/issues/121641
         if self.vfs_registration_guard.get().is_some() {
@@ -50,13 +52,15 @@ impl OpenState {
     }
 }
 
-impl Debug for OpenState {
+impl Debug for DqliteDirContent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let Self {
             vfs_registration_guard: _,
         } = self;
         let vfs = self.vfs();
-        f.debug_struct("OpenState").field("vfs", &vfs).finish()
+        f.debug_struct("DqliteDirContent")
+            .field("vfs", &vfs)
+            .finish()
     }
 }
 
@@ -137,9 +141,17 @@ impl OpenShell {
     pub(crate) fn new(index: Option<u64>) -> Result<Self> {
         let connection = Self::open_connection()?;
         let prompt = if let Some(index) = index {
-            Prompt::new(format!("open(@{index})"))
+            Prompt::new(format!(
+                "open{}{}",
+                "@".terminal_style(Prompt::DEFAULT_STYLE),
+                index.terminal_style(Prompt::INDEX_STYLE)
+            ))
         } else {
-            Prompt::new("open(@latest)")
+            Prompt::new(format!(
+                "open{}{}",
+                "@".terminal_style(Prompt::DEFAULT_STYLE),
+                "latest".terminal_style(Prompt::INDEX_STYLE)
+            ))
         };
         Ok(Self { connection, prompt })
     }
@@ -283,27 +295,23 @@ impl FromStr for OpenShellCommandKind {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        cell::RefCell,
-        ffi::{CString, OsStr},
-        io::Write,
-        ops::{Range, RangeFrom, RangeTo},
-        time::{Duration, SystemTime},
-    };
+    use std::cell::RefCell;
+    use std::ffi::{CString, OsStr};
+    use std::io::Write;
+    use std::ops::{Range, RangeFrom, RangeTo};
+    use std::time::{Duration, SystemTime};
 
     use anyhow::Result;
     use rusqlite::Connection;
     use tempfile::tempdir;
 
-    use crate::{
-        command::open::OpenState,
-        dqlite::{
-            DqliteDatabaseWriter, DqliteDir, DqliteFrame, DqliteLogEntry, DqliteLogEntryContent,
-            DqliteSegmentBuilder, DqliteSnapshotBuilder, Empty, RaftConfiguration, RaftRole,
-            RaftServer,
-        },
-        rusqlite_ext::files::{ConnectionFile, ConnectionFilesExt},
+    use crate::command::open::DqliteDirContent;
+    use crate::dqlite::{
+        DqliteDatabaseWriter, DqliteDir, DqliteFrame, DqliteLogEntry, DqliteLogEntryContent,
+        DqliteSegmentBuilder, DqliteSnapshotBuilder, Empty, RaftConfiguration, RaftRole,
+        RaftServer,
     };
+    use crate::rusqlite_ext::files::{ConnectionFile, ConnectionFilesExt};
 
     struct ConnectionWriter<'a> {
         main: RefCell<ConnectionFile<'a>>,
@@ -485,26 +493,26 @@ mod tests {
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "foreign_keys", true)?;
         {
-            let tx = conn.transaction()?;
-            tx.execute_batch(
+            let txn = conn.transaction()?;
+            txn.execute_batch(
                 "
-                    CREATE TABLE IF NOT EXISTS users (
+                    CREATE TABLE users (
                         id INTEGER PRIMARY KEY,
                         name TEXT NOT NULL,
                         email TEXT NOT NULL UNIQUE,
                         created_at TEXT DEFAULT CURRENT_TIMESTAMP
                     );
-                    CREATE TABLE IF NOT EXISTS products (
+                    CREATE TABLE products (
                         id INTEGER PRIMARY KEY,
                         name TEXT NOT NULL,
-                        price INTEGER NOT NULL -- Storing cents to avoid floating point issues
+                        price INTEGER NOT NULL
                     );
-                    CREATE TABLE IF NOT EXISTS orders (
+                    CREATE TABLE orders (
                         id INTEGER PRIMARY KEY,
                         user_id INTEGER NOT NULL REFERENCES users(id),
                         created_at TEXT DEFAULT CURRENT_TIMESTAMP
                     );
-                    CREATE TABLE IF NOT EXISTS order_items (
+                    CREATE TABLE order_items (
                         id INTEGER PRIMARY KEY,
                         order_id INTEGER NOT NULL REFERENCES orders(id),
                         product_id INTEGER NOT NULL REFERENCES products(id),
@@ -536,7 +544,7 @@ mod tests {
                 ",
             )?;
 
-            tx.commit()?;
+            txn.commit()?;
         }
         conn.pragma_update(None, "wal_checkpoint", "TRUNCATE")?;
         conn.execute_batch(
@@ -587,7 +595,7 @@ mod tests {
             .create()?;
 
         let dqlite_dir = DqliteDir::open(tempdir.path())?;
-        let open_state = OpenState::default();
+        let open_state = DqliteDirContent::default();
         open_state.load(&dqlite_dir, PAGE_SIZE)?;
 
         Ok(())
