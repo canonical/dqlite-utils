@@ -116,15 +116,10 @@ impl LogCommand {
             Some(t) => t != term,
             None => true,
         };
-        let marker = if self.prev_term.is_none() {
-            "╭"
-        } else {
-            "├"
-        };
         if term_changed {
             let term_tag = "TERM".terminal_style(LogCommand::TERM_STYLE);
             let term = term.terminal_style(LogCommand::TERM_STYLE);
-            writeln!(self.pager, "{marker} {term_tag} {term}")?;
+            writeln!(self.pager, "|- {term_tag} {term}")?;
         }
         self.prev_term = Some(term);
 
@@ -145,17 +140,17 @@ impl LogCommand {
         match &entry.content {
             Dlec::Barrier => {
                 let command = "BARRIER".terminal_style(LogCommand::ENTRY_TYPE_STYLE);
-                writeln!(self.pager, "│ {index} {command} {tag}")?;
+                writeln!(self.pager, "|  {index} {command} {tag}")?;
             }
             Dlec::Change(..) => {
                 let command = "CONFIG".terminal_style(LogCommand::ENTRY_TYPE_STYLE);
-                writeln!(self.pager, "│ {index} {command} {tag}")?;
+                writeln!(self.pager, "|  {index} {command} {tag}")?;
             }
             Dlec::CommandOpen { filename } => {
                 let command = "OPEN".terminal_style(LogCommand::ENTRY_TYPE_STYLE);
                 writeln!(
                     self.pager,
-                    "│ {index} {command} {} {tag}",
+                    "|  {index} {command} {} {tag}",
                     filename.display()
                 )?;
             }
@@ -168,19 +163,19 @@ impl LogCommand {
                 let command = command.terminal_style(LogCommand::ENTRY_TYPE_STYLE);
                 writeln!(
                     self.pager,
-                    "│ {index} {command} {} {tag}",
+                    "|  {index} {command} {} {tag}",
                     filename.display()
                 )?;
             }
             Dlec::CommandUndo { .. } => {
                 let command = "ROLLBACK".terminal_style(LogCommand::ENTRY_TYPE_STYLE);
-                writeln!(self.pager, "│ {index} {command} {tag}")?;
+                writeln!(self.pager, "|  {index} {command} {tag}")?;
             }
             Dlec::CommandCheckpoint { filename } => {
                 let command = "CHECKPOINT".terminal_style(LogCommand::ENTRY_TYPE_STYLE);
                 writeln!(
                     self.pager,
-                    "│ {index} {command} {} {tag}",
+                    "|  {index} {command} {} {tag}",
                     filename.display()
                 )?;
             }
@@ -202,9 +197,9 @@ impl LogCommand {
                     writedoc!(
                         self.pager,
                         "
-                            │     {id}:
-                            │       address: {address}
-                            │       role: {role:?}
+                            |      {id}:
+                            |        address: {address}
+                            |        role: {role:?}
                         "
                     )?;
                 }
@@ -224,14 +219,14 @@ impl LogCommand {
                 writedoc!(
                     self.pager,
                     "
-                        │   tx_id: {tx_id}
-                        │   truncate: {truncate}
-                        │   pages: {pages}
+                        |    tx_id: {tx_id}
+                        |    truncate: {truncate}
+                        |    pages: {pages}
                     "
                 )?;
             }
             Dlec::CommandUndo { tx_id } => {
-                writeln!(self.pager, "│   tx_id: {tx_id}")?;
+                writeln!(self.pager, "|    tx_id: {tx_id}")?;
             }
             Dlec::Barrier | Dlec::CommandOpen { .. } | Dlec::CommandCheckpoint { .. } => {}
         };

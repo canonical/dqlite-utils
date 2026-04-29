@@ -16,7 +16,7 @@ use std::{fmt, mem, slice};
 use libsqlite3_sys::{
     self as sqlite3, sqlite3_file, sqlite3_filename, sqlite3_int64, sqlite3_io_methods, sqlite3_vfs,
 };
-use rand::RngCore;
+use rand::Rng;
 use rusqlite::Connection;
 
 use super::{Result, SqliteError, ToCodeResultExt, WriteOutputResultExt};

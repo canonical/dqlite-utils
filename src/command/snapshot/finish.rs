@@ -1,11 +1,14 @@
+use std::cell::OnceCell;
 use std::ffi::{CString, OsStr};
 use std::fs::{self};
 use std::io::{ErrorKind, Write};
 use std::path::PathBuf;
+use std::sync::LazyLock;
 use std::time::SystemTime;
 
 use anyhow::{Context as _, anyhow};
 use libsqlite3_sys as sqlite3;
+use regex::Regex;
 use rusqlite::{Connection, TransactionBehavior};
 
 use crate::command::help::Help;
@@ -80,6 +83,8 @@ impl FinishCommand {
             attached_dbs
         };
 
+        Self::check_dbs(&attached_dbs, &txn)?;
+
         // Heuristic to ensure clean directory. Clearly there's a TOCTOU issue here,
         // but if a user chooses to write a snapshot into an actively-changing
         // directory then on their head, be it.
@@ -104,7 +109,11 @@ impl FinishCommand {
                     .with_index(index)
                     .with_timestamp(timestamp)
                     .with_configuration(configuration)
-                    .add_databases(attached_dbs.into_iter().map(|db| (db.name.clone(), db)))
+                    .add_databases(attached_dbs.into_iter().map(|db| {
+                        let name = CString::new(db.name.as_bytes())
+                            .expect("cannot make CString from db name");
+                        (name, db)
+                    }))
             })
             .create();
         if let Err(err) = res {
@@ -119,25 +128,65 @@ impl FinishCommand {
 
         Ok(())
     }
+
+    fn check_dbs(dbs: &[AttachedDb<'_>], conn: &Connection) -> Result<()> {
+        let expected_page_size = OnceCell::new();
+        for db in dbs {
+            db.check(conn)?;
+
+            let db_page_size = db.page_size(conn)?;
+            let expected_page_size = expected_page_size.get_or_init(|| db_page_size);
+            if db_page_size != *expected_page_size {
+                return Err(anyhow!(
+                    "page size mismatch: found both {db_page_size} and {expected_page_size}"
+                ));
+            }
+        }
+        Ok(())
+    }
 }
 
 struct AttachedDb<'conn> {
-    name: CString,
+    name: String,
     main: ConnectionFile<'conn>,
     journal: Option<ConnectionFile<'conn>>,
 }
 
 impl<'conn> AttachedDb<'conn> {
     fn new(conn: &'conn Connection, name: &str) -> Result<Self> {
+        static VALID_IDENTIFIER: LazyLock<Regex> =
+            LazyLock::new(|| Regex::new("^[a-zA-Z0-9]+$").unwrap());
+        if !VALID_IDENTIFIER.is_match(name) {
+            return Err(anyhow!("cannot use '{name}' as a schema name"));
+        }
+
         let name_os_str = OsStr::new(name);
         let main = conn.main_file(Some(name_os_str))?;
         let journal = conn.journal_file(Some(name_os_str))?;
-        let name = CString::new(name)?;
+
+        let name = name.to_owned();
         Ok(Self {
             name,
             main,
             journal,
         })
+    }
+
+    fn check(&self, conn: &Connection) -> Result<()> {
+        let name = &self.name;
+        let wal_mode = conn.pragma_query_value(Some(name), "journal_mode", |row| {
+            Ok(row.get_ref("journal_mode")?.as_str()? == "wal")
+        })?;
+        if !wal_mode {
+            return Err(anyhow!("journal mode of schema {name} must be 'wal'"));
+        }
+        Ok(())
+    }
+
+    fn page_size(&self, conn: &Connection) -> Result<u32> {
+        let page_size =
+            conn.pragma_query_value(Some(&self.name), "page_size", |row| row.get("page_size"))?;
+        Ok(page_size)
     }
 }
 
