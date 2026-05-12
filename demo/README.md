@@ -1,10 +1,19 @@
 # Demo
 
+A short walkthrough of a few `dqlite-utils` demo scenarios: leadership changes, behavior under load, and bootstrapping a new cluster from existing data.
+
 ## Table of contents
 
+- [Summary](#demo)
 - [Leadership changes](#leadership-changes)
 - [Under load](#under-load)
 - [Bootstrapping a new cluster](#bootstrapping-a-new-cluster)
+
+## Initial setup:
+
+- 9001 is the leader
+- vegeta is attacking 9002, writes are being redirected to 9001
+- `dqlite-utils` is watching 9003
 
 ## Leadership changes
 
@@ -27,13 +36,17 @@
 
 ## Under load
 
-1. Spam load:
+1. Set everything back up
+
+2. Spam load:
 
    ```bash
    vegeta attack -targets=targets.txt -rate=20 | vegeta report
    ```
 
-2. Observe how the raft index is increasing
+3. Observe how the raft index is increasing
+
+4. Kill the leader
 
 ## Bootstrapping a new cluster
 
