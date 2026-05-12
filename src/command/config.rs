@@ -17,7 +17,7 @@ impl ConfigCommand {
         Help::builder()
             .name(".config")
             .summary("Show the current dqlite configuration")
-            .add_flag("--raw", "print server roles as numeric values")
+            .add_flag("--raw", "print config in go-dqlite cluster.yaml format")
             .build()
             .expect("internal error: help invalid")
     }
