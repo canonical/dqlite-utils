@@ -76,7 +76,6 @@ A short walkthrough of a few `dqlite-utils` demo scenarios: leadership changes, 
 
 2. Then, start a new node with id `127.0.0.1:9009` **no --join!**:
    - See how this is now a separate cluster!
-   - Start
    
 3. Go-dqlite also requires a couple of extra files, specifically `cluster.yaml` and `info.yaml`
    ```bash
