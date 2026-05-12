@@ -1,0 +1,179 @@
+name: Debian package
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+    tags:
+      - v*
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PPA_TARGET: ppa:dqlite/ppa
+
+jobs:
+  build-source-package:
+    name: Build Debian source package (${{ matrix.series }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        series:
+          - jammy
+          - noble
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.91"
+
+      - name: Install packaging dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y devscripts debhelper dput gpg jq python3-launchpadlib
+
+      - name: Derive package metadata
+        id: metadata
+        run: |
+          set -euo pipefail
+          cargo_version="$(cargo metadata --no-deps --format-version=1 | jq -r '.packages[] | select(.name == "dqlite_utils") | .version')"
+          short_sha="$(git rev-parse --short HEAD)"
+          timestamp="$(date -u +%Y%m%d%H%M)"
+
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            upstream_version="${cargo_version}"
+          else
+            upstream_version="${cargo_version}~git${timestamp}.${short_sha}"
+          fi
+
+          debian_version="${upstream_version}-0ppa1~${{ matrix.series }}"
+
+          echo "cargo_version=${cargo_version}" >> "$GITHUB_OUTPUT"
+          echo "upstream_version=${upstream_version}" >> "$GITHUB_OUTPUT"
+          echo "debian_version=${debian_version}" >> "$GITHUB_OUTPUT"
+
+      - name: Vendor Cargo dependencies
+        run: |
+          set -euo pipefail
+          cargo vendor
+          find vendor -name '.cargo-checksum.json' -print0 | while IFS= read -r -d '' checksum_file; do
+            package_checksum="$(jq -c '.package' "$checksum_file")"
+            jq -n --argjson package "$package_checksum" '{"files":{},"package":$package}' > "${checksum_file}.tmp"
+            mv "${checksum_file}.tmp" "$checksum_file"
+          done
+          tar -czf vendor.tar.gz vendor
+
+      - name: Archive offline Rust toolchain
+        run: |
+          toolchain_root="$(rustc --print sysroot)"
+          tar -C "${toolchain_root}" -czf rust-toolchain.tar.gz .
+
+      - name: Assemble Debian source package
+        id: source-package
+        run: |
+          set -euo pipefail
+          build_root="$(mktemp -d)"
+          source_root="${build_root}/dqlite-utils-${{ steps.metadata.outputs.upstream_version }}"
+
+          mkdir -p "${source_root}"
+          cp -a \
+            Cargo.toml \
+            Cargo.lock \
+            LICENSE \
+            README.md \
+            build.rs \
+            dqlite-internal.h \
+            rust-toolchain.toml \
+            src \
+            debian \
+            rust-toolchain.tar.gz \
+            vendor.tar.gz \
+            "${source_root}/"
+
+          cat > "${source_root}/debian/changelog" <<EOF
+          dqlite-utils (${{ steps.metadata.outputs.debian_version }}) ${{ matrix.series }}; urgency=medium
+
+            * Automated Launchpad build.
+
+           -- GitHub Actions <github-actions[bot]@users.noreply.github.com>  $(date -R)
+          EOF
+
+          tar -C "${build_root}" -czf \
+            "${build_root}/dqlite-utils_${{ steps.metadata.outputs.upstream_version }}.orig.tar.gz" \
+            "dqlite-utils-${{ steps.metadata.outputs.upstream_version }}"
+
+          (
+            cd "${source_root}"
+            dpkg-buildpackage -S -sa -d -us -uc
+          )
+
+          echo "path=${build_root}" >> "$GITHUB_OUTPUT"
+
+      - name: Import Launchpad signing key
+        id: gpg
+        if: github.event_name != 'pull_request'
+        uses: crazy-max/ghaction-import-gpg@v6
+        with:
+          gpg_private_key: ${{ secrets.LAUNCHPAD_GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.LAUNCHPAD_GPG_PASSPHRASE }}
+
+      - name: Validate Launchpad credentials secret
+        if: github.event_name != 'pull_request'
+        env:
+          LAUNCHPAD_CREDENTIALS: ${{ secrets.LAUNCHPAD_CREDENTIALS }}
+        run: |
+          set -euo pipefail
+          test -n "${LAUNCHPAD_CREDENTIALS}"
+          credentials_file="${RUNNER_TEMP}/launchpad-credentials"
+          printf '%s' "${LAUNCHPAD_CREDENTIALS}" > "${credentials_file}"
+          chmod 600 "${credentials_file}"
+          python3 - <<'PY'
+          import os
+          from launchpadlib.credentials import (
+              RequestTokenAuthorizationEngine,
+              UnencryptedFileCredentialStore,
+          )
+          from launchpadlib.launchpad import Launchpad
+
+          credentials_file = os.path.join(os.environ["RUNNER_TEMP"], "launchpad-credentials")
+          lp = Launchpad.login_with(
+              "dqlite-utils-ci",
+              "production",
+              version="devel",
+              authorization_engine=RequestTokenAuthorizationEngine("production", "dqlite-utils-ci"),
+              credential_store=UnencryptedFileCredentialStore(credentials_file),
+          )
+          lp.people["dqlite"].getPPAByName(name="ppa")
+          PY
+
+      - name: Sign Debian source package
+        if: github.event_name != 'pull_request'
+        run: |
+          cd "${{ steps.source-package.outputs.path }}"
+          debsign --re-sign -k"${{ steps.gpg.outputs.keyid }}" \
+            "dqlite-utils_${{ steps.metadata.outputs.debian_version }}_source.changes"
+
+      - name: Upload source package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dqlite-utils-${{ matrix.series }}-source-package
+          path: |
+            ${{ steps.source-package.outputs.path }}/dqlite-utils_${{ steps.metadata.outputs.upstream_version }}.orig.tar.gz
+            ${{ steps.source-package.outputs.path }}/dqlite-utils_${{ steps.metadata.outputs.debian_version }}.debian.tar.xz
+            ${{ steps.source-package.outputs.path }}/dqlite-utils_${{ steps.metadata.outputs.debian_version }}.dsc
+            ${{ steps.source-package.outputs.path }}/dqlite-utils_${{ steps.metadata.outputs.debian_version }}_source.buildinfo
+            ${{ steps.source-package.outputs.path }}/dqlite-utils_${{ steps.metadata.outputs.debian_version }}_source.changes
+
+      - name: Upload source package to Launchpad
+        if: github.event_name != 'pull_request'
+        run: |
+          cd "${{ steps.source-package.outputs.path }}"
+          dput "${PPA_TARGET}" "dqlite-utils_${{ steps.metadata.outputs.debian_version }}_source.changes"

@@ -1,0 +1,33 @@
+#!/usr/bin/make -f
+
+export DH_VERBOSE = 1
+export CARGO_HOME := $(CURDIR)/debian/cargo-home
+export CARGO_TARGET_DIR := $(CURDIR)/target
+export CARGO_NET_OFFLINE := true
+export PATH := $(CURDIR)/debian/rust-toolchain/bin:$(PATH)
+
+RUST_TOOLCHAIN_ARCHIVE := rust-toolchain.tar.gz
+
+%:
+	dh $@
+
+override_dh_auto_configure:
+	test -f $(RUST_TOOLCHAIN_ARCHIVE)
+	test -f vendor.tar.gz
+	rm -rf vendor .cargo $(CURDIR)/debian/rust-toolchain $(CURDIR)/debian/cargo-home
+	tar -xzf vendor.tar.gz
+	mkdir -p .cargo $(CURDIR)/debian/cargo-home $(CURDIR)/debian/rust-toolchain
+	printf '[source.crates-io]\nreplace-with = "vendored-sources"\n\n[source.vendored-sources]\ndirectory = "%s"\n' "$(CURDIR)/vendor" > .cargo/config.toml
+	tar -xzf $(RUST_TOOLCHAIN_ARCHIVE) -C $(CURDIR)/debian/rust-toolchain
+
+override_dh_auto_build:
+	cargo build --locked --release
+
+override_dh_auto_test:
+	:
+
+override_dh_auto_install:
+	install -D -m 0755 target/release/dqlite-utils debian/dqlite-utils/usr/bin/dqlite-utils
+
+override_dh_auto_clean:
+	rm -rf vendor .cargo $(CURDIR)/debian/rust-toolchain $(CURDIR)/debian/cargo-home target

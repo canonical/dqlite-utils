@@ -15,6 +15,16 @@ To use the latest release, install from `snapcraft.io`:
 sudo snap install dqlite-utils
 ```
 
+### From the `~dqlite` Launchpad PPA
+
+To install the Debian package published to Launchpad:
+
+```bash
+sudo add-apt-repository ppa:dqlite/ppa
+sudo apt update
+sudo apt install dqlite-utils
+```
+
 ### From crates.io
 
 To use the latest stable version, install directly from `crates.io`:
@@ -32,6 +42,18 @@ git clone https://github.com/canonical/dqlite-utils.git
 cd dqlite-utils
 cargo install --path .
 ```
+
+## Debian packaging
+
+The repository includes Debian packaging in `debian/` and a `Debian package`
+GitHub Actions workflow that builds Launchpad-ready source packages for
+`ppa:dqlite/ppa`.
+
+To enable PPA uploads, configure these repository secrets:
+
+- `LAUNCHPAD_CREDENTIALS`: Launchpad credentials/token for the `~dqlite` owner
+- `LAUNCHPAD_GPG_PRIVATE_KEY`: ASCII-armored private key authorized for the PPA
+- `LAUNCHPAD_GPG_PASSPHRASE`: passphrase for the signing key
 
 ## Usage
 
