@@ -6,19 +6,19 @@ use std::os::unix::ffi::OsStrExt;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use anyhow::Result;
-use libsqlite3_sys as sqlite3;
-use rusqlite::types::{ToSqlOutput, ValueRef};
-use rusqlite::{Connection, Statement, Transaction, named_params};
-
 use crate::dqlite::{
     DqliteDatabaseLoader, DqliteDir, DqliteLogEntryContent, DqliteSegment, DqliteSnapshotLoader,
 };
-use crate::rusqlite_ext::vfs::{
-    FileType, IoCapabilities, LockLevel, OpenFlags, PragmaError, PragmaResult, SyncOptions, Vfs,
-    VfsFile, VfsPath,
-};
 use crate::rusqlite_ext::{self, SqliteError};
+use anyhow::Result;
+use libsqlite3_sys as sqlite3;
+use rusqlite::ffi::Error;
+use rusqlite::types::{ToSqlOutput, ValueRef};
+use rusqlite::vfs::{
+    FileType, IoCapabilities, LockLevel, OpenFile, PragmaError, PragmaResult, SyncOptions, Vfs,
+    VfsFile, VfsOpenFlags, VfsPath,
+};
+use rusqlite::{Connection, Statement, Transaction, named_params};
 
 const HEADER_SIZE: usize = 100;
 const SCHEMA: &str = "
@@ -430,16 +430,16 @@ impl Vfs for DqliteVfs {
 
     fn open(
         &self,
-        name: Option<VfsPath<'_>>,
-        flags: OpenFlags,
-    ) -> rusqlite_ext::Result<(Self::File, OpenFlags)> {
-        if flags.file_type() != FileType::MainDb {
+        file: FileType<'_>,
+        _flags: VfsOpenFlags,
+    ) -> rusqlite::vfs::Result<OpenFile<File>> {
+        let name = match file {
+            FileType::MainDb(ref name) => {
+                str::from_utf8(name.as_bytes()).or(Err(Error::new(sqlite3::SQLITE_CANTOPEN)))?
+            }
             // Only main database files are supported in this VFS.
-            return Err(SqliteError::from_rc(sqlite3::SQLITE_CANTOPEN).unwrap());
-        }
-        let name = name.ok_or(SqliteError::from_rc(sqlite3::SQLITE_CANTOPEN).unwrap())?;
-        let name = str::from_utf8(name.inner().as_bytes())
-            .or(Err(SqliteError::from_rc(sqlite3::SQLITE_CANTOPEN).unwrap()))?;
+            _ => return Err(Error::new(sqlite3::SQLITE_CANTOPEN)),
+        };
 
         // Check that the database exists. In dqlite a database does not exist if the in-header
         // database size is zero or if there are no pages associated to it.
@@ -448,48 +448,41 @@ impl Vfs for DqliteVfs {
 
             let current_index = self.current_index.load(Ordering::SeqCst);
             let raft_index = get_change_index(&conn, name, current_index)
-                .or(Err(
-                    SqliteError::from_rc(sqlite3::SQLITE_IOERR_READ).unwrap()
-                ))?
+                .or(Err(Error::new(sqlite3::SQLITE_IOERR_READ)))?
                 .map(|idx| idx as u64)
                 .unwrap_or(self.first_index);
 
             match read_database_size(&conn, raft_index, name) {
-                Ok(0) => return Err(SqliteError::from_rc(sqlite3::SQLITE_CANTOPEN).unwrap()),
+                Ok(0) => return Err(Error::new(sqlite3::SQLITE_CANTOPEN)),
                 Ok(_) => raft_index,
-                Err(_) => return Err(SqliteError::from_rc(sqlite3::SQLITE_IOERR_READ).unwrap()),
+                Err(_) => return Err(Error::new(sqlite3::SQLITE_IOERR_READ)),
             }
         };
 
-        let mut out_flags = flags;
-        out_flags.set_read_only();
-
-        Ok((
-            File {
-                connection: Arc::clone(&self.connection),
-                raft_index,
-                page_size: self.page_size,
-                name: name.to_string(),
-            },
-            out_flags,
-        ))
+        let file = OpenFile::new(File {
+            connection: Arc::clone(&self.connection),
+            raft_index,
+            page_size: self.page_size,
+            name: name.to_string(),
+        });
+        Ok(file.readonly())
     }
 
-    fn delete(&self, _name: VfsPath<'_>, _sync_dir: bool) -> rusqlite_ext::Result<()> {
+    fn delete(&self, _name: VfsPath<'_>, _sync_dir: bool) -> rusqlite::vfs::Result<()> {
         Ok(())
     }
 
-    fn exists(&self, _name: VfsPath<'_>) -> rusqlite_ext::Result<bool> {
+    fn exists(&self, _name: VfsPath<'_>) -> rusqlite::vfs::Result<bool> {
         // All databases "exist" and can be opened in dqlite. Indeed, deleting a database
         // means just removing all its contents, as the database file itself is virtual.
         Ok(true)
     }
 
-    fn can_read(&self, _name: VfsPath<'_>) -> rusqlite_ext::Result<bool> {
+    fn can_read(&self, _name: VfsPath<'_>) -> rusqlite::vfs::Result<bool> {
         Ok(true)
     }
 
-    fn can_write(&self, _name: VfsPath<'_>) -> rusqlite_ext::Result<bool> {
+    fn can_write(&self, _name: VfsPath<'_>) -> rusqlite::vfs::Result<bool> {
         // This VFS is read-only.
         Ok(false)
     }
@@ -498,11 +491,10 @@ impl Vfs for DqliteVfs {
         &self,
         name: VfsPath<'_>,
         mut out: &mut [u8],
-    ) -> rusqlite_ext::Result<usize> {
-        let inner = name.inner();
-        out.write_all(inner.as_bytes())
-            .or(Err(SqliteError::from_rc(sqlite3::SQLITE_CANTOPEN).unwrap()))?;
-        Ok(inner.len())
+    ) -> rusqlite::vfs::Result<usize> {
+        out.write_all(name.as_bytes())
+            .or(Err(Error::new(sqlite3::SQLITE_CANTOPEN)))?;
+        Ok(name.as_bytes().len())
     }
 
     fn last_error(&self) -> i32 {
@@ -547,7 +539,7 @@ impl VfsFile for File {
     // - and LCM(page_size, sector_size) != page_size
     // I also think it doesn't happen for read-only VFSes like this one, but need to double-check.
     // This VFS returns sector_size == page_size, so it should be fine.
-    fn read_at(&mut self, buf: &mut [u8], offset: u64) -> rusqlite_ext::Result<()> {
+    fn read_at(&mut self, buf: &mut [u8], offset: u64) -> rusqlite::vfs::Result<usize> {
         assert!(offset.is_multiple_of(self.page_size as u64));
         assert!(buf.len() == self.page_size || buf.len() == HEADER_SIZE);
 
@@ -557,25 +549,25 @@ impl VfsFile for File {
             .expect("internal error: poisoned mutex");
         let page_number = (offset / self.page_size as u64) as u32 + 1;
         match read_database_page(&conn, self.raft_index, &self.name, page_number, buf) {
-            Ok(true) => Ok(()),
-            Ok(false) => Err(SqliteError::from_rc(sqlite3::SQLITE_IOERR_SHORT_READ).unwrap()),
-            Err(_) => Err(SqliteError::from_rc(sqlite3::SQLITE_IOERR_READ).unwrap()),
+            Ok(true) => Ok(buf.len()),
+            Ok(false) => Err(Error::new(sqlite3::SQLITE_IOERR_SHORT_READ)),
+            Err(_) => Err(Error::new(sqlite3::SQLITE_IOERR_READ)),
         }
     }
 
-    fn write_at(&mut self, _buf: &[u8], _offset: u64) -> rusqlite_ext::Result<()> {
-        Err(SqliteError::from_rc(sqlite3::SQLITE_IOERR_WRITE).unwrap())
+    fn write_at(&mut self, _buf: &[u8], _offset: u64) -> rusqlite::vfs::Result<()> {
+        Err(Error::new(sqlite3::SQLITE_IOERR_WRITE))
     }
 
-    fn truncate(&mut self, _size: u64) -> rusqlite_ext::Result<()> {
-        Err(SqliteError::from_rc(sqlite3::SQLITE_IOERR_WRITE).unwrap())
+    fn truncate(&mut self, _size: u64) -> rusqlite::vfs::Result<()> {
+        Err(Error::new(sqlite3::SQLITE_IOERR_WRITE))
     }
 
-    fn sync(&mut self, _op: SyncOptions) -> rusqlite_ext::Result<()> {
+    fn sync(&mut self, _op: SyncOptions) -> rusqlite::vfs::Result<()> {
         Ok(())
     }
 
-    fn len(&self) -> rusqlite_ext::Result<u64> {
+    fn len(&self) -> rusqlite::vfs::Result<u64> {
         let conn = self
             .connection
             .lock()
@@ -583,19 +575,19 @@ impl VfsFile for File {
 
         match read_database_size(&conn, self.raft_index, &self.name) {
             Ok(size) => Ok(size),
-            Err(_) => Err(SqliteError::from_rc(sqlite3::SQLITE_IOERR_FSTAT).unwrap()),
+            Err(_) => Err(Error::new(sqlite3::SQLITE_IOERR_FSTAT)),
         }
     }
 
-    fn lock(&mut self, _level: LockLevel) -> rusqlite_ext::Result<()> {
+    fn lock(&mut self, _level: LockLevel) -> rusqlite::vfs::Result<()> {
         Ok(())
     }
 
-    fn unlock(&mut self, _level: LockLevel) -> rusqlite_ext::Result<()> {
+    fn unlock(&mut self, _level: LockLevel) -> rusqlite::vfs::Result<()> {
         Ok(())
     }
 
-    fn is_write_locked(&self) -> rusqlite_ext::Result<bool> {
+    fn is_write_locked(&self) -> rusqlite::vfs::Result<bool> {
         Ok(false)
     }
 
@@ -622,9 +614,7 @@ impl VfsFile for File {
     fn pragma(&mut self, name: &str, arg: Option<&str>) -> PragmaResult {
         match (name, arg) {
             ("raft_last_update", None) => Ok(Some(Cow::Owned(self.raft_index.to_string()))),
-            _ => Err(PragmaError::from(
-                SqliteError::from_rc(sqlite3::SQLITE_NOTFOUND).unwrap(),
-            )),
+            _ => Err(PragmaError::from(Error::new(sqlite3::SQLITE_NOTFOUND))),
         }
     }
 }
