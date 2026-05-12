@@ -1,26 +1,26 @@
-PUT http://localhost:8001/key1
+PUT http://localhost:8002/key1
 @payload1.txt
 
-PUT http://localhost:8001/key1
+PUT http://localhost:8002/key1
 @payload2.txt
 
-PUT http://localhost:8001/key1
+PUT http://localhost:8002/key1
 @payload3.txt
 
-PUT http://localhost:8001/key2
+PUT http://localhost:8002/key2
 @payload1.txt
 
-PUT http://localhost:8001/key2
+PUT http://localhost:8002/key2
 @payload2.txt
 
-PUT http://localhost:8001/key2
+PUT http://localhost:8002/key2
 @payload3.txt
 
-PUT http://localhost:8001/key3
+PUT http://localhost:8002/key3
 @payload1.txt
 
-PUT http://localhost:8001/key3
+PUT http://localhost:8002/key3
 @payload2.txt
 
-PUT http://localhost:8001/key3
+PUT http://localhost:8002/key3
 @payload3.txt
