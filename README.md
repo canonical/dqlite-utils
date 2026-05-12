@@ -60,6 +60,32 @@ current_index: 20011
 first_index: 10242
 ```
 
+### Inspect the Raft Configuration
+
+The `.config` command prints the current Raft configuration.
+
+```bash
+> .config
+- ID: 1
+  Address: 10.0.0.1:9001
+  Role: voter
+- ID: 2
+  Address: 10.0.0.2:9001
+  Role: standby
+```
+
+Use `--raw` to print numeric role values:
+
+```bash
+> .config --raw
+- ID: 1
+  Address: 10.0.0.1:9001
+  Role: 1
+- ID: 2
+  Address: 10.0.0.2:9001
+  Role: 0
+```
+
 ### Inspect the Raft Log
 
 To view the log, use the `.log` command.
