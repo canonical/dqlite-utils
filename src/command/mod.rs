@@ -121,7 +121,7 @@ impl CommandUnavailable {
 
 #[derive(Debug)]
 pub enum RootCommand {
-    Cluster(ConfigCommand),
+    Config(ConfigCommand),
     Log(LogCommand),
     Quit(QuitCommand),
     Snapshot(SnapshotCommand),
@@ -132,7 +132,7 @@ pub enum RootCommand {
 impl RootCommand {
     fn try_from_input(kind: RootCommandKind, args: &[String]) -> Result<Self> {
         match kind {
-            RootCommandKind::Config => Ok(Self::Cluster(ConfigCommand::try_from_args(args)?)),
+            RootCommandKind::Config => Ok(Self::Config(ConfigCommand::try_from_args(args)?)),
             RootCommandKind::Log => Ok(Self::Log(LogCommand::try_from_args(args)?)),
             RootCommandKind::Quit => Ok(Self::Quit(QuitCommand::try_from_args(args)?)),
             RootCommandKind::Snapshot => Ok(Self::Snapshot(SnapshotCommand::try_from_args(args)?)),
@@ -143,7 +143,7 @@ impl RootCommand {
 
     fn kind(&self) -> RootCommandKind {
         match self {
-            Self::Cluster(_) => RootCommandKind::Config,
+            Self::Config(_) => RootCommandKind::Config,
             Self::Log(_) => RootCommandKind::Log,
             Self::Quit(_) => RootCommandKind::Quit,
             Self::Open(_) => RootCommandKind::Open,
@@ -154,7 +154,7 @@ impl RootCommand {
 
     pub fn run(self, ctx: &mut Context) -> Result<()> {
         match self {
-            Self::Cluster(cmd) => cmd.run(ctx),
+            Self::Config(cmd) => cmd.run(ctx),
             Self::Quit(cmd) => cmd.run(ctx),
             Self::Status(cmd) => cmd.run(ctx),
             Self::Log(cmd) => cmd.run(ctx),
