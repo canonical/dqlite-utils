@@ -20,13 +20,13 @@ use crate::command::open::{OpenCommand, OpenShellCommand, OpenShellCommandKind};
 use crate::prompt::Prompt;
 use crate::{Context, Result, Shell, ShellKind};
 
+use self::config::ConfigCommand;
 use self::help::HelpCommand;
 use self::log::LogCommand;
 use self::quit::QuitCommand;
 use self::snapshot::{SnapshotCommand, SnapshotShellCommand, SnapshotShellCommandKind};
 use self::sql::SqlCommand;
 use self::status::StatusCommand;
-use self::config::ConfigCommand;
 
 #[derive(Debug)]
 pub enum Command {
