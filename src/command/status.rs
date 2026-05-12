@@ -3,7 +3,6 @@ use indoc::eprintdoc;
 
 use crate::Context;
 use crate::command::help::Help;
-use crate::dqlite::DqliteSegment;
 
 use super::UnrecognizedArgumentsError;
 

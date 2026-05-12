@@ -379,7 +379,7 @@ pub struct RaftServer {
     pub role: RaftRole,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[repr(u8)]
 pub enum RaftRole {
     Standby = 0,

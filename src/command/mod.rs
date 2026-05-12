@@ -1,3 +1,4 @@
+mod config;
 mod help;
 mod log;
 mod open;
@@ -19,6 +20,7 @@ use crate::command::open::{OpenCommand, OpenShellCommand, OpenShellCommandKind};
 use crate::prompt::Prompt;
 use crate::{Context, Result, Shell, ShellKind};
 
+use self::config::ConfigCommand;
 use self::help::HelpCommand;
 use self::log::LogCommand;
 use self::quit::QuitCommand;
@@ -119,6 +121,7 @@ impl CommandUnavailable {
 
 #[derive(Debug)]
 pub enum RootCommand {
+    Config(ConfigCommand),
     Log(LogCommand),
     Quit(QuitCommand),
     Snapshot(SnapshotCommand),
@@ -129,6 +132,7 @@ pub enum RootCommand {
 impl RootCommand {
     fn try_from_input(kind: RootCommandKind, args: &[String]) -> Result<Self> {
         match kind {
+            RootCommandKind::Config => Ok(Self::Config(ConfigCommand::try_from_args(args)?)),
             RootCommandKind::Log => Ok(Self::Log(LogCommand::try_from_args(args)?)),
             RootCommandKind::Quit => Ok(Self::Quit(QuitCommand::try_from_args(args)?)),
             RootCommandKind::Snapshot => Ok(Self::Snapshot(SnapshotCommand::try_from_args(args)?)),
@@ -139,6 +143,7 @@ impl RootCommand {
 
     fn kind(&self) -> RootCommandKind {
         match self {
+            Self::Config(_) => RootCommandKind::Config,
             Self::Log(_) => RootCommandKind::Log,
             Self::Quit(_) => RootCommandKind::Quit,
             Self::Open(_) => RootCommandKind::Open,
@@ -149,6 +154,7 @@ impl RootCommand {
 
     pub fn run(self, ctx: &mut Context) -> Result<()> {
         match self {
+            Self::Config(cmd) => cmd.run(ctx),
             Self::Quit(cmd) => cmd.run(ctx),
             Self::Status(cmd) => cmd.run(ctx),
             Self::Log(cmd) => cmd.run(ctx),
@@ -229,6 +235,7 @@ pub(crate) struct UnknownCommand;
 
 #[derive(Debug, Eq, PartialEq, EnumIter)]
 pub(crate) enum RootCommandKind {
+    Config,
     Log,
     Quit,
     Snapshot,
@@ -239,6 +246,7 @@ pub(crate) enum RootCommandKind {
 impl RootCommandKind {
     pub(crate) fn help(&self) -> Help {
         match self {
+            Self::Config => ConfigCommand::help(),
             Self::Log => LogCommand::help(),
             Self::Quit => QuitCommand::help(),
             Self::Status => StatusCommand::help(),
@@ -249,6 +257,7 @@ impl RootCommandKind {
 
     pub(crate) fn name(&self) -> &'static str {
         match self {
+            Self::Config => ".config",
             Self::Log => ".log",
             Self::Quit => ".quit",
             Self::Status => ".status",
@@ -263,6 +272,7 @@ impl FromStr for RootCommandKind {
 
     fn from_str(raw: &str) -> Result<Self> {
         match raw {
+            ".config" => Ok(Self::Config),
             ".log" => Ok(Self::Log),
             ".quit" => Ok(Self::Quit),
             ".status" => Ok(Self::Status),
@@ -293,6 +303,7 @@ impl RootShell {
             .summary("an observability tool for inspecting the on-disk state of a dqlite node")
             .skip_usage()
             .add_command(HelpCommand::help())
+            .add_command(ConfigCommand::help())
             .add_command(LogCommand::help())
             .add_command(QuitCommand::help())
             .add_command(SnapshotCommand::help())
