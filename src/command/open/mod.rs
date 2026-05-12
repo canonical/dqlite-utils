@@ -5,11 +5,13 @@ mod vfs;
 
 use std::cell::OnceCell;
 use std::fmt::Debug;
+use std::ops::Deref;
 use std::str::FromStr;
 
 use anyhow::{Context as _, Error, Result, anyhow};
 use rusqlite::Connection;
 use rusqlite::hooks::{AuthContext, Authorization};
+use rusqlite::vfs::{VfsRegistration, VfsRegistrationGuard};
 
 use self::vfs::DqliteVfs;
 use crate::command::open::close::CloseCommand;
@@ -19,7 +21,6 @@ use crate::command::{Help, UnknownCommand, UnrecognizedArgumentsError};
 use crate::dqlite::DqliteDir;
 use crate::prompt::Prompt;
 use crate::rusqlite_ext::config::ConnectionConfigExt;
-use crate::rusqlite_ext::vfs::{VfsRegistration, VfsRegistrationGuard};
 use crate::utils::TerminalStylizeExt;
 use crate::{Context, Shell};
 
@@ -48,7 +49,7 @@ impl DqliteDirContent {
     }
 
     fn vfs(&self) -> Option<&DqliteVfs> {
-        self.vfs_registration_guard.get().map(|r| r.vfs())
+        self.vfs_registration_guard.get().map(|r| r.deref())
     }
 }
 
