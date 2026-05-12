@@ -38,7 +38,6 @@ impl SnapshotCommand {
         Help::builder()
             .name(".snapshot")
             .summary("Enter snapshot-creation shell")
-            .add_arg("dir", "the directory to save the snapshot into")
             .build()
             .expect("internal error: help invalid")
     }
