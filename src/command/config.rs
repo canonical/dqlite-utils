@@ -1,5 +1,5 @@
 use anyhow::{Context as _, Result};
-use indoc::eprintdoc;
+use indoc::printdoc;
 
 use crate::Context;
 use crate::command::help::Help;
@@ -45,7 +45,7 @@ impl ConfigCommand {
             } else {
                 Self::role_name(role).to_string()
             };
-            eprintdoc!(
+            printdoc!(
                 "
                     - ID: {id}
                       Address: {address}

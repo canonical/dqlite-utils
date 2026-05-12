@@ -1,8 +1,8 @@
 use anyhow::Result;
-use indoc::eprintdoc;
+use indoc::printdoc;
 
-use crate::Context;
 use crate::command::help::Help;
+use crate::Context;
 
 use super::UnrecognizedArgumentsError;
 
@@ -31,7 +31,7 @@ impl StatusCommand {
         let current_index = dqlite.current_index()?;
         let dir_path = dqlite.path().display();
         let term = dqlite.term();
-        eprintdoc!(
+        printdoc!(
             "
                 dir: {dir_path}
                 term: {term}
