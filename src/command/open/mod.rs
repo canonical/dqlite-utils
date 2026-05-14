@@ -8,8 +8,8 @@ use std::fmt::Debug;
 use std::str::FromStr;
 
 use anyhow::{Context as _, Error, Result, anyhow};
-use rusqlite::{Connection, OpenFlags};
 use rusqlite::hooks::{AuthContext, Authorization};
+use rusqlite::{Connection, OpenFlags};
 
 use self::vfs::DqliteVfs;
 use crate::command::open::close::CloseCommand;
