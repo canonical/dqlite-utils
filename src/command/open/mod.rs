@@ -8,8 +8,8 @@ use std::fmt::Debug;
 use std::str::FromStr;
 
 use anyhow::{Context as _, Error, Result, anyhow};
-use rusqlite::Connection;
 use rusqlite::hooks::{AuthContext, Authorization};
+use rusqlite::{Connection, OpenFlags};
 
 use self::vfs::DqliteVfs;
 use crate::command::open::close::CloseCommand;
@@ -38,7 +38,6 @@ impl DqliteDirContent {
 
         let vfs = DqliteVfs::from_dir(dqlite, page_size)?;
         let guard = VfsRegistration::new(vfs)
-            .make_default()
             .max_pathlen(256)
             .register("dqlite")?;
         self.vfs_registration_guard
@@ -165,7 +164,7 @@ impl OpenShell {
     }
 
     fn open_connection() -> Result<Connection> {
-        let ret = Connection::open_in_memory()
+        let ret = Connection::open_with_flags_and_vfs(":memory:", OpenFlags::default(), "dqlite")
             .context("internal error: cannot open connection to in-memory database")?;
         ret.set_main_name(c"raft");
         ret.authorizer(Some(Self::authorizer))?;
