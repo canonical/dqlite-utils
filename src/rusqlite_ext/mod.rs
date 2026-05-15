@@ -12,7 +12,6 @@ use std::{
 pub mod config;
 pub mod file_control;
 pub mod files;
-pub mod vfs;
 
 /// Stores a SQLite result code.
 #[derive(Copy, Clone, Debug)]
@@ -91,48 +90,6 @@ impl From<SqliteCode> for Result<()> {
             return Err(err);
         }
         Ok(())
-    }
-}
-
-/// Extension trait to convert a [`Result`] to a [`SqliteCode`].
-trait ToCodeResultExt {
-    /// Convert `self` to a [`SqliteCode`].
-    ///
-    /// If `self` is:
-    /// - `Ok(_)`, this function returns [`SqliteCode::OK`]
-    /// - `Err(err)`, this function returns `err`.
-    fn to_code_result(self) -> SqliteCode;
-}
-
-impl ToCodeResultExt for Result<()> {
-    fn to_code_result(self) -> SqliteCode {
-        match self {
-            Ok(_) => SqliteCode::OK,
-            Err(e) => SqliteCode(e.0.get()),
-        }
-    }
-}
-
-/// Extension trait to write results to output parameters, returning an appropriate [`SqliteCode`].
-trait WriteOutputResultExt<T> {
-    /// Converts `self` into the `sqlite`-expected `out` param + return code form.
-    ///
-    /// If `self` is:
-    /// - `Ok(value)`, then `value` is written to `*output` and [`SqliteCode::OK`]
-    ///    is returned.
-    /// - `Err(err)`, then `*output` is unchanged and `err` is returned.
-    fn write_to_output(self, output: &mut impl From<T>) -> SqliteCode;
-}
-
-impl<T> WriteOutputResultExt<T> for Result<T> {
-    fn write_to_output(self, output: &mut impl From<T>) -> SqliteCode {
-        match self {
-            Ok(value) => {
-                *output = value.into();
-                SqliteCode::OK
-            }
-            Err(e) => SqliteCode(e.0.get()),
-        }
     }
 }
 
