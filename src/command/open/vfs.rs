@@ -9,7 +9,6 @@ use std::sync::{Arc, Mutex};
 use crate::dqlite::{
     DqliteDatabaseLoader, DqliteDir, DqliteLogEntryContent, DqliteSegment, DqliteSnapshotLoader,
 };
-use crate::rusqlite_ext::{self, SqliteError};
 use anyhow::Result;
 use libsqlite3_sys as sqlite3;
 use rusqlite::ffi::Error;
