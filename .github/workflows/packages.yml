@@ -57,10 +57,12 @@ jobs:
             VERSION="${BASE_VERSION}+git${COMMITS}.g${GIT_SHA}"
           fi
 
-          dch --distribution "${TARGET}" \
+          dch --create \
+              --distribution "${TARGET}" \
+              --package dqlite-utils \
               --newversion "${VERSION}~${TARGET}1" \
               "Automatic build from GitHub (${GITHUB_SHA})"
-          debuild -S -sa -k"${{ vars.PPA_PUBLIC_KEY }}"
+          debuild -S -sa -d -k"${{ vars.PPA_PUBLIC_KEY }}"
 
       - name: Upload to Launchpad
         run: |
