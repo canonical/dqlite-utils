@@ -6,6 +6,9 @@ export CARGO_BUILD_JOBS = $(shell nproc)
 %:
 	dh $@
 
+clean:
+	cargo clean
+
 override_dh_auto_build:
 	cargo build --release --locked
 
@@ -14,7 +17,6 @@ override_dh_auto_test:
 
 override_dh_auto_install:
 	install -D -m0755 target/release/dqlite-utils debian/dqlite-utils/usr/bin/dqlite-utils
-	install -D -m0644 README.md debian/dqlite-utils/usr/share/doc/dqlite-utils/README.md
 
 override_dh_auto_clean:
 	cargo clean
