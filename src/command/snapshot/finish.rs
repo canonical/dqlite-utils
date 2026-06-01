@@ -195,9 +195,11 @@ impl FinishCommand {
         io::stdout().flush()?;
 
         let mut input = String::new();
-        stdin.read_line(&mut input)?;
+        if stdin.read_line(&mut input)? == 0 {
+            return Ok(false);
+        }
         let input = input.trim().to_lowercase();
-        match input.as_str().trim() {
+        match input.as_str() {
             "" | "y" | "ye" | "yes" => Ok(true),
             "n" | "no" => Ok(false),
             unrecognised => Err(anyhow!("unrecognised response: {unrecognised}")),
