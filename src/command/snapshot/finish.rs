@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::sync::LazyLock;
 use std::time::SystemTime;
 
-use anyhow::{anyhow, Context as _};
+use anyhow::{Context as _, anyhow};
 use libsqlite3_sys as sqlite3;
 use regex::Regex;
 use rusqlite::{Connection, TransactionBehavior};
@@ -186,11 +186,12 @@ impl FinishCommand {
     }
 
     fn prompt_wal_mode(stdin: &mut StdinLock<'_>, non_wal_schemas: &[String]) -> Result<bool> {
-        println!("The following schemas must be changed to WAL mode: {}", non_wal_schemas.join("\n"));
-        println!("This operation will modify the attached databases.");
-        print!(
-            "Set WAL mode? [Y/n] "
+        println!(
+            "The following schemas must be changed to WAL mode: {}",
+            non_wal_schemas.join("\n")
         );
+        println!("This operation will modify the attached databases.");
+        print!("Set WAL mode? [Y/n] ");
         io::stdout().flush()?;
 
         let mut input = String::new();
@@ -209,7 +210,9 @@ impl FinishCommand {
             Ok(row.get_ref("journal_mode")?.as_str()? == "wal")
         })?;
         if !wal_mode {
-            return Err(anyhow!("cannot set journal mode of schema {schema} to 'wal'"));
+            return Err(anyhow!(
+                "cannot set journal mode of schema {schema} to 'wal'"
+            ));
         }
         Ok(())
     }
@@ -308,4 +311,79 @@ fn write_file(file: &mut ConnectionFile<'_>, out: &mut impl Write) -> Result<()>
         offset += buf.len();
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::command::snapshot::SnapshotShell;
+    use googletest::expect_that;
+    use googletest::matchers::{container_eq, eq};
+    use tempfile::NamedTempFile;
+
+    #[googletest::test]
+    fn test_non_wal_schemas() {
+        let mut conn = SnapshotShell::open_connection().unwrap();
+        let mut db_files = Vec::new();
+
+        for (schema_name, journal_mode) in [("db1", "DELETE"), ("db2", "WAL")] {
+            let db_file = NamedTempFile::new().unwrap();
+            let path = db_file.path().to_path_buf();
+
+            {
+                let disk_conn = Connection::open(&path).unwrap();
+                disk_conn
+                    .pragma_update(None, "journal_mode", journal_mode)
+                    .unwrap();
+                disk_conn
+                    .execute("CREATE TABLE data(id INTEGER PRIMARY KEY)", ())
+                    .unwrap();
+            }
+
+            conn.execute_batch(&format!(
+                "ATTACH DATABASE '{}' AS {schema_name};",
+                path.display()
+            ))
+            .unwrap();
+            db_files.push(db_file);
+        }
+
+        let non_wal = FinishCommand::non_wal_schemas(&mut conn).unwrap();
+        expect_that!(non_wal, container_eq(vec!["db1".to_string()]));
+    }
+
+    #[googletest::test]
+    fn test_apply_wal_mode() {
+        let mut conn = SnapshotShell::open_connection().unwrap();
+        let mut db_files = Vec::new();
+
+        for (schema_name, journal_mode) in [("db1", "DELETE")] {
+            let db_file = NamedTempFile::new().unwrap();
+            let path = db_file.path().to_path_buf();
+
+            {
+                let disk_conn = Connection::open(&path).unwrap();
+                disk_conn
+                    .pragma_update(None, "journal_mode", journal_mode)
+                    .unwrap();
+                disk_conn
+                    .execute("CREATE TABLE data(id INTEGER PRIMARY KEY)", ())
+                    .unwrap();
+            }
+
+            conn.execute_batch(&format!(
+                "ATTACH DATABASE '{}' AS {schema_name};",
+                path.display()
+            ))
+            .unwrap();
+            db_files.push(db_file);
+        }
+
+        FinishCommand::apply_wal_mode(&mut conn, "db1").unwrap();
+
+        let mode_after: String = conn
+            .pragma_query_value(Some("db1"), "journal_mode", |row| row.get("journal_mode"))
+            .unwrap();
+        expect_that!(mode_after, eq("wal"));
+    }
 }
