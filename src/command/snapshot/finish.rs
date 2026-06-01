@@ -1,12 +1,12 @@
 use std::cell::OnceCell;
 use std::ffi::{CString, OsStr};
 use std::fs::{self};
-use std::io::{ErrorKind, Write};
+use std::io::{self, BufRead, ErrorKind, IsTerminal, StdinLock, Write};
 use std::path::PathBuf;
 use std::sync::LazyLock;
 use std::time::SystemTime;
 
-use anyhow::{Context as _, anyhow};
+use anyhow::{anyhow, Context as _};
 use libsqlite3_sys as sqlite3;
 use regex::Regex;
 use rusqlite::{Connection, TransactionBehavior};
@@ -22,6 +22,7 @@ use crate::{Context, Result, Shell};
 #[derive(Debug)]
 pub(crate) struct FinishCommand {
     dir: PathBuf,
+    force_wal_mode: bool,
 }
 
 impl FinishCommand {
@@ -30,27 +31,63 @@ impl FinishCommand {
             .name(".finish")
             .summary("validate snapshot and write to disk")
             .add_arg("dir", "the directory to save the snapshot into")
+            .add_flag(
+                "--force-wal-mode",
+                "set journal_mode to WAL for all schemas",
+            )
             .build()
             .expect("internal error: help invalid")
     }
 
     pub(crate) fn try_from_args(args: &[String]) -> Result<Self> {
-        let dir = match args {
-            [] => return Err(MissingArgumentError("dir").into()),
-            [dir] => dir,
-            [_, tail @ ..] => return Err(UnrecognizedArgumentsError(tail.to_vec()).into()),
-        };
-        let dir = PathBuf::from(dir);
-        Ok(Self { dir })
+        let mut force_wal_mode = false;
+        let mut dir = None;
+        for arg in args {
+            match arg.as_str() {
+                "--force-wal-mode" => force_wal_mode = true,
+                other => {
+                    if dir.is_some() {
+                        return Err(UnrecognizedArgumentsError(args.to_vec()).into());
+                    }
+                    dir = Some(PathBuf::from(other));
+                }
+            }
+        }
+        let dir = dir.ok_or(MissingArgumentError("dir"))?;
+        Ok(Self {
+            dir,
+            force_wal_mode,
+        })
     }
 
     pub(crate) fn run(self, ctx: &mut Context) -> Result<()> {
-        let Self { dir } = self;
+        let Self {
+            dir,
+            force_wal_mode,
+        } = self;
         let shell = ctx.shell.snapshot_mut().ok_or_else(|| {
             anyhow!("internal error: .finish command not called in snapshot shell")
         })?;
 
         let conn = shell.connection_mut();
+
+        let non_wal_schemas = Self::non_wal_schemas(conn)?;
+        if !non_wal_schemas.is_empty() {
+            let set_wal_mode = if force_wal_mode {
+                true
+            } else {
+                let mut stdin = io::stdin().lock();
+                stdin.is_terminal() && Self::prompt_wal_mode(&mut stdin, &non_wal_schemas)?
+            };
+            if !set_wal_mode {
+                return Err(anyhow!("some schemas not in WAL mode"));
+            }
+            for schema in non_wal_schemas {
+                Self::apply_wal_mode(conn, &schema)?;
+            }
+            println!("WAL mode set");
+        }
+
         let txn = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
 
         let configuration = {
@@ -129,11 +166,57 @@ impl FinishCommand {
         Ok(())
     }
 
+    fn non_wal_schemas(conn: &mut Connection) -> Result<Vec<String>> {
+        let mut ret = Vec::with_capacity(10);
+        let mut schemas = conn.attached_schemas()?;
+        let mut schemas_iter = schemas.try_iter()?;
+        while let Some(schema) = schemas_iter.next()? {
+            let name = schema.name();
+            if name == "raft" || name == "temp" {
+                continue;
+            }
+            let wal_mode = conn.pragma_query_value(Some(name), "journal_mode", |row| {
+                Ok(row.get_ref("journal_mode")?.as_str()? == "wal")
+            })?;
+            if !wal_mode {
+                ret.push(name.to_owned());
+            }
+        }
+        Ok(ret)
+    }
+
+    fn prompt_wal_mode(stdin: &mut StdinLock<'_>, non_wal_schemas: &[String]) -> Result<bool> {
+        println!("The following schemas must be changed to WAL mode: {}", non_wal_schemas.join("\n"));
+        println!("This operation will modify the attached databases.");
+        print!(
+            "Set WAL mode? [Y/n] "
+        );
+        io::stdout().flush()?;
+
+        let mut input = String::new();
+        stdin.read_line(&mut input)?;
+        let input = input.trim().to_lowercase();
+        match input.as_str().trim() {
+            "" | "y" | "ye" | "yes" => Ok(true),
+            "n" | "no" => Ok(false),
+            unrecognised => Err(anyhow!("unrecognised response: {unrecognised}")),
+        }
+    }
+
+    fn apply_wal_mode(conn: &mut Connection, schema: &str) -> Result<()> {
+        conn.pragma_update(Some(schema), "journal_mode", "WAL")?;
+        let wal_mode = conn.pragma_query_value(Some(schema), "journal_mode", |row| {
+            Ok(row.get_ref("journal_mode")?.as_str()? == "wal")
+        })?;
+        if !wal_mode {
+            return Err(anyhow!("cannot set journal mode of schema {schema} to 'wal'"));
+        }
+        Ok(())
+    }
+
     fn check_dbs(dbs: &[AttachedDb<'_>], conn: &Connection) -> Result<()> {
         let expected_page_size = OnceCell::new();
         for db in dbs {
-            db.check(conn)?;
-
             let db_page_size = db.page_size(conn)?;
             let expected_page_size = expected_page_size.get_or_init(|| db_page_size);
             if db_page_size != *expected_page_size {
@@ -170,17 +253,6 @@ impl<'conn> AttachedDb<'conn> {
             main,
             journal,
         })
-    }
-
-    fn check(&self, conn: &Connection) -> Result<()> {
-        let name = &self.name;
-        let wal_mode = conn.pragma_query_value(Some(name), "journal_mode", |row| {
-            Ok(row.get_ref("journal_mode")?.as_str()? == "wal")
-        })?;
-        if !wal_mode {
-            return Err(anyhow!("journal mode of schema {name} must be 'wal'"));
-        }
-        Ok(())
     }
 
     fn page_size(&self, conn: &Connection) -> Result<u32> {
