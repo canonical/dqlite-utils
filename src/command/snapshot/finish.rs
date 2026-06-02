@@ -202,7 +202,7 @@ impl FinishCommand {
         match input.as_str() {
             "" | "y" | "ye" | "yes" => Ok(true),
             "n" | "no" => Ok(false),
-            unrecognised => Err(anyhow!("unrecognised response: {unrecognised}")),
+            unrecognized => Err(anyhow!("unrecognized response: {unrecognized}")),
         }
     }
 
