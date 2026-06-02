@@ -161,7 +161,7 @@ impl FinishCommand {
             .servers
             .iter()
             .find(|server| server.id == self_id)
-            .ok_or_else(|| anyhow!("cannot write {}: no self server set", info_path.display()))?;
+            .ok_or_else(|| anyhow!("cannot find self server"))?;
         let RaftServer {
             id: _,
             address,
@@ -169,12 +169,12 @@ impl FinishCommand {
         } = self_server;
         let role = *role as u8;
 
-        let mut info_writer = BufWriter::new(
+        let mut info_file = BufWriter::new(
             File::create_new(&info_path)
                 .with_context(|| anyhow!("cannot create {}", info_path.display()))?,
         );
         writedoc!(
-            info_writer,
+            info_file,
             "
                 - ID: {self_id}
                   Address: {address}
@@ -182,30 +182,34 @@ impl FinishCommand {
             "
         )
         .with_context(|| anyhow!("cannot write to {}", info_path.display()))?;
+        info_file
+            .flush()
+            .with_context(|| anyhow!("cannot flush {}", info_path.display()))?;
         Ok(())
     }
 
     fn write_cluster_yaml(dir: &Path, configuration: &RaftConfiguration) -> Result<()> {
-        use std::fmt::Write as _;
-
-        let file_path = dir.join("cluster.yaml");
-
-        let mut buf = String::new();
+        let cluster_path = dir.join("cluster.yaml");
+        let mut cluster_file = BufWriter::new(
+            File::create_new(&cluster_path)
+                .with_context(|| anyhow!("cannot create {}", cluster_path.display()))?,
+        );
         for server in &configuration.servers {
             let RaftServer { id, address, role } = server;
             let role = *role as u8;
             writedoc!(
-                buf,
+                cluster_file,
                 "
                     - ID: {id}
                       Address: {address}
                       Role: {role}
                 "
             )
-            .with_context(|| anyhow!("cannot write to {}", file_path.display()))?;
+            .with_context(|| anyhow!("cannot write to {}", cluster_path.display()))?;
         }
-        fs::write(&file_path, &buf)
-            .with_context(|| anyhow!("cannot write to {}", file_path.display()))?;
+        cluster_file
+            .flush()
+            .with_context(|| anyhow!("cannot flush {}", cluster_path.display()))?;
         Ok(())
     }
 }
