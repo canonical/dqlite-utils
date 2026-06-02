@@ -80,7 +80,7 @@ impl FinishCommand {
                 stdin.is_terminal() && Self::prompt_wal_mode(&mut stdin, &non_wal_schemas)?
             };
             if !set_wal_mode {
-                return Err(anyhow!("some schemas not in WAL mode"));
+                return Err(anyhow!("some schemas not in WAL mode: {}", non_wal_schemas.join(", ")));
             }
             for schema in non_wal_schemas {
                 Self::apply_wal_mode(conn, &schema)?;
