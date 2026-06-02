@@ -127,7 +127,7 @@ impl FinishCommand {
             return Err(err);
         }
 
-        // Write go-dqlite metadata. This isn't strictly a _dqlite_ requiriement, but this
+        // Write go-dqlite metadata. This isn't strictly a _dqlite_ requirement, but this
         // is cheap and the vast majority of our users use go-dqlite anyway.
         Self::write_info_yaml(&dir, self_id, &configuration)?;
         Self::write_cluster_yaml(&dir, &configuration)?;
