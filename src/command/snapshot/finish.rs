@@ -343,7 +343,7 @@ mod tests {
             }
 
             conn.execute_batch(&format!(
-                "ATTACH DATABASE '{}' AS {schema_name};",
+                "ATTACH DATABASE {:?} AS {schema_name};",
                 path.display()
             ))
             .unwrap();
@@ -374,7 +374,7 @@ mod tests {
             }
 
             conn.execute_batch(&format!(
-                "ATTACH DATABASE '{}' AS {schema_name};",
+                "ATTACH DATABASE {:?} AS {schema_name};",
                 path.display()
             ))
             .unwrap();
