@@ -65,6 +65,7 @@ impl FinishCommand {
             term,
             index,
             timestamp,
+            self_id: _,
         } = RaftMetadata::read_from(&txn)?;
         let timestamp = SystemTime::from(timestamp);
 

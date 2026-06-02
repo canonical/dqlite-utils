@@ -3,6 +3,7 @@ mod add_server;
 mod finish;
 mod info;
 mod set_index;
+mod set_self;
 mod set_term;
 mod set_timestamp;
 
@@ -27,6 +28,7 @@ use self::add_server::AddServerCommand;
 use self::finish::FinishCommand;
 use self::info::InfoCommand;
 use self::set_index::SetIndexCommand;
+use self::set_self::SetSelfCommand;
 use self::set_term::SetTermCommand;
 use self::set_timestamp::SetTimestampCommand;
 
@@ -62,6 +64,10 @@ const SCHEMA: &str = "
         raft_index INTEGER NOT NULL,
         timestamp INTEGER NOT NULL,
         pretty_timestamp TEXT AS (strftime('%FT%T', timestamp, 'unixepoch')),
+        self INTEGER NULL
+            REFERENCES servers(id)
+            ON DELETE SET DEFAULT
+            ON UPDATE RESTRICT
         CHECK (rowid = 1)
     ) STRICT;
 
@@ -99,6 +105,7 @@ impl SnapshotShell {
             .add_command(HelpCommand::help())
             .add_command(InfoCommand::help())
             .add_command(SetIndexCommand::help())
+            .add_command(SetSelfCommand::help())
             .add_command(SetTermCommand::help())
             .add_command(SetTimestampCommand::help())
             .build()
@@ -198,6 +205,7 @@ pub(crate) enum SnapshotShellCommand {
     Finish(FinishCommand),
     Info(InfoCommand),
     SetIndex(SetIndexCommand),
+    SetSelf(SetSelfCommand),
     SetTerm(SetTermCommand),
     SetTimestamp(SetTimestampCommand),
 }
@@ -211,6 +219,7 @@ impl SnapshotShellCommand {
             Self::Finish(_) => Ssck::Finish,
             Self::Info(_) => Ssck::Info,
             Self::SetIndex(_) => Ssck::SetIndex,
+            Self::SetSelf(_) => Ssck::SetSelf,
             Self::SetTerm(_) => Ssck::SetTerm,
             Self::SetTimestamp(_) => Ssck::SetTimestamp,
         }
@@ -224,6 +233,7 @@ impl SnapshotShellCommand {
             Ssck::Finish => Ok(Self::Finish(FinishCommand::try_from_args(args)?)),
             Ssck::Info => Ok(Self::Info(InfoCommand::try_from_args(args)?)),
             Ssck::SetIndex => Ok(Self::SetIndex(SetIndexCommand::try_from_args(args)?)),
+            Ssck::SetSelf => Ok(Self::SetSelf(SetSelfCommand::try_from_args(args)?)),
             Ssck::SetTerm => Ok(Self::SetTerm(SetTermCommand::try_from_args(args)?)),
             Ssck::SetTimestamp => Ok(Self::SetTimestamp(SetTimestampCommand::try_from_args(
                 args,
@@ -238,6 +248,7 @@ impl SnapshotShellCommand {
             Self::Finish(cmd) => cmd.run(ctx),
             Self::Info(cmd) => cmd.run(ctx),
             Self::SetIndex(cmd) => cmd.run(ctx),
+            Self::SetSelf(cmd) => cmd.run(ctx),
             Self::SetTerm(cmd) => cmd.run(ctx),
             Self::SetTimestamp(cmd) => cmd.run(ctx),
         }
@@ -251,6 +262,7 @@ pub(crate) enum SnapshotShellCommandKind {
     Finish,
     Info,
     SetIndex,
+    SetSelf,
     SetTerm,
     SetTimestamp,
 }
@@ -263,6 +275,7 @@ impl SnapshotShellCommandKind {
             Self::Finish => FinishCommand::help(),
             Self::Info => InfoCommand::help(),
             Self::SetIndex => SetIndexCommand::help(),
+            Self::SetSelf => SetSelfCommand::help(),
             Self::SetTerm => SetTermCommand::help(),
             Self::SetTimestamp => SetTimestampCommand::help(),
         }
@@ -275,6 +288,7 @@ impl SnapshotShellCommandKind {
             Self::Finish => ".finish",
             Self::Info => ".info",
             Self::SetIndex => ".set-index",
+            Self::SetSelf => ".set-self",
             Self::SetTerm => ".set-term",
             Self::SetTimestamp => ".set-timestamp",
         }
@@ -291,6 +305,7 @@ impl FromStr for SnapshotShellCommandKind {
             ".finish" => Ok(Self::Finish),
             ".info" => Ok(Self::Info),
             ".set-index" => Ok(Self::SetIndex),
+            ".set-self" => Ok(Self::SetSelf),
             ".set-term" => Ok(Self::SetTerm),
             ".set-timestamp" => Ok(Self::SetTimestamp),
             _ => Err(UnknownCommand.into()),
@@ -302,13 +317,14 @@ pub(crate) struct RaftMetadata {
     pub(crate) term: u64,
     pub(crate) index: u64,
     pub(crate) timestamp: UtcDateTime,
+    pub(crate) self_id: Option<u64>,
 }
 
 impl RaftMetadata {
     pub(crate) fn read_from(conn: &Connection) -> Result<Self> {
         let ret = conn.query_one(
             "
-                SELECT raft_term, raft_index, timestamp
+                SELECT raft_term, raft_index, timestamp, self
                 FROM metadata
             ",
             (),
@@ -318,6 +334,7 @@ impl RaftMetadata {
                     index: row.get::<_, i64>("raft_index")? as u64,
                     timestamp: UtcDateTime::from_unix_timestamp(row.get("timestamp")?)
                         .map_err(|err| rusqlite::Error::UserFunctionError(err.into()))?,
+                    self_id: row.get::<_, Option<i64>>("self")?.map(|id| id as u64),
                 })
             },
         )?;
