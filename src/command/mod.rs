@@ -292,8 +292,8 @@ struct MissingArgumentError(&'static str);
 struct UnrecognizedArgumentsError(Vec<String>);
 
 #[derive(Debug, thiserror::Error)]
-#[error("unrecognized flags: {_0:?}")]
-struct UnrecognizedFlagsError(Vec<String>);
+#[error("unrecognized flag: {_0}")]
+struct UnrecognizedFlagError(String);
 
 #[derive(Debug, Default)]
 pub struct RootShell {

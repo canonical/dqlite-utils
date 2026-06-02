@@ -3,7 +3,7 @@ use libsqlite3_sys as sqlite3;
 use rusqlite::{ErrorCode, named_params};
 
 use crate::command::help::Help;
-use crate::command::{MissingArgumentError, UnrecognizedArgumentsError, UnrecognizedFlagsError};
+use crate::command::{MissingArgumentError, UnrecognizedArgumentsError, UnrecognizedFlagError};
 use crate::dqlite::RaftRole;
 use crate::{Context, Result};
 
@@ -38,7 +38,7 @@ impl AddServerCommand {
         let set_self = match flag_args.as_slice() {
             [] => false,
             [flag] if flag.as_str() == "--self" => true,
-            [_, tail @ ..] => return Err(UnrecognizedFlagsError(tail.to_vec()).into()),
+            [flag, ..] => return Err(UnrecognizedFlagError(flag.clone()).into()),
         };
 
         let (address, role, id) = match positional_args.as_slice() {
