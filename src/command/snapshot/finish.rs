@@ -7,9 +7,9 @@ use std::sync::LazyLock;
 use std::time::SystemTime;
 
 use anyhow::{Context as _, anyhow};
+use indoc::writedoc;
 use libsqlite3_sys as sqlite3;
 use regex::Regex;
-use indoc::writedoc;
 use rusqlite::{Connection, TransactionBehavior};
 
 use crate::command::help::Help;

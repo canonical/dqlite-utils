@@ -32,10 +32,8 @@ impl AddServerCommand {
     }
 
     pub(crate) fn try_from_args(args: &[String]) -> Result<Self> {
-        let (flag_args, positional_args): (Vec<_>, _) = args
-            .iter()
-            .cloned()
-            .partition(|arg| arg.starts_with("--"));
+        let (flag_args, positional_args): (Vec<_>, _) =
+            args.iter().cloned().partition(|arg| arg.starts_with("--"));
 
         let set_self = match flag_args.as_slice() {
             [] => false,
