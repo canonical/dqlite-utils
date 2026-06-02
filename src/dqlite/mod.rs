@@ -272,6 +272,7 @@ impl DqliteDir {
             term: 1,
             voted_for: 0,
             first_index: 1,
+            self_id: None,
             page_size: 4096,
             closed_segments: Vec::new(),
             open_segments: Vec::new(),
@@ -1230,6 +1231,7 @@ pub struct DqliteDirCreator<T> {
     term: u64,
     voted_for: u64,
     first_index: u64,
+    self_id: Option<u64>,
     page_size: u64,
     closed_segments: Vec<DqliteSegmentBuilder>,
     open_segments: Vec<DqliteSegmentBuilder>,
@@ -1288,6 +1290,7 @@ impl DqliteDirCreator<Empty> {
             term,
             voted_for,
             first_index,
+            self_id,
             page_size,
             closed_segments,
             open_segments,
@@ -1307,6 +1310,7 @@ impl DqliteDirCreator<Empty> {
             term,
             voted_for,
             first_index,
+            self_id,
             page_size,
             closed_segments,
             open_segments,
@@ -1335,6 +1339,11 @@ where
 
         let snapshot = f(DqliteSnapshotBuilder::new(self.term, index, timestamp));
         self.snapshots.push(snapshot);
+        self
+    }
+
+    pub fn with_self_id(mut self, self_id: impl Into<Option<u64>>) -> Self {
+        self.self_id = self_id.into();
         self
     }
 }

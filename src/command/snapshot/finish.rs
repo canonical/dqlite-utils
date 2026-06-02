@@ -1,20 +1,21 @@
 use std::cell::OnceCell;
 use std::ffi::{CString, OsStr};
-use std::fs::{self};
-use std::io::{ErrorKind, Write};
-use std::path::PathBuf;
+use std::fs::{self, File};
+use std::io::{BufWriter, ErrorKind, Write};
+use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 use std::time::SystemTime;
 
 use anyhow::{Context as _, anyhow};
 use libsqlite3_sys as sqlite3;
 use regex::Regex;
+use indoc::writedoc;
 use rusqlite::{Connection, TransactionBehavior};
 
 use crate::command::help::Help;
 use crate::command::snapshot::{RaftMetadata, RaftServers};
 use crate::command::{MissingArgumentError, UnrecognizedArgumentsError};
-use crate::dqlite::{DqliteDatabaseWriter, DqliteDir, RaftConfiguration};
+use crate::dqlite::{DqliteDatabaseWriter, DqliteDir, RaftConfiguration, RaftServer};
 use crate::rusqlite_ext::files::{ConnectionFile, ConnectionFilesExt};
 use crate::utils::AttachedSchemasConnectionExt;
 use crate::{Context, Result, Shell};
@@ -65,9 +66,10 @@ impl FinishCommand {
             term,
             index,
             timestamp,
-            self_id: _,
+            self_id,
         } = RaftMetadata::read_from(&txn)?;
         let timestamp = SystemTime::from(timestamp);
+        let self_id = self_id.ok_or_else(|| anyhow!("no 'self' server set, use .set-self"))?;
 
         let attached_dbs = {
             let mut attached_dbs = Vec::with_capacity(10);
@@ -105,17 +107,18 @@ impl FinishCommand {
         };
 
         let res = DqliteDir::creator(&dir)
-            .with_snapshot(move |s| {
+            .with_snapshot(|s| {
                 s.with_term(term)
                     .with_index(index)
                     .with_timestamp(timestamp)
-                    .with_configuration(configuration)
+                    .with_configuration(configuration.clone())
                     .add_databases(attached_dbs.into_iter().map(|db| {
                         let name = CString::new(db.name.as_bytes())
                             .expect("cannot make CString from db name");
                         (name, db)
                     }))
             })
+            .with_self_id(self_id)
             .create();
         if let Err(err) = res {
             if !dir_preexists {
@@ -123,6 +126,12 @@ impl FinishCommand {
             }
             return Err(err);
         }
+
+        // Write go-dqlite metadata. This isn't strictly a _dqlite_ requiriement, but this
+        // is cheap and the vast majority of our users use go-dqlite anyway.
+        Self::write_info_yaml(&dir, self_id, &configuration)?;
+        Self::write_cluster_yaml(&dir, &configuration)?;
+
         txn.rollback()?;
 
         ctx.shell = Shell::default();
@@ -143,6 +152,60 @@ impl FinishCommand {
                 ));
             }
         }
+        Ok(())
+    }
+
+    fn write_info_yaml(dir: &Path, self_id: u64, configuration: &RaftConfiguration) -> Result<()> {
+        let info_path = dir.join("info.yaml");
+        let self_server = configuration
+            .servers
+            .iter()
+            .find(|server| server.id == self_id)
+            .ok_or_else(|| anyhow!("cannot write {}: no self server set", info_path.display()))?;
+        let RaftServer {
+            id: _,
+            address,
+            role,
+        } = self_server;
+        let role = *role as u8;
+
+        let mut info_writer = BufWriter::new(
+            File::create_new(&info_path)
+                .with_context(|| anyhow!("cannot create {}", info_path.display()))?,
+        );
+        writedoc!(
+            info_writer,
+            "
+                - ID: {self_id}
+                  Address: {address}
+                  Role: {role}
+            "
+        )
+        .with_context(|| anyhow!("cannot write to {}", info_path.display()))?;
+        Ok(())
+    }
+
+    fn write_cluster_yaml(dir: &Path, configuration: &RaftConfiguration) -> Result<()> {
+        use std::fmt::Write as _;
+
+        let file_path = dir.join("cluster.yaml");
+
+        let mut buf = String::new();
+        for server in &configuration.servers {
+            let RaftServer { id, address, role } = server;
+            let role = *role as u8;
+            writedoc!(
+                buf,
+                "
+                    - ID: {id}
+                      Address: {address}
+                      Role: {role}
+                "
+            )
+            .with_context(|| anyhow!("cannot write to {}", file_path.display()))?;
+        }
+        fs::write(&file_path, &buf)
+            .with_context(|| anyhow!("cannot write to {}", file_path.display()))?;
         Ok(())
     }
 }
