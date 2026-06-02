@@ -124,6 +124,7 @@ impl SnapshotShell {
         ret.set_main_name(c"raft");
         ret.execute_batch(SCHEMA)
             .context("internal error: cannot create raft_data table")?;
+        ret.pragma_update(None, "foreign_keys", true)?;
         ret.authorizer(Some(Self::authorizer))?;
         Ok(ret)
     }

@@ -168,6 +168,7 @@ impl OpenShell {
             .context("internal error: cannot open connection to in-memory database")?;
         ret.set_main_name(c"raft");
         ret.authorizer(Some(Self::authorizer))?;
+        ret.pragma_update(None, "foreign_keys", true)?;
         // TODO: use a virtual table to access the snapshot/index metadata? Or just copy that here? Not sure...
         Ok(ret)
     }
