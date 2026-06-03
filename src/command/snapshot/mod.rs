@@ -175,7 +175,7 @@ impl SnapshotShell {
                     table_name: "metadata",
                 }
                 | Aa::Pragma {
-                    pragma_name: "writable_schema",
+                    pragma_name: "writable_schema" | "foreign_keys",
                     pragma_value: Some(_),
                 }
                 | Aa::Reindex { .. } => return Authorization::Deny,
