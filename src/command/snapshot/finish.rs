@@ -216,7 +216,6 @@ impl DqliteDatabaseWriter for AttachedDb<'_> {
                 const FILE_FORMAT_READ_VERSION_OFFSET: usize = 19;
                 header[FILE_FORMAT_WRITE_VERSION_OFFSET] = 2;
                 header[FILE_FORMAT_READ_VERSION_OFFSET] = 2;
-                Ok(())
             }),
         )?;
         Ok(())
@@ -232,11 +231,10 @@ impl DqliteDatabaseWriter for AttachedDb<'_> {
     }
 }
 
-#[allow(clippy::type_complexity)]
 fn write_file(
     file: &mut ConnectionFile<'_>,
     out: &mut impl Write,
-    patch_header: Option<fn(&mut [u8]) -> Result<()>>,
+    patch_header: Option<fn(&mut [u8])>,
 ) -> Result<()> {
     let len = file.len()? as usize;
     let mut offset = 0;
@@ -254,7 +252,7 @@ fn write_file(
         if offset == 0
             && let Some(patch_header) = &patch_header
         {
-            patch_header(buf)?;
+            patch_header(buf);
         }
         out.write_all(buf)?;
         offset += buf.len();
