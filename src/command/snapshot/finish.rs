@@ -210,10 +210,12 @@ impl DqliteDatabaseWriter for AttachedDb<'_> {
             &mut self.main,
             out,
             Some(|header| {
-                // Overwrite file format write and read versions to force WAL mode _without_
-                // affecting the user's already-written data. See https://sqlite.org/fileformat.html
-                header[19] = 2;
-                header[20] = 2;
+                // Force WAL mode without mutating input data.
+                // See https://sqlite.org/fileformat.html
+                const FILE_FORMAT_WRITE_VERSION_OFFSET: usize = 18;
+                const FILE_FORMAT_READ_VERSION_OFFSET: usize = 19;
+                header[FILE_FORMAT_WRITE_VERSION_OFFSET] = 2;
+                header[FILE_FORMAT_READ_VERSION_OFFSET] = 2;
                 Ok(())
             }),
         )?;
