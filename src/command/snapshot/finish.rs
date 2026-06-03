@@ -234,7 +234,7 @@ impl DqliteDatabaseWriter for AttachedDb<'_> {
 fn write_file(
     file: &mut ConnectionFile<'_>,
     out: &mut impl Write,
-    patch_header: Option<fn(&mut [u8])>,
+    patch_header: Option<fn(&mut [u8; 100])>,
 ) -> Result<()> {
     let len = file.len()? as usize;
     let mut offset = 0;
@@ -252,7 +252,11 @@ fn write_file(
         if offset == 0
             && let Some(patch_header) = &patch_header
         {
-            patch_header(buf);
+            let header = buf[..100]
+                .as_mut()
+                .try_into()
+                .context("internal error: header too small")?;
+            patch_header(header);
         }
         out.write_all(buf)?;
         offset += buf.len();
