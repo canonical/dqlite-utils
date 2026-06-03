@@ -263,3 +263,48 @@ fn write_file(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use std::{fs::File, io::Write};
+
+    use rusqlite::Connection;
+
+    use crate::dqlite::DqliteDatabaseWriter;
+
+    use super::*;
+
+    #[test]
+    fn test_header_wal_mode_patching() {
+        let written_db_bytes = {
+            // Create database in delete mode.
+            let src_dir = tempfile::tempdir().unwrap();
+            let db_path = src_dir.path().join("test.sqlite");
+            let conn = Connection::open(&db_path).unwrap();
+            conn.pragma_update(None, "journal_mode", "DELETE").unwrap();
+            conn.execute("CREATE TABLE test(id INTEGER PRIMARY KEY, value TEXT)", ())
+                .unwrap();
+            conn.execute("INSERT INTO test(value) VALUES ('hello')", ())
+                .unwrap();
+
+            // Write database to buffer, this should switch the database to wal mode.
+            let mut attached_db = AttachedDb::new(&conn, "main").unwrap();
+            let mut written_db_bytes = Vec::new();
+            attached_db.write_main(&mut written_db_bytes).unwrap();
+            written_db_bytes
+        };
+
+        // Check journal mode.
+        let out_dir = tempfile::tempdir().unwrap();
+        let out_path = out_dir.path().join("output.sqlite");
+        {
+            let mut out_file = File::create(&out_path).unwrap();
+            out_file.write_all(&written_db_bytes).unwrap();
+        }
+        let out_conn = Connection::open(&out_path).unwrap();
+        let wal_mode = out_conn
+            .pragma_query_value(None, "journal_mode", |row| Ok(row.get_ref(0)?.as_str()? == "wal"))
+            .unwrap();
+        assert!(wal_mode);
+    }
+}
