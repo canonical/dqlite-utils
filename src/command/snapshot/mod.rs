@@ -59,18 +59,6 @@ impl SnapshotCommand {
 }
 
 const SCHEMA: &str = "
-    CREATE TABLE metadata (
-        raft_term INTEGER NOT NULL,
-        raft_index INTEGER NOT NULL,
-        timestamp INTEGER NOT NULL,
-        pretty_timestamp TEXT AS (strftime('%FT%T', timestamp, 'unixepoch')),
-        self INTEGER NULL
-            REFERENCES servers(id)
-            ON DELETE SET DEFAULT
-            ON UPDATE RESTRICT
-        CHECK (rowid = 1)
-    ) STRICT;
-
     CREATE TABLE servers (
         id INTEGER NOT NULL PRIMARY KEY,
         address TEXT NOT NULL UNIQUE,
@@ -81,6 +69,18 @@ const SCHEMA: &str = "
             WHEN role = 2 THEN 'Spare'
             ELSE 'Unknown'
         END)
+    ) STRICT;
+
+    CREATE TABLE metadata (
+        raft_term INTEGER NOT NULL,
+        raft_index INTEGER NOT NULL,
+        timestamp INTEGER NOT NULL,
+        pretty_timestamp TEXT AS (strftime('%FT%T', timestamp, 'unixepoch')),
+        self INTEGER NULL
+            REFERENCES servers(id)
+            ON DELETE SET NULL
+            ON UPDATE RESTRICT
+        CHECK (rowid = 1)
     ) STRICT;
 
     INSERT INTO metadata (raft_term, raft_index, timestamp)
