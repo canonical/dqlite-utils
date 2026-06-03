@@ -204,7 +204,17 @@ impl DqliteDatabaseWriter for AttachedDb<'_> {
     }
 
     fn write_main(&mut self, out: &mut impl Write) -> Result<()> {
-        write_file(&mut self.main, out)?;
+        write_file(
+            &mut self.main,
+            out,
+            Some(|header| {
+                // Overwrite file format write and read versions to force WAL mode _without_
+                // affecting the user's already-written data. See https://sqlite.org/fileformat.html
+                header[19] = 2;
+                header[20] = 2;
+                Ok(())
+            }),
+        )?;
         Ok(())
     }
 
@@ -213,12 +223,17 @@ impl DqliteDatabaseWriter for AttachedDb<'_> {
             Some(journal) => journal,
             None => return Ok(()),
         };
-        write_file(journal, out)?;
+        write_file(journal, out, None)?;
         Ok(())
     }
 }
 
-fn write_file(file: &mut ConnectionFile<'_>, out: &mut impl Write) -> Result<()> {
+#[allow(clippy::type_complexity)]
+fn write_file(
+    file: &mut ConnectionFile<'_>,
+    out: &mut impl Write,
+    patch_header: Option<fn(&mut [u8]) -> Result<()>>,
+) -> Result<()> {
     let len = file.len()? as usize;
     let mut offset = 0;
     let mut buf = [0; 4096];
@@ -231,6 +246,11 @@ fn write_file(file: &mut ConnectionFile<'_>, out: &mut impl Write) -> Result<()>
             Err(err) => {
                 return Err(err.into());
             }
+        }
+        if offset == 0
+            && let Some(patch_header) = &patch_header
+        {
+            patch_header(buf)?;
         }
         out.write_all(buf)?;
         offset += buf.len();
