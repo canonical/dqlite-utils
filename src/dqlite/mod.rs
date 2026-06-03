@@ -16,7 +16,7 @@ use std::{
 };
 
 use anyhow::{Context, Error, Result, anyhow};
-use indoc::writedoc;
+use indoc::{indoc, writedoc};
 use lz4_flex::frame::{BlockMode, FrameDecoder, FrameEncoder, FrameInfo};
 
 use crate::dqlite::sys::{cursor, dqlite_result};
@@ -1889,5 +1889,82 @@ mod tests {
     #[test]
     fn test_snapshots_compressed() {
         test_snapshots(true);
+    }
+
+    #[test]
+    fn test_snapshots_with_self_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let db1 = TestDatabaseSnapshot {
+            name: OsString::from("db1"),
+            main: vec![1u8; 4096],
+            wal: Vec::new(),
+        };
+
+        let configuration = RaftConfiguration {
+            servers: vec![
+                RaftServer {
+                    id: 1,
+                    address: "127.0.0.1:8080".to_owned(),
+                    role: RaftRole::Voter,
+                },
+                RaftServer {
+                    id: 2,
+                    address: "127.0.0.1:8081".to_owned(),
+                    role: RaftRole::Standby,
+                },
+                RaftServer {
+                    id: 3,
+                    address: "127.0.0.1:8082".to_owned(),
+                    role: RaftRole::Spare,
+                },
+            ],
+        };
+        let timestamp = UNIX_EPOCH
+            + Duration::from_millis(
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis() as u64,
+            );
+        let new_dir_path = dir.path().join("new-dir");
+        DqliteDir::creator(&new_dir_path)
+            .with_snapshot(|s| {
+                s.with_configuration(configuration.clone())
+                    .with_term(3)
+                    .with_index(1)
+                    .with_self_id(2)
+                    .with_timestamp(timestamp)
+                    .with_compression(false)
+                    .add_database(CString::new("db1").unwrap(), &db1)
+            })
+            .create()
+            .unwrap();
+
+        let state = DqliteDir::open(&new_dir_path).unwrap();
+        let snapshots = state.snapshots();
+        assert_eq!(snapshots.len(), 1);
+        assert_eq!(snapshots[0].configuration, configuration);
+
+        let info_yaml = std::fs::read_to_string(new_dir_path.join("info.yaml")).unwrap();
+        let expected_info_yaml = indoc! {"
+            ID: 2
+            Address: 127.0.0.1:8081
+            Role: 0
+        "};
+        assert_eq!(info_yaml, expected_info_yaml);
+
+        let cluster_yaml = std::fs::read_to_string(new_dir_path.join("cluster.yaml")).unwrap();
+        let expected_cluster_yaml = indoc! {"
+            - ID: 1
+              Address: 127.0.0.1:8080
+              Role: 1
+            - ID: 2
+              Address: 127.0.0.1:8081
+              Role: 0
+            - ID: 3
+              Address: 127.0.0.1:8082
+              Role: 2
+        "};
+        assert_eq!(cluster_yaml, expected_cluster_yaml);
     }
 }
