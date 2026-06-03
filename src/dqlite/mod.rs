@@ -6,7 +6,7 @@ use std::{
     ffi::{CStr, CString, OsStr, OsString, c_char, c_int, c_uint, c_void},
     fmt::Debug,
     fs::{self, File},
-    io::{self, Read, Seek, SeekFrom, Write},
+    io::{self, BufWriter, Read, Seek, SeekFrom, Write},
     ops::{Deref, DerefMut, RangeInclusive},
     os::unix::{ffi::OsStrExt, fs::FileExt},
     path::{Path, PathBuf},
@@ -16,6 +16,7 @@ use std::{
 };
 
 use anyhow::{Context, Error, Result, anyhow};
+use indoc::writedoc;
 use lz4_flex::frame::{BlockMode, FrameDecoder, FrameEncoder, FrameInfo};
 
 use crate::dqlite::sys::{cursor, dqlite_result};
@@ -272,7 +273,6 @@ impl DqliteDir {
             term: 1,
             voted_for: 0,
             first_index: 1,
-            self_id: None,
             page_size: 4096,
             closed_segments: Vec::new(),
             open_segments: Vec::new(),
@@ -976,6 +976,7 @@ pub struct Empty;
 pub struct DqliteSnapshotBuilder<T> {
     term: u64,
     index: u64,
+    self_id: Option<u64>,
     timestamp: SystemTime,
     compressed: bool,
     databases: Vec<(CString, T)>,
@@ -987,6 +988,7 @@ impl<T> DqliteSnapshotBuilder<T> {
         Self {
             term,
             index,
+            self_id: None,
             timestamp,
             compressed: true,
             databases: Vec::new(),
@@ -1001,6 +1003,11 @@ impl<T> DqliteSnapshotBuilder<T> {
 
     pub fn with_index(mut self, index: u64) -> Self {
         self.index = index;
+        self
+    }
+
+    pub fn with_self_id(mut self, self_id: u64) -> Self {
+        self.self_id = Some(self_id);
         self
     }
 
@@ -1028,14 +1035,25 @@ where
         let Self {
             term,
             index,
+            self_id,
             timestamp,
             compressed,
+            configuration,
             ..
         } = self;
         let mut path = {
             let timestamp = timestamp.duration_since(UNIX_EPOCH)?.as_millis();
             folder.join(format!("snapshot-{term}-{index}-{timestamp}"))
         };
+
+        if let Some(configuration) = configuration
+            && let Some(self_id) = self_id
+        {
+            // Write go-dqlite metadata. This isn't strictly a _dqlite_ requirement, but this
+            // is cheap and the vast majority of our users use go-dqlite anyway.
+            Self::write_info_yaml(&folder.join("info.yaml"), *self_id, configuration)?;
+            Self::write_cluster_yaml(&folder.join("cluster.yaml"), configuration)?;
+        }
 
         let file = File::create(&path)?;
         if *compressed {
@@ -1158,6 +1176,55 @@ where
 
         Ok(())
     }
+
+    fn write_info_yaml(path: &Path, self_id: u64, configuration: &RaftConfiguration) -> Result<()> {
+        let self_server = configuration
+            .servers
+            .iter()
+            .find(|server| server.id == self_id)
+            .ok_or_else(|| anyhow!("cannot find self"))?;
+        let RaftServer { id, address, role } = self_server;
+        let role = *role as u8;
+        let mut info_file = BufWriter::new(
+            File::create_new(path).with_context(|| anyhow!("cannot create {}", path.display()))?,
+        );
+        writedoc!(
+            info_file,
+            "
+                ID: {id}
+                Address: {address}
+                Role: {role}
+            "
+        )
+        .with_context(|| anyhow!("cannot write to {}", path.display()))?;
+        info_file
+            .flush()
+            .with_context(|| anyhow!("cannot flush {}", path.display()))?;
+        Ok(())
+    }
+
+    fn write_cluster_yaml(path: &Path, configuration: &RaftConfiguration) -> Result<()> {
+        let mut cluster_file = BufWriter::new(
+            File::create_new(&path).with_context(|| anyhow!("cannot create {}", path.display()))?,
+        );
+        for server in &configuration.servers {
+            let RaftServer { id, address, role } = server;
+            let role = *role as u8;
+            writedoc!(
+                cluster_file,
+                "
+                    - ID: {id}
+                      Address: {address}
+                      Role: {role}
+                "
+            )
+            .with_context(|| anyhow!("cannot write to {}", path.display()))?;
+        }
+        cluster_file
+            .flush()
+            .with_context(|| anyhow!("cannot flush {}", path.display()))?;
+        Ok(())
+    }
 }
 
 impl DqliteSnapshotBuilder<Empty> {
@@ -1169,6 +1236,7 @@ impl DqliteSnapshotBuilder<Empty> {
         let Self {
             term,
             index,
+            self_id,
             timestamp,
             compressed,
             configuration,
@@ -1179,6 +1247,7 @@ impl DqliteSnapshotBuilder<Empty> {
         DqliteSnapshotBuilder {
             term,
             index,
+            self_id,
             timestamp,
             compressed,
             configuration,
@@ -1193,6 +1262,7 @@ impl DqliteSnapshotBuilder<Empty> {
         let Self {
             term,
             index,
+            self_id,
             timestamp,
             compressed,
             databases,
@@ -1203,6 +1273,7 @@ impl DqliteSnapshotBuilder<Empty> {
         DqliteSnapshotBuilder {
             term,
             index,
+            self_id,
             timestamp,
             compressed,
             configuration,
@@ -1231,7 +1302,6 @@ pub struct DqliteDirCreator<T> {
     term: u64,
     voted_for: u64,
     first_index: u64,
-    self_id: Option<u64>,
     page_size: u64,
     closed_segments: Vec<DqliteSegmentBuilder>,
     open_segments: Vec<DqliteSegmentBuilder>,
@@ -1290,7 +1360,6 @@ impl DqliteDirCreator<Empty> {
             term,
             voted_for,
             first_index,
-            self_id,
             page_size,
             closed_segments,
             open_segments,
@@ -1310,7 +1379,6 @@ impl DqliteDirCreator<Empty> {
             term,
             voted_for,
             first_index,
-            self_id,
             page_size,
             closed_segments,
             open_segments,
@@ -1339,11 +1407,6 @@ where
 
         let snapshot = f(DqliteSnapshotBuilder::new(self.term, index, timestamp));
         self.snapshots.push(snapshot);
-        self
-    }
-
-    pub fn with_self_id(mut self, self_id: impl Into<Option<u64>>) -> Self {
-        self.self_id = self_id.into();
         self
     }
 }
