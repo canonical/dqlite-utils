@@ -25,11 +25,8 @@ parts:
   dqlite-utils:
     plugin: rust
     source: .
-    rust-inherit-ldflags: true
     build-attributes:
       - enable-patchelf
-    build-environment:
-      - LDFLAGS: -Wl,-rpath=\$ORIGIN/lib:/snap/core24/current/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR -Wl,-dynamic-linker=$(find /snap/core24/current/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR -name 'ld*.so.*' -print | head -n1)
     build-packages:
       - clang
       - libdqlite1.18-unstable-dev
