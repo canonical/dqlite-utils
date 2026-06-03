@@ -161,7 +161,7 @@ impl FinishCommand {
             .servers
             .iter()
             .find(|server| server.id == self_id)
-            .ok_or_else(|| anyhow!("cannot find self server"))?;
+            .ok_or_else(|| anyhow!("cannot find self"))?;
         let RaftServer {
             id: _,
             address,

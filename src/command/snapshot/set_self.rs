@@ -15,8 +15,8 @@ impl SetSelfCommand {
     pub(crate) fn help() -> Help {
         Help::builder()
             .name(".set-self")
-            .summary("set the self server in the snapshot")
-            .add_arg("id", "the ID of the server to mark as self")
+            .summary("the server this snapshot will be given to")
+            .add_arg("id", "the id of self")
             .build()
             .expect("internal error: help invalid")
     }

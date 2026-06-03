@@ -20,7 +20,7 @@ impl AddServerCommand {
         Help::builder()
             .name(".add-server")
             .summary("add a server to the snapshot")
-            .add_flag("--self", "specify that this node will start the cluster")
+            .add_flag("--self", "the server this snapshot will be given to")
             .add_arg("address", "the server's address")
             .add_optional_arg(
                 "role",
