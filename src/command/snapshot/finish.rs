@@ -174,11 +174,13 @@ impl<'conn> AttachedDb<'conn> {
 
     fn check(&self, conn: &Connection) -> Result<()> {
         let name = &self.name;
-        let wal_mode = conn.pragma_query_value(Some(name), "journal_mode", |row| {
-            Ok(row.get_ref("journal_mode")?.as_str()? == "wal")
-        })?;
-        if !wal_mode {
-            return Err(anyhow!("journal mode of schema {name} must be 'wal'"));
+        if self.journal.is_some() {
+            let wal_mode = conn.pragma_query_value(Some(name), "journal_mode", |row| {
+                Ok(row.get_ref("journal_mode")?.as_str()? == "wal")
+            })?;
+            if !wal_mode {
+                return Err(anyhow!("schema {name} has non-wal journal present"));
+            }
         }
         Ok(())
     }
