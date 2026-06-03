@@ -167,7 +167,6 @@ impl OpenShell {
         let ret = Connection::open_with_flags_and_vfs(":memory:", OpenFlags::default(), "dqlite")
             .context("internal error: cannot open connection to in-memory database")?;
         ret.set_main_name(c"raft");
-        ret.pragma_update(None, "foreign_keys", true)?;
         ret.authorizer(Some(Self::authorizer))?;
         // TODO: use a virtual table to access the snapshot/index metadata? Or just copy that here? Not sure...
         Ok(ret)
