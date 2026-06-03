@@ -1,0 +1,27 @@
+Source: dqlite-utils
+Section: utils
+Priority: optional
+Maintainer: kcza <edjones98@gmail.com>
+Build-Depends:
+ debhelper-compat (= 13),
+ cargo,
+ clang,
+ libclang-dev,
+ libdqlite1.18-unstable-dev,
+ liblz4-dev,
+ libsqlite3-dev,
+ libuv1-dev,
+ pkgconf,
+ rustc
+Standards-Version: 4.7.0
+Homepage: https://github.com/canonical/dqlite-utils
+Rules-Requires-Root: no
+
+Package: dqlite-utils
+Architecture: any
+Depends:
+ ${misc:Depends},
+ ${shlibs:Depends}
+Description: Inspect the on-disk state of a dqlite node
+ dqlite-utils is an observability tool for inspecting the on-disk state of a
+ dqlite node without affecting the running cluster.

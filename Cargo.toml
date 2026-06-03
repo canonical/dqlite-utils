@@ -11,11 +11,11 @@ bitflags = "2.10.0"
 clap = { version = "4.5.48", features = ["color", "derive", "wrap_help"] }
 home = "0.5.11"
 indoc = "2.0.7"
-libsqlite3-sys = "0.37.0"
+libsqlite3-sys = { git = "https://github.com/rusqlite/rusqlite", rev = "bb6943504439406a69950f58a1036ad79f17de94" }
 lz4_flex = "0.13.0"
 owo-colors = { version = "4.2.3", features = ["supports-colors"] }
 rand = "0.10.0"
-rusqlite = { version = "0.39.0", features = ["bundled-full"] }
+rusqlite = {  git = "https://github.com/rusqlite/rusqlite", rev = "bb6943504439406a69950f58a1036ad79f17de94", features = ["bundled-full"] }
 rustyline = "18.0.0"
 shell-words = "1.1.0"
 static_assertions = "1.1.0"
