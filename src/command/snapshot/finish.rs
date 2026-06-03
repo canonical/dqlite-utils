@@ -176,9 +176,9 @@ impl FinishCommand {
         writedoc!(
             info_file,
             "
-                - ID: {self_id}
-                  Address: {address}
-                  Role: {role}
+                ID: {self_id}
+                Address: {address}
+                Role: {role}
             "
         )
         .with_context(|| anyhow!("cannot write to {}", info_path.display()))?;
