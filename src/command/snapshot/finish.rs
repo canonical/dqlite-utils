@@ -287,7 +287,7 @@ mod tests {
             conn.execute("INSERT INTO test(value) VALUES ('hello')", ())
                 .unwrap();
 
-            // Write database to buffer, this should switch the database to wal mode.
+            // Write database to buffer, the written database should be in WAL mode.
             let mut attached_db = AttachedDb::new(&conn, "main").unwrap();
             let mut written_db_bytes = Vec::new();
             attached_db.write_main(&mut written_db_bytes).unwrap();
