@@ -209,13 +209,16 @@ impl DqliteDatabaseWriter for AttachedDb<'_> {
         write_file(
             &mut self.main,
             out,
-            Some(|header| {
-                // Force WAL mode without mutating input data.
-                // See https://sqlite.org/fileformat.html
+            Some(|offset, buf| {
+                // Patch header to force WAL mode without mutating input data. See
+                // https://sqlite.org/fileformat.html
+                if offset != 0 {
+                    return;
+                }
                 const FILE_FORMAT_WRITE_VERSION_OFFSET: usize = 18;
                 const FILE_FORMAT_READ_VERSION_OFFSET: usize = 19;
-                header[FILE_FORMAT_WRITE_VERSION_OFFSET] = 2;
-                header[FILE_FORMAT_READ_VERSION_OFFSET] = 2;
+                buf[FILE_FORMAT_WRITE_VERSION_OFFSET] = 2;
+                buf[FILE_FORMAT_READ_VERSION_OFFSET] = 2;
             }),
         )?;
         Ok(())
@@ -234,7 +237,7 @@ impl DqliteDatabaseWriter for AttachedDb<'_> {
 fn write_file(
     file: &mut ConnectionFile<'_>,
     out: &mut impl Write,
-    patch_header: Option<fn(&mut [u8; 100])>,
+    patch: Option<fn(usize, &mut [u8])>,
 ) -> Result<()> {
     let len = file.len()? as usize;
     let mut offset = 0;
@@ -249,14 +252,8 @@ fn write_file(
                 return Err(err.into());
             }
         }
-        if offset == 0
-            && let Some(patch_header) = &patch_header
-        {
-            let header = buf.get_mut(..100)
-                .context("internal error: header too small")?
-                .try_into()
-                .expect("internal error: size mismatch");
-            patch_header(header);
+        if let Some(patch) = patch {
+            patch(offset, buf);
         }
         out.write_all(buf)?;
         offset += buf.len();
