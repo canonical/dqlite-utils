@@ -1046,8 +1046,7 @@ where
             folder.join(format!("snapshot-{term}-{index}-{timestamp}"))
         };
 
-        if let Some(configuration) = configuration
-        {
+        if let Some(configuration) = configuration {
             // Write go-dqlite metadata. This isn't strictly a _dqlite_ requirement, but this
             // is cheap and the vast majority of our users use go-dqlite anyway.
             Self::write_cluster_yaml(&folder.join("cluster.yaml"), configuration)?;
