@@ -6,7 +6,7 @@ use std::{
     ffi::{CStr, CString, OsStr, OsString, c_char, c_int, c_uint, c_void},
     fmt::Debug,
     fs::{self, File},
-    io::{self, Read, Seek, SeekFrom, Write},
+    io::{self, BufWriter, Read, Seek, SeekFrom, Write},
     ops::{Deref, DerefMut, RangeInclusive},
     os::unix::{ffi::OsStrExt, fs::FileExt},
     path::{Path, PathBuf},
@@ -16,6 +16,7 @@ use std::{
 };
 
 use anyhow::{Context, Error, Result, anyhow};
+use indoc::{indoc, writedoc};
 use lz4_flex::frame::{BlockMode, FrameDecoder, FrameEncoder, FrameInfo};
 
 use crate::dqlite::sys::{cursor, dqlite_result};
@@ -975,6 +976,7 @@ pub struct Empty;
 pub struct DqliteSnapshotBuilder<T> {
     term: u64,
     index: u64,
+    self_id: Option<u64>,
     timestamp: SystemTime,
     compressed: bool,
     databases: Vec<(CString, T)>,
@@ -986,6 +988,7 @@ impl<T> DqliteSnapshotBuilder<T> {
         Self {
             term,
             index,
+            self_id: None,
             timestamp,
             compressed: true,
             databases: Vec::new(),
@@ -1000,6 +1003,11 @@ impl<T> DqliteSnapshotBuilder<T> {
 
     pub fn with_index(mut self, index: u64) -> Self {
         self.index = index;
+        self
+    }
+
+    pub fn with_self_id(mut self, self_id: u64) -> Self {
+        self.self_id = Some(self_id);
         self
     }
 
@@ -1027,14 +1035,25 @@ where
         let Self {
             term,
             index,
+            self_id,
             timestamp,
             compressed,
+            configuration,
             ..
         } = self;
         let mut path = {
             let timestamp = timestamp.duration_since(UNIX_EPOCH)?.as_millis();
             folder.join(format!("snapshot-{term}-{index}-{timestamp}"))
         };
+
+        if let Some(configuration) = configuration {
+            // Write go-dqlite metadata. This isn't strictly a _dqlite_ requirement, but this
+            // is cheap and the vast majority of our users use go-dqlite anyway.
+            Self::write_cluster_yaml(&folder.join("cluster.yaml"), configuration)?;
+            if let Some(self_id) = self_id {
+                Self::write_info_yaml(&folder.join("info.yaml"), *self_id, configuration)?;
+            }
+        }
 
         let file = File::create(&path)?;
         if *compressed {
@@ -1157,6 +1176,55 @@ where
 
         Ok(())
     }
+
+    fn write_info_yaml(path: &Path, self_id: u64, configuration: &RaftConfiguration) -> Result<()> {
+        let self_server = configuration
+            .servers
+            .iter()
+            .find(|server| server.id == self_id)
+            .ok_or_else(|| anyhow!("cannot find self"))?;
+        let RaftServer { id, address, role } = self_server;
+        let role = *role as u8;
+        let mut info_file = BufWriter::new(
+            File::create_new(path).with_context(|| anyhow!("cannot create {}", path.display()))?,
+        );
+        writedoc!(
+            info_file,
+            "
+                ID: {id}
+                Address: {address}
+                Role: {role}
+            "
+        )
+        .with_context(|| anyhow!("cannot write to {}", path.display()))?;
+        info_file
+            .flush()
+            .with_context(|| anyhow!("cannot flush {}", path.display()))?;
+        Ok(())
+    }
+
+    fn write_cluster_yaml(path: &Path, configuration: &RaftConfiguration) -> Result<()> {
+        let mut cluster_file = BufWriter::new(
+            File::create_new(&path).with_context(|| anyhow!("cannot create {}", path.display()))?,
+        );
+        for server in &configuration.servers {
+            let RaftServer { id, address, role } = server;
+            let role = *role as u8;
+            writedoc!(
+                cluster_file,
+                "
+                    - ID: {id}
+                      Address: {address}
+                      Role: {role}
+                "
+            )
+            .with_context(|| anyhow!("cannot write to {}", path.display()))?;
+        }
+        cluster_file
+            .flush()
+            .with_context(|| anyhow!("cannot flush {}", path.display()))?;
+        Ok(())
+    }
 }
 
 impl DqliteSnapshotBuilder<Empty> {
@@ -1168,6 +1236,7 @@ impl DqliteSnapshotBuilder<Empty> {
         let Self {
             term,
             index,
+            self_id,
             timestamp,
             compressed,
             configuration,
@@ -1178,6 +1247,7 @@ impl DqliteSnapshotBuilder<Empty> {
         DqliteSnapshotBuilder {
             term,
             index,
+            self_id,
             timestamp,
             compressed,
             configuration,
@@ -1192,6 +1262,7 @@ impl DqliteSnapshotBuilder<Empty> {
         let Self {
             term,
             index,
+            self_id,
             timestamp,
             compressed,
             databases,
@@ -1202,6 +1273,7 @@ impl DqliteSnapshotBuilder<Empty> {
         DqliteSnapshotBuilder {
             term,
             index,
+            self_id,
             timestamp,
             compressed,
             configuration,
@@ -1817,5 +1889,82 @@ mod tests {
     #[test]
     fn test_snapshots_compressed() {
         test_snapshots(true);
+    }
+
+    #[test]
+    fn test_snapshots_with_self_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let db1 = TestDatabaseSnapshot {
+            name: OsString::from("db1"),
+            main: vec![1u8; 4096],
+            wal: Vec::new(),
+        };
+
+        let configuration = RaftConfiguration {
+            servers: vec![
+                RaftServer {
+                    id: 1,
+                    address: "127.0.0.1:8080".to_owned(),
+                    role: RaftRole::Voter,
+                },
+                RaftServer {
+                    id: 2,
+                    address: "127.0.0.1:8081".to_owned(),
+                    role: RaftRole::Standby,
+                },
+                RaftServer {
+                    id: 3,
+                    address: "127.0.0.1:8082".to_owned(),
+                    role: RaftRole::Spare,
+                },
+            ],
+        };
+        let timestamp = UNIX_EPOCH
+            + Duration::from_millis(
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis() as u64,
+            );
+        let new_dir_path = dir.path().join("new-dir");
+        DqliteDir::creator(&new_dir_path)
+            .with_snapshot(|s| {
+                s.with_configuration(configuration.clone())
+                    .with_term(3)
+                    .with_index(1)
+                    .with_self_id(2)
+                    .with_timestamp(timestamp)
+                    .with_compression(false)
+                    .add_database(CString::new("db1").unwrap(), &db1)
+            })
+            .create()
+            .unwrap();
+
+        let state = DqliteDir::open(&new_dir_path).unwrap();
+        let snapshots = state.snapshots();
+        assert_eq!(snapshots.len(), 1);
+        assert_eq!(snapshots[0].configuration, configuration);
+
+        let info_yaml = std::fs::read_to_string(new_dir_path.join("info.yaml")).unwrap();
+        let expected_info_yaml = indoc! {"
+            ID: 2
+            Address: 127.0.0.1:8081
+            Role: 0
+        "};
+        assert_eq!(info_yaml, expected_info_yaml);
+
+        let cluster_yaml = std::fs::read_to_string(new_dir_path.join("cluster.yaml")).unwrap();
+        let expected_cluster_yaml = indoc! {"
+            - ID: 1
+              Address: 127.0.0.1:8080
+              Role: 1
+            - ID: 2
+              Address: 127.0.0.1:8081
+              Role: 0
+            - ID: 3
+              Address: 127.0.0.1:8082
+              Role: 2
+        "};
+        assert_eq!(cluster_yaml, expected_cluster_yaml);
     }
 }

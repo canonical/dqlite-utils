@@ -291,6 +291,10 @@ struct MissingArgumentError(&'static str);
 #[error("unrecognized arguments: {_0:?}")]
 struct UnrecognizedArgumentsError(Vec<String>);
 
+#[derive(Debug, thiserror::Error)]
+#[error("unrecognized flag: {_0}")]
+struct UnrecognizedFlagError(String);
+
 #[derive(Debug, Default)]
 pub struct RootShell {
     prompt: Prompt,

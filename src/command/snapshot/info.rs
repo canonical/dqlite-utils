@@ -42,14 +42,20 @@ impl InfoCommand {
             term,
             index,
             timestamp,
+            self_id,
         } = RaftMetadata::read_from(conn)?;
         let timestamp = timestamp
             .format(&Iso8601::DEFAULT)
             .map_err(|_| fmt::Error)?;
+        let self_id = match self_id {
+            Some(id) => id.to_string(),
+            None => "null".to_owned(),
+        };
         printdoc!(
             "
                 term: {term}
                 index: {index}
+                self: {self_id}
                 timestamp: {timestamp}
             "
         );

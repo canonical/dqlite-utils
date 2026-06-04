@@ -1,6 +1,6 @@
 use std::cell::OnceCell;
 use std::ffi::{CString, OsStr};
-use std::fs::{self};
+use std::fs;
 use std::io::{ErrorKind, Write};
 use std::path::PathBuf;
 use std::sync::LazyLock;
@@ -65,8 +65,10 @@ impl FinishCommand {
             term,
             index,
             timestamp,
+            self_id,
         } = RaftMetadata::read_from(&txn)?;
         let timestamp = SystemTime::from(timestamp);
+        let self_id = self_id.ok_or_else(|| anyhow!("no 'self' server set, use .set-self"))?;
 
         let attached_dbs = {
             let mut attached_dbs = Vec::with_capacity(10);
@@ -104,11 +106,12 @@ impl FinishCommand {
         };
 
         let res = DqliteDir::creator(&dir)
-            .with_snapshot(move |s| {
+            .with_snapshot(|s| {
                 s.with_term(term)
                     .with_index(index)
+                    .with_self_id(self_id)
                     .with_timestamp(timestamp)
-                    .with_configuration(configuration)
+                    .with_configuration(configuration.clone())
                     .add_databases(attached_dbs.into_iter().map(|db| {
                         let name = CString::new(db.name.as_bytes())
                             .expect("cannot make CString from db name");
