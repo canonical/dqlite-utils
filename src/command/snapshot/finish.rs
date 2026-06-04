@@ -252,10 +252,10 @@ fn write_file(
         if offset == 0
             && let Some(patch_header) = &patch_header
         {
-            let header = buf[..100]
-                .as_mut()
+            let header = buf.get_mut(..100)
+                .context("internal error: header too small")?
                 .try_into()
-                .context("internal error: header too small")?;
+                .expect("internal error: size mismatch");
             patch_header(header);
         }
         out.write_all(buf)?;
