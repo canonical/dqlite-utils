@@ -6,13 +6,20 @@
   "packageRules": [
     {
       "matchManagers": [
-        "cargo",
-        "rust-toolchain"
+        "cargo"
       ],
-      "matchDepNames": [
-        "rust",
+      "matchPackageNames": [
         "libsqlite3-sys",
         "rusqlite"
+      ],
+      "enabled": false
+    },
+    {
+      "matchManagers": [
+        "rust-toolchain"
+      ],
+      "matchDepTypes": [
+        "toolchain"
       ],
       "enabled": false
     }
