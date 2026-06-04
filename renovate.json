@@ -6,7 +6,8 @@
   "packageRules": [
     {
       "matchManagers": [
-        "cargo"
+        "cargo",
+        "rust-toolchain"
       ],
       "matchDepNames": [
         "rust",
