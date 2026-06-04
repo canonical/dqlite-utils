@@ -177,11 +177,13 @@ impl<'conn> AttachedDb<'conn> {
 
     fn check(&self, conn: &Connection) -> Result<()> {
         let name = &self.name;
-        let wal_mode = conn.pragma_query_value(Some(name), "journal_mode", |row| {
-            Ok(row.get_ref("journal_mode")?.as_str()? == "wal")
-        })?;
-        if !wal_mode {
-            return Err(anyhow!("journal mode of schema {name} must be 'wal'"));
+        if self.journal.is_some() {
+            let wal_mode = conn.pragma_query_value(Some(name), "journal_mode", |row| {
+                Ok(row.get_ref("journal_mode")?.as_str()? == "wal")
+            })?;
+            if !wal_mode {
+                return Err(anyhow!("schema {name} has non-wal journal present"));
+            }
         }
         Ok(())
     }
@@ -207,7 +209,21 @@ impl DqliteDatabaseWriter for AttachedDb<'_> {
     }
 
     fn write_main(&mut self, out: &mut impl Write) -> Result<()> {
-        write_file(&mut self.main, out)?;
+        write_file(
+            &mut self.main,
+            out,
+            Some(|offset, buf| {
+                // Patch header to force WAL mode without mutating input data. See
+                // https://sqlite.org/fileformat.html
+                if offset != 0 {
+                    return;
+                }
+                const FILE_FORMAT_WRITE_VERSION_OFFSET: usize = 18;
+                const FILE_FORMAT_READ_VERSION_OFFSET: usize = 19;
+                buf[FILE_FORMAT_WRITE_VERSION_OFFSET] = 2;
+                buf[FILE_FORMAT_READ_VERSION_OFFSET] = 2;
+            }),
+        )?;
         Ok(())
     }
 
@@ -216,12 +232,16 @@ impl DqliteDatabaseWriter for AttachedDb<'_> {
             Some(journal) => journal,
             None => return Ok(()),
         };
-        write_file(journal, out)?;
+        write_file(journal, out, None)?;
         Ok(())
     }
 }
 
-fn write_file(file: &mut ConnectionFile<'_>, out: &mut impl Write) -> Result<()> {
+fn write_file(
+    file: &mut ConnectionFile<'_>,
+    out: &mut impl Write,
+    patch: Option<fn(usize, &mut [u8])>,
+) -> Result<()> {
     let len = file.len()? as usize;
     let mut offset = 0;
     let mut buf = [0; 4096];
@@ -235,8 +255,58 @@ fn write_file(file: &mut ConnectionFile<'_>, out: &mut impl Write) -> Result<()>
                 return Err(err.into());
             }
         }
+        if let Some(patch) = patch {
+            patch(offset, buf);
+        }
         out.write_all(buf)?;
         offset += buf.len();
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{fs::File, io::Write};
+
+    use rusqlite::Connection;
+
+    use crate::dqlite::DqliteDatabaseWriter;
+
+    use super::*;
+
+    #[test]
+    fn test_header_wal_mode_patching() {
+        let written_db_bytes = {
+            // Create database in delete mode.
+            let src_dir = tempfile::tempdir().unwrap();
+            let db_path = src_dir.path().join("test.sqlite");
+            let conn = Connection::open(&db_path).unwrap();
+            conn.pragma_update(None, "journal_mode", "DELETE").unwrap();
+            conn.execute("CREATE TABLE test(id INTEGER PRIMARY KEY, value TEXT)", ())
+                .unwrap();
+            conn.execute("INSERT INTO test(value) VALUES ('hello')", ())
+                .unwrap();
+
+            // Write database to buffer, the written database should be in WAL mode.
+            let mut attached_db = AttachedDb::new(&conn, "main").unwrap();
+            let mut written_db_bytes = Vec::new();
+            attached_db.write_main(&mut written_db_bytes).unwrap();
+            written_db_bytes
+        };
+
+        // Check journal mode.
+        let out_dir = tempfile::tempdir().unwrap();
+        let out_path = out_dir.path().join("output.sqlite");
+        {
+            let mut out_file = File::create(&out_path).unwrap();
+            out_file.write_all(&written_db_bytes).unwrap();
+        }
+        let out_conn = Connection::open(&out_path).unwrap();
+        let wal_mode = out_conn
+            .pragma_query_value(None, "journal_mode", |row| {
+                Ok(row.get_ref(0)?.as_str()? == "wal")
+            })
+            .unwrap();
+        assert!(wal_mode);
+    }
 }
