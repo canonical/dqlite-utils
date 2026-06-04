@@ -300,7 +300,9 @@ mod tests {
         }
         let out_conn = Connection::open(&out_path).unwrap();
         let wal_mode = out_conn
-            .pragma_query_value(None, "journal_mode", |row| Ok(row.get_ref(0)?.as_str()? == "wal"))
+            .pragma_query_value(None, "journal_mode", |row| {
+                Ok(row.get_ref(0)?.as_str()? == "wal")
+            })
             .unwrap();
         assert!(wal_mode);
     }
