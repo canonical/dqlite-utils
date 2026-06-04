@@ -1047,12 +1047,13 @@ where
         };
 
         if let Some(configuration) = configuration
-            && let Some(self_id) = self_id
         {
             // Write go-dqlite metadata. This isn't strictly a _dqlite_ requirement, but this
             // is cheap and the vast majority of our users use go-dqlite anyway.
-            Self::write_info_yaml(&folder.join("info.yaml"), *self_id, configuration)?;
             Self::write_cluster_yaml(&folder.join("cluster.yaml"), configuration)?;
+            if let Some(self_id) = self_id {
+                Self::write_info_yaml(&folder.join("info.yaml"), *self_id, configuration)?;
+            }
         }
 
         let file = File::create(&path)?;
