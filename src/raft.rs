@@ -4,7 +4,7 @@ use std::{
     ptr,
 };
 
-use anyhow::{Error, Result, anyhow};
+use anyhow::{Context, Error, Result, anyhow};
 
 use crate::sys;
 use crate::sys::{RAFT_ERRMSG_BUF_SIZE, raft_configuration, raft_result, raft_role, raft_server};
@@ -107,7 +107,8 @@ impl RaftConfiguration {
         unsafe { sys::configurationInit(&mut c) };
 
         for server in &self.servers {
-            let address = CString::new(server.address.as_str()).unwrap();
+            let address = CString::new(server.address.as_str())
+                .with_context(|| anyhow!("cannot use {:?} as server address", server.address))?;
             let role = match server.role {
                 RaftRole::Standby => raft_role::RAFT_STANDBY,
                 RaftRole::Voter => raft_role::RAFT_VOTER,
