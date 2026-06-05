@@ -17,7 +17,8 @@ use crate::command::{MissingArgumentError, UnrecognizedArgumentsError};
 use crate::utils::AttachedSchemasConnectionExt;
 use crate::{Context, Result, Shell};
 use dqlite_utils::DqliteDir;
-use dqlite_utils::dir::{DqliteDatabaseWriter, RaftConfiguration};
+use dqlite_utils::dir::DqliteDatabaseWriter;
+use dqlite_utils::raft::RaftConfiguration;
 use dqlite_utils::rusqlite_ext::files::{ConnectionFile, ConnectionFilesExt};
 
 #[derive(Debug)]

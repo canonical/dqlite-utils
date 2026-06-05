@@ -4,7 +4,8 @@ use indoc::eprintdoc;
 use crate::Context;
 use crate::command::help::Help;
 use dqlite_utils::DqliteDir;
-use dqlite_utils::dir::{DqliteLogEntryContent, RaftConfiguration, RaftRole, RaftServer};
+use dqlite_utils::dir::DqliteLogEntryContent;
+use dqlite_utils::raft::{RaftConfiguration, RaftRole, RaftServer};
 
 use super::UnrecognizedArgumentsError;
 

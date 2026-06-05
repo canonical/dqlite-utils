@@ -8,7 +8,8 @@ use crate::Context;
 use crate::command::help::Help;
 use crate::utils::{Pager, TerminalStylizeExt};
 use dqlite_utils::DqliteDir;
-use dqlite_utils::dir::{DqliteLogEntry, DqliteLogEntryContent, DqliteSegment, RaftServer};
+use dqlite_utils::dir::{DqliteLogEntry, DqliteLogEntryContent, DqliteSegment};
+use dqlite_utils::raft::RaftServer;
 
 use super::UnrecognizedArgumentsError;
 

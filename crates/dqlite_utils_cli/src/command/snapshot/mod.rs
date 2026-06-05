@@ -20,7 +20,7 @@ use crate::command::help::{Help, HelpCommand};
 use crate::command::{UnknownCommand, UnrecognizedArgumentsError};
 use crate::prompt::Prompt;
 use crate::{Context, Error, Result, Shell};
-use dqlite_utils::dir::{RaftRole, RaftServer};
+use dqlite_utils::raft::{RaftRole, RaftServer};
 use dqlite_utils::rusqlite_ext::config::ConnectionConfigExt;
 
 use self::abort::AbortCommand;

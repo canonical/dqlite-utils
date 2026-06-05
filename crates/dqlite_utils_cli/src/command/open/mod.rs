@@ -309,9 +309,9 @@ mod tests {
     use dqlite_utils::DqliteDir;
     use dqlite_utils::dir::{
         DqliteDatabaseWriter, DqliteFrame, DqliteLogEntry, DqliteLogEntryContent,
-        DqliteSegmentBuilder, DqliteSnapshotBuilder, Empty, RaftConfiguration, RaftRole,
-        RaftServer,
+        DqliteSegmentBuilder, DqliteSnapshotBuilder, Empty,
     };
+    use dqlite_utils::raft::{RaftConfiguration, RaftRole, RaftServer};
     use dqlite_utils::rusqlite_ext::files::{ConnectionFile, ConnectionFilesExt};
 
     struct ConnectionWriter<'a> {

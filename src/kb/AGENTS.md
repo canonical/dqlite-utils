@@ -4,7 +4,7 @@ This file is the local knowledge-base index for `src/`. It explains the top-leve
 
 # Overview
 
-`src/` contains the `dqlite_utils` library crate. The dqlite directory implementation now lives in `dir.rs` (`dqlite_utils::dir::*`), while `lib.rs` is a thin crate root that re-exports `DqliteDir` at the top level for now. `rusqlite_ext/` remains a separate public module. `sys.rs` is a private bindgen-backed FFI layer. The binary crate (`dqlite-utils`) depends on this library for all dqlite and rusqlite_ext types.
+`src/` contains the `dqlite_utils` library crate. The dqlite directory implementation lives in `dir.rs` (`dqlite_utils::dir::*`), shared raft-facing types now live in `raft.rs` (`dqlite_utils::raft::*`), and `lib.rs` remains a thin crate root that re-exports `DqliteDir` at the top level for now. `rusqlite_ext/` remains a separate public module. `sys.rs` is a private bindgen-backed FFI layer. The binary crate (`dqlite-utils`) depends on this library for all dqlite and rusqlite_ext types.
 
 # Important
 
@@ -17,12 +17,13 @@ This file is the local knowledge-base index for `src/`. It explains the top-leve
 
 # Architecture
 
-The dqlite implementation is intentionally split between unsafe boundary code (`sys.rs`) and safe higher-level wrappers in `dir.rs`. Metadata loading and segment enumeration happen first, then snapshots and raft entries are decoded into Rust-facing structures consumed by the binary crate's command layer. Snapshot creation also flows through `dir.rs` so on-disk format rules remain centralized.
+The dqlite implementation is intentionally split between unsafe boundary code (`sys.rs`) and safe higher-level wrappers in `dir.rs` and `raft.rs`. The `raft.rs` module owns shared raft configuration/error/resource helpers, while `dir.rs` handles metadata loading, segment enumeration, snapshot decoding, and on-disk creation. The binary crate consumes both layers depending on whether it needs raft metadata types or dqlite directory traversal.
 
 # Directory
 
 - `lib.rs` - Thin library crate root that wires modules together and re-exports `DqliteDir`.
 - `dir.rs` - Dqlite directory implementation: metadata loading, raft log parsing, snapshots, builders, and colocated tests.
+- `raft.rs` - Shared raft-facing types and helpers: configuration, roles, servers, error string, and C-owned pointer wrapper.
 - `sys.rs` - Raw bindgen-generated symbols and type definitions used by the dqlite implementation (private module).
 - `rusqlite_ext/` - SQLite extension helpers, VFS abstractions, and file-control wrappers.
 
