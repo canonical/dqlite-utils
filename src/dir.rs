@@ -27,14 +27,14 @@ use crate::sys::{
 
 #[derive(thiserror::Error)]
 #[error("{}", self.as_str())]
-struct RaftErrorStr([u8; RAFT_ERRMSG_BUF_SIZE as usize]);
+pub struct RaftErrorStr([u8; RAFT_ERRMSG_BUF_SIZE as usize]);
 
 impl RaftErrorStr {
     fn new() -> Self {
         Self([0u8; RAFT_ERRMSG_BUF_SIZE as usize])
     }
 
-    fn as_str(&self) -> &str {
+    pub fn as_str(&self) -> &str {
         CStr::from_bytes_until_nul(self.0.as_slice())
             .expect("cannot display malformed error message: unexpected NUL")
             .to_str()
