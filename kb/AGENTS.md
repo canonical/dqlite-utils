@@ -37,7 +37,6 @@ Every header used in `kb/*.md` files must be documented here.
 - `../src/kb/AGENTS.md` - Library crate layout and Rust-specific workflow
 - `../crates/dqlite_utils_cli/src/kb/AGENTS.md` - Binary crate layout and REPL-specific workflow
 - `../crates/dqlite_utils_cli/src/command/kb/AGENTS.md` - REPL command parsing, shells, and command-authoring rules
-- `../src/dqlite/kb/AGENTS.md` - Raft and snapshot decoding, FFI boundaries, and safety rules
 - `../src/rusqlite_ext/kb/AGENTS.md` - SQLite wrappers, VFS support, and extension-layer constraints
 - `../snap/kb/AGENTS.md` - Snap packaging metadata and build dependencies
 - `../.github/kb/AGENTS.md` - CI workflows and repository automation

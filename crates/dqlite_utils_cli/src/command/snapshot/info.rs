@@ -9,7 +9,7 @@ use crate::command::help::Help;
 use crate::command::snapshot::{RaftMetadata, RaftServers};
 use crate::utils::AttachedSchemasConnectionExt;
 use crate::{Context, Result};
-use dqlite_utils::dqlite::{RaftRole, RaftServer};
+use dqlite_utils::{RaftRole, RaftServer};
 
 #[derive(Debug)]
 pub(crate) struct InfoCommand;

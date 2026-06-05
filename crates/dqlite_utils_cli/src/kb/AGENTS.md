@@ -4,7 +4,7 @@ This file is the local knowledge-base index for the `dqlite-utils` binary crate 
 
 # Overview
 
-The binary crate contains the dqlite-utils REPL: CLI argument parsing, interactive command reading, shell dispatch, and user-facing commands. It depends on the `dqlite_utils` library for dqlite storage and SQLite extension types, accessed via `dqlite_utils::dqlite::*` and `dqlite_utils::rusqlite_ext::*`.
+The binary crate contains the dqlite-utils REPL: CLI argument parsing, interactive command reading, shell dispatch, and user-facing commands. It depends on the `dqlite_utils` library for dqlite storage and SQLite extension types, accessed via `dqlite_utils::*` and `dqlite_utils::rusqlite_ext::*`.
 
 # Important
 
@@ -24,5 +24,5 @@ The binary crate contains the dqlite-utils REPL: CLI argument parsing, interacti
 # Index
 
 - `../command/kb/AGENTS.md` - Command and shell structure
-- `../../../src/dqlite/kb/AGENTS.md` - Low-level dqlite storage logic (library crate)
+- `../../../src/kb/AGENTS.md` - Dqlite implementation, FFI boundaries, and safety rules (library crate)
 - `../../../src/rusqlite_ext/kb/AGENTS.md` - SQLite extension support (library crate)

@@ -21,7 +21,7 @@ use crate::command::{Help, UnknownCommand, UnrecognizedArgumentsError};
 use crate::prompt::Prompt;
 use crate::utils::TerminalStylizeExt;
 use crate::{Context, Shell};
-use dqlite_utils::dqlite::DqliteDir;
+use dqlite_utils::DqliteDir;
 use dqlite_utils::rusqlite_ext::config::ConnectionConfigExt;
 
 #[derive(Default)]
@@ -306,12 +306,12 @@ mod tests {
     use tempfile::tempdir;
 
     use crate::command::open::DqliteDirContent;
-    use dqlite_utils::dqlite::{
+    use dqlite_utils::rusqlite_ext::files::{ConnectionFile, ConnectionFilesExt};
+    use dqlite_utils::{
         DqliteDatabaseWriter, DqliteDir, DqliteFrame, DqliteLogEntry, DqliteLogEntryContent,
         DqliteSegmentBuilder, DqliteSnapshotBuilder, Empty, RaftConfiguration, RaftRole,
         RaftServer,
     };
-    use dqlite_utils::rusqlite_ext::files::{ConnectionFile, ConnectionFilesExt};
 
     struct ConnectionWriter<'a> {
         main: RefCell<ConnectionFile<'a>>,

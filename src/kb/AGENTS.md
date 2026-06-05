@@ -4,23 +4,28 @@ This file is the local knowledge-base index for `src/`. It explains the top-leve
 
 # Overview
 
-`src/` contains the `dqlite_utils` library crate, which exposes `dqlite/` and `rusqlite_ext/` as public modules. The library provides dqlite metadata loading, raft log parsing, snapshot handling, and SQLite extension helpers. The binary crate (`dqlite-utils`) depends on this library for all dqlite and rusqlite_ext types.
+`src/` contains the `dqlite_utils` library crate. The dqlite implementation (metadata loading, raft log parsing, snapshot handling) is inlined directly into `lib.rs` at the crate root, so all dqlite types are accessible as `dqlite_utils::TypeName`. `rusqlite_ext/` remains a separate public module. `sys.rs` is a private bindgen-backed FFI layer. The binary crate (`dqlite-utils`) depends on this library for all dqlite and rusqlite_ext types.
 
 # Important
 
-- Keep unsafe and low-level storage handling isolated in `dqlite/` and `rusqlite_ext/`; higher-level code should use the existing wrappers instead of direct FFI or SQLite pointer manipulation.
+- Keep unsafe and low-level storage handling isolated in `sys.rs` and `rusqlite_ext/`; higher-level code should use the existing wrappers instead of direct FFI or SQLite pointer manipulation.
+- Preserve RAII ownership around allocated C resources such as `RaftPtr` and decode buffers. Leaks or double-frees here will not be caught by the type system.
+- Changes to `build.rs`, `dqlite-internal.h`, or bindgen-facing types can affect the generated FFI surface and should be reflected in KB notes when they alter maintenance workflow.
 - Tests are colocated under `#[cfg(test)]` blocks in the modules they exercise. There is no top-level `tests/` directory.
 - Rust toolchain `1.91` is pinned in `rust-toolchain.toml` and CI runs `fmt`, `check`, `clippy`, `doc`, and both debug and release test suites.
 - The library and binary are in a Cargo workspace. The library crate is at the repo root and the binary crate is in `crates/dqlite_utils_cli/`. Both share metadata (version, edition, rust-version) via `workspace.package` and shared dependencies via `workspace.dependencies`.
 
+# Architecture
+
+The dqlite implementation is intentionally split between unsafe boundary code (`sys.rs`) and safe higher-level wrappers (inlined into `lib.rs`). Metadata loading and segment enumeration happen first, then snapshots and raft entries are decoded into Rust-facing structures consumed by the binary crate's command layer. Snapshot creation also flows through `lib.rs` so on-disk format rules remain centralized.
+
 # Directory
 
-- `lib.rs` - Library crate root: `pub mod dqlite; pub mod rusqlite_ext;`
-- `dqlite/` - Dqlite metadata loading, raft log parsing, snapshot handling, and bindgen-backed FFI.
+- `lib.rs` - Library crate root: dqlite implementation (DqliteDir, DqliteSnapshot, DqliteSegment, etc.) plus `pub mod rusqlite_ext;`.
+- `sys.rs` - Raw bindgen-generated symbols and type definitions used by the dqlite implementation (private module).
 - `rusqlite_ext/` - SQLite extension helpers, VFS abstractions, and file-control wrappers.
 
 # Index
 
-- `../dqlite/kb/AGENTS.md` - Low-level dqlite storage logic
 - `../rusqlite_ext/kb/AGENTS.md` - SQLite extension support
 - `../../crates/dqlite_utils_cli/src/kb/AGENTS.md` - Binary crate layout

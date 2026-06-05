@@ -22,7 +22,7 @@ use self::interactive_reader::InteractiveCommandReader;
 use self::prompt::Prompt;
 use self::utils::TerminalStylizeExt;
 
-use dqlite_utils::dqlite::{DqliteDir, NoMetadataError};
+use dqlite_utils::{DqliteDir, NoMetadataError};
 
 pub type Error = anyhow::Error;
 pub type Result<T, E = Error> = anyhow::Result<T, E>;
