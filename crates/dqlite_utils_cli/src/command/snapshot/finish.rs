@@ -14,10 +14,12 @@ use rusqlite::{Connection, TransactionBehavior};
 use crate::command::help::Help;
 use crate::command::snapshot::{RaftMetadata, RaftServers};
 use crate::command::{MissingArgumentError, UnrecognizedArgumentsError};
-use crate::dqlite::{DqliteDatabaseWriter, DqliteDir, RaftConfiguration};
-use crate::rusqlite_ext::files::{ConnectionFile, ConnectionFilesExt};
 use crate::utils::AttachedSchemasConnectionExt;
 use crate::{Context, Result, Shell};
+use dqlite_utils::DqliteDir;
+use dqlite_utils::dir::DqliteDatabaseWriter;
+use dqlite_utils::raft::RaftConfiguration;
+use dqlite_utils::rusqlite_ext::files::{ConnectionFile, ConnectionFilesExt};
 
 #[derive(Debug)]
 pub(crate) struct FinishCommand {
@@ -270,7 +272,7 @@ mod tests {
 
     use rusqlite::Connection;
 
-    use crate::dqlite::DqliteDatabaseWriter;
+    use dqlite_utils::dir::DqliteDatabaseWriter;
 
     use super::*;
 

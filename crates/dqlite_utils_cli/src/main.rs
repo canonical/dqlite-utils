@@ -1,9 +1,7 @@
 mod args;
 mod command;
-mod dqlite;
 mod interactive_reader;
 mod prompt;
-mod rusqlite_ext;
 mod utils;
 
 use std::io::{self, IsTerminal};
@@ -19,12 +17,13 @@ use rustyline::error::ReadlineError;
 use crate::command::{DqliteDirContent, OpenShell};
 
 use self::args::Args;
-use self::command::{Command, Help, RootShell, SnapshotShell};
-use self::dqlite::{DqliteDir, NoMetadataError};
-use self::interactive_reader::CommandHelper;
+use self::command::{Command, CommandHelper, Help, RootShell, SnapshotShell};
 use self::interactive_reader::InteractiveCommandReader;
 use self::prompt::Prompt;
 use self::utils::TerminalStylizeExt;
+
+use dqlite_utils::DqliteDir;
+use dqlite_utils::dir::NoMetadataError;
 
 pub type Error = anyhow::Error;
 pub type Result<T, E = Error> = anyhow::Result<T, E>;

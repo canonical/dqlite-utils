@@ -18,10 +18,10 @@ use time::UtcDateTime;
 
 use crate::command::help::{Help, HelpCommand};
 use crate::command::{UnknownCommand, UnrecognizedArgumentsError};
-use crate::dqlite::{RaftRole, RaftServer};
 use crate::prompt::Prompt;
-use crate::rusqlite_ext::config::ConnectionConfigExt;
 use crate::{Context, Error, Result, Shell};
+use dqlite_utils::raft::{RaftRole, RaftServer};
+use dqlite_utils::rusqlite_ext::config::ConnectionConfigExt;
 
 use self::abort::AbortCommand;
 use self::add_server::AddServerCommand;

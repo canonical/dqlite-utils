@@ -6,10 +6,11 @@ use std::os::unix::ffi::OsStrExt;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use crate::dqlite::{
-    DqliteDatabaseLoader, DqliteDir, DqliteLogEntryContent, DqliteSegment, DqliteSnapshotLoader,
-};
 use anyhow::Result;
+use dqlite_utils::DqliteDir;
+use dqlite_utils::dir::{
+    DqliteDatabaseLoader, DqliteLogEntryContent, DqliteSegment, DqliteSnapshotLoader,
+};
 use libsqlite3_sys as sqlite3;
 use rusqlite::ffi::Error;
 use rusqlite::types::{ToSqlOutput, ValueRef};

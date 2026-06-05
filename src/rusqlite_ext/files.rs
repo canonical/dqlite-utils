@@ -1,6 +1,5 @@
 use std::ffi::{OsStr, c_void};
 use std::marker::PhantomData;
-use std::mem;
 use std::ptr::{self, NonNull};
 
 use libsqlite3_sys::{self as sqlite3, sqlite3_file, sqlite3_io_methods};
@@ -50,7 +49,7 @@ unsafe fn get_file_handle(
             handle,
             db.as_ref().map_or(ptr::null(), |d| d.as_ptr()),
             op,
-            mem::transmute::<&mut *mut sqlite3_file, *mut std::ffi::c_void>(&mut ret),
+            &mut ret as *mut *mut sqlite3_file as *mut std::ffi::c_void,
         )
     };
     if let Some(err) = SqliteError::from_rc(rc) {
@@ -111,6 +110,7 @@ impl ConnectionFile<'_> {
         SqliteCode::from_rc(rc).into()
     }
 
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> Result<u64> {
         let file_size = self
             .methods()
