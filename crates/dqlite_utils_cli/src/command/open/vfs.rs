@@ -7,8 +7,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
-use dqlite_utils::{
-    DqliteDatabaseLoader, DqliteDir, DqliteLogEntryContent, DqliteSegment, DqliteSnapshotLoader,
+use dqlite_utils::DqliteDir;
+use dqlite_utils::dir::{
+    DqliteDatabaseLoader, DqliteLogEntryContent, DqliteSegment, DqliteSnapshotLoader,
 };
 use libsqlite3_sys as sqlite3;
 use rusqlite::ffi::Error;

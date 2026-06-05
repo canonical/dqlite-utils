@@ -20,8 +20,8 @@ use crate::command::help::{Help, HelpCommand};
 use crate::command::{UnknownCommand, UnrecognizedArgumentsError};
 use crate::prompt::Prompt;
 use crate::{Context, Error, Result, Shell};
+use dqlite_utils::dir::{RaftRole, RaftServer};
 use dqlite_utils::rusqlite_ext::config::ConnectionConfigExt;
-use dqlite_utils::{RaftRole, RaftServer};
 
 use self::abort::AbortCommand;
 use self::add_server::AddServerCommand;

@@ -7,7 +7,8 @@ use owo_colors::Style;
 use crate::Context;
 use crate::command::help::Help;
 use crate::utils::{Pager, TerminalStylizeExt};
-use dqlite_utils::{DqliteDir, DqliteLogEntry, DqliteLogEntryContent, DqliteSegment, RaftServer};
+use dqlite_utils::DqliteDir;
+use dqlite_utils::dir::{DqliteLogEntry, DqliteLogEntryContent, DqliteSegment, RaftServer};
 
 use super::UnrecognizedArgumentsError;
 

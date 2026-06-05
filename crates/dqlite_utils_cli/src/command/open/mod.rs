@@ -306,12 +306,13 @@ mod tests {
     use tempfile::tempdir;
 
     use crate::command::open::DqliteDirContent;
-    use dqlite_utils::rusqlite_ext::files::{ConnectionFile, ConnectionFilesExt};
-    use dqlite_utils::{
-        DqliteDatabaseWriter, DqliteDir, DqliteFrame, DqliteLogEntry, DqliteLogEntryContent,
+    use dqlite_utils::DqliteDir;
+    use dqlite_utils::dir::{
+        DqliteDatabaseWriter, DqliteFrame, DqliteLogEntry, DqliteLogEntryContent,
         DqliteSegmentBuilder, DqliteSnapshotBuilder, Empty, RaftConfiguration, RaftRole,
         RaftServer,
     };
+    use dqlite_utils::rusqlite_ext::files::{ConnectionFile, ConnectionFilesExt};
 
     struct ConnectionWriter<'a> {
         main: RefCell<ConnectionFile<'a>>,
