@@ -2,5 +2,26 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:recommended"
+  ],
+  "packageRules": [
+    {
+      "matchManagers": [
+        "cargo"
+      ],
+      "matchPackageNames": [
+        "libsqlite3-sys",
+        "rusqlite"
+      ],
+      "enabled": false
+    },
+    {
+      "matchManagers": [
+        "rust-toolchain"
+      ],
+      "matchDepTypes": [
+        "toolchain"
+      ],
+      "enabled": false
+    }
   ]
 }
