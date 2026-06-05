@@ -14,6 +14,7 @@ use rustyline::validate::{ValidationContext, ValidationResult, Validator};
 use rustyline::{CompletionType, Config, Editor, Helper as RustylineHelper};
 
 use crate::command::Command;
+use crate::command::CommandHelper;
 use crate::prompt::Prompt;
 use crate::utils::TerminalStylizeExt;
 use crate::{Context, Result};
@@ -212,8 +213,4 @@ impl<T> Helper<T> {
         }
         Ok(ValidationResult::Valid(None))
     }
-}
-
-pub(crate) trait CommandHelper {
-    fn known_commands(&self) -> impl Iterator<Item = &'static str>;
 }

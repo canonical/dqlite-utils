@@ -14,7 +14,7 @@ This file documents the `src/dqlite/` subsystem, which encapsulates dqlite metad
 
 # Architecture
 
-This module is intentionally split between unsafe boundary code and safe higher-level wrappers. Metadata loading and segment enumeration happen first, then snapshots and raft entries are decoded into Rust-facing structures consumed by the command layer. Snapshot creation also flows through this module so on-disk format rules remain centralized.
+This module is intentionally split between unsafe boundary code and safe higher-level wrappers. Metadata loading and segment enumeration happen first, then snapshots and raft entries are decoded into Rust-facing structures consumed by the binary crate's command layer. Snapshot creation also flows through this module so on-disk format rules remain centralized.
 
 # Directory
 

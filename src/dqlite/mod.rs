@@ -16,7 +16,7 @@ use std::{
 };
 
 use anyhow::{Context, Error, Result, anyhow};
-use indoc::{indoc, writedoc};
+use indoc::writedoc;
 use lz4_flex::frame::{BlockMode, FrameDecoder, FrameEncoder, FrameInfo};
 
 use crate::dqlite::sys::{cursor, dqlite_result};
@@ -1549,6 +1549,7 @@ where
 mod tests {
     use std::vec;
 
+    use indoc::indoc;
     use super::*;
 
     #[test]

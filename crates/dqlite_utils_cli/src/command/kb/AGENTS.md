@@ -1,10 +1,10 @@
 # Preface
 
-This file describes the `src/command/` subtree, which owns REPL command parsing, shell transitions, and help registration.
+This file describes the `crates/dqlite_utils_cli/src/command/` subtree, which owns REPL command parsing, shell transitions, and help registration.
 
 # Overview
 
-Commands are parsed into the `Command` enum in `src/command/mod.rs`. Dot-prefixed input is resolved against the shared command namespace, while non-dot input is treated as SQL. Availability is enforced at run time based on the active shell.
+Commands are parsed into the `Command` enum in `crates/dqlite_utils_cli/src/command/mod.rs`. Dot-prefixed input is resolved against the shared command namespace, while non-dot input is treated as SQL. Availability is enforced at run time based on the active shell.
 
 # Important
 

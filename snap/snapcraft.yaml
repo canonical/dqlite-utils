@@ -32,7 +32,7 @@ parts:
       - jq
     override-build: |
       craftctl default
-      craftctl set version="$(cargo metadata --no-deps --format-version=1 | jq --raw-output --exit-status .packages[0].version)"
+      craftctl set version="$(cargo metadata --no-deps --format-version=1 | jq --raw-output --exit-status '.packages[] | select(.name == "dqlite-utils") | .version')"
 
 package-repositories:
   - type: apt
