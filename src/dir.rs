@@ -1,4 +1,4 @@
-mod sys;
+//! Utilities for reading and creating dqlite directories.
 
 use std::{
     borrow::Cow,
@@ -15,95 +15,18 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use anyhow::{Context, Error, Result, anyhow};
-use indoc::{indoc, writedoc};
+use anyhow::{Context, Result, anyhow};
+use indoc::writedoc;
 use lz4_flex::frame::{BlockMode, FrameDecoder, FrameEncoder, FrameInfo};
 
-use crate::dqlite::sys::{cursor, dqlite_result};
-
-use self::sys::{
-    RAFT_ERRMSG_BUF_SIZE, command_checkpoint, command_frames, command_open, command_undo, frames_t,
-    raft_buffer, raft_command_type, raft_configuration, raft_entry, raft_entry_type, raft_result,
-    raft_role, raft_server, raft_snapshot, snapshotDatabase, snapshotHeader, uv_buf_t, uvMetadata,
-    uvSegmentBuffer, uvSegmentInfo, uvSnapshotInfo,
+use crate::raft::{RaftConfiguration, RaftErrorStr, RaftPtr, RaftServer};
+use crate::sys::{self, cursor, dqlite_result};
+use crate::sys::{
+    command_checkpoint, command_frames, command_open, command_undo, frames_t, raft_buffer,
+    raft_command_type, raft_configuration, raft_entry, raft_entry_type, raft_result, raft_snapshot,
+    snapshotDatabase, snapshotHeader, uv_buf_t, uvMetadata, uvSegmentBuffer, uvSegmentInfo,
+    uvSnapshotInfo,
 };
-
-#[derive(thiserror::Error)]
-#[error("{}", self.as_str())]
-struct RaftErrorStr([u8; RAFT_ERRMSG_BUF_SIZE as usize]);
-
-impl RaftErrorStr {
-    fn new() -> Self {
-        Self([0u8; RAFT_ERRMSG_BUF_SIZE as usize])
-    }
-
-    fn as_str(&self) -> &str {
-        CStr::from_bytes_until_nul(self.0.as_slice())
-            .expect("cannot display malformed error message: unexpected NUL")
-            .to_str()
-            .expect("cannot display malformed error message: malformed UTF-8")
-    }
-
-    fn as_mut_ptr<T>(&mut self) -> *mut T {
-        self.0.as_mut_ptr() as *mut T
-    }
-}
-
-impl Debug for RaftErrorStr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self.as_str())
-    }
-}
-
-struct RaftPtr<T>(*mut T);
-
-impl<T> RaftPtr<T> {
-    unsafe fn new(ptr: *mut T) -> Self {
-        Self(ptr)
-    }
-
-    fn null() -> Self {
-        Self(ptr::null_mut())
-    }
-
-    #[allow(unused)]
-    fn as_ptr(&self) -> *const T {
-        self.0
-    }
-
-    fn as_mut_ptr(&mut self) -> *mut T {
-        self.0
-    }
-
-    unsafe fn as_mut_ref(&mut self) -> &mut *mut T {
-        &mut self.0
-    }
-
-    unsafe fn as_slice(&self, len: usize) -> &[T] {
-        if len == 0 {
-            assert!(self.0.is_null());
-            return &[];
-        }
-        assert!(!self.0.is_null());
-        unsafe { std::slice::from_raw_parts(self.0, len) }
-    }
-
-    #[allow(unused)]
-    unsafe fn as_mut_slice(&mut self, len: usize) -> &mut [T] {
-        if len == 0 {
-            assert!(self.0.is_null());
-            return &mut [];
-        }
-        assert!(!self.0.is_null());
-        unsafe { std::slice::from_raw_parts_mut(self.0, len) }
-    }
-}
-
-impl<T> Drop for RaftPtr<T> {
-    fn drop(&mut self) {
-        unsafe { sys::raft_free(self.0 as *mut _) };
-    }
-}
 
 struct DecodeRef<'a, T> {
     buf: &'a mut Vec<u8>,
@@ -335,96 +258,6 @@ pub struct DqliteSnapshot {
     pub timestamp: SystemTime,
     pub configuration: RaftConfiguration,
     content: Mutex<File>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct RaftConfiguration {
-    pub servers: Vec<RaftServer>,
-}
-
-impl RaftConfiguration {
-    fn new(configuration: &raft_configuration) -> Result<Self> {
-        let mut servers = Vec::with_capacity(configuration.n as usize);
-        let raw_servers =
-            unsafe { std::slice::from_raw_parts(configuration.servers, configuration.n as usize) };
-        for server in raw_servers {
-            servers.push(RaftServer::new(server)?);
-        }
-        Ok(Self { servers })
-    }
-
-    fn to_raw(&self) -> Result<raft_configuration> {
-        let mut c = raft_configuration::default();
-        unsafe { sys::configurationInit(&mut c) };
-
-        for server in self.servers.iter() {
-            let address = CString::new(server.address.as_str()).unwrap();
-            let role = match server.role {
-                RaftRole::Standby => raft_role::RAFT_STANDBY,
-                RaftRole::Voter => raft_role::RAFT_VOTER,
-                RaftRole::Spare => raft_role::RAFT_SPARE,
-            } as _;
-            let rc = unsafe { sys::configurationAdd(&mut c, server.id, address.as_ptr(), role) };
-            if rc != raft_result::OK {
-                return Err(anyhow!("cannot add server to configuration"));
-            }
-        }
-        Ok(c)
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct RaftServer {
-    pub id: u64,
-    pub address: String,
-    pub role: RaftRole,
-}
-
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-#[repr(u8)]
-pub enum RaftRole {
-    Standby = 0,
-    Voter = 1,
-    Spare = 2,
-}
-
-impl TryFrom<u8> for RaftRole {
-    type Error = Error;
-
-    fn try_from(raw: u8) -> Result<Self> {
-        match raw {
-            0 => Ok(Self::Standby),
-            1 => Ok(Self::Voter),
-            2 => Ok(Self::Spare),
-            _ => Err(anyhow!("cannot convert {raw} to RaftRole")),
-        }
-    }
-}
-
-impl RaftRole {
-    pub fn as_raw(&self) -> c_uint {
-        match self {
-            RaftRole::Standby => raft_role::RAFT_STANDBY,
-            RaftRole::Voter => raft_role::RAFT_VOTER,
-            RaftRole::Spare => raft_role::RAFT_SPARE,
-        }
-    }
-}
-
-impl RaftServer {
-    fn new(server: &raft_server) -> Result<Self> {
-        let role = match server.role as _ {
-            raft_role::RAFT_STANDBY => RaftRole::Standby,
-            raft_role::RAFT_VOTER => RaftRole::Voter,
-            raft_role::RAFT_SPARE => RaftRole::Spare,
-            _ => return Err(anyhow!("cannot convert raft role")),
-        };
-        Ok(Self {
-            id: server.id,
-            address: unsafe { CStr::from_ptr(server.address).to_str()?.to_owned() },
-            role,
-        })
-    }
 }
 
 pub trait DqliteSnapshotLoader {
@@ -1073,7 +906,7 @@ where
         // in the header of a single compressed frame.
         // This means that it is necessary to loop twice over the data:
         // first to compute the total size, then to actually write it.
-        let mut size = 16u64; // The header
+        let mut size = 16u64;
 
         for (name, database) in &self.databases {
             let main_size = database.main_size()?;
@@ -1110,7 +943,7 @@ where
         }
         let result = data.write_all(unsafe { write_buf.as_bytes() });
         unsafe { sys::raft_free(write_buf.base) };
-        result?; // Avoid leaking `header_buf` content.
+        result?;
 
         for (name, database) in &mut self.databases {
             let main_size = database.main_size()?;
@@ -1128,7 +961,6 @@ where
             unsafe { sys::snapshotDatabase__encode(&header, &mut cursor) };
 
             data.write_all(&write_buf)?;
-            // TODO: wrap a writer so that we are sure to write exactly main_size and wal_size bytes.
             database.write_main(&mut data)?;
             database.write_wal(&mut data)?;
         }
@@ -1147,11 +979,7 @@ where
         for server in &configuration.servers {
             let id = server.id;
             let address = CString::new(server.address.as_str()).unwrap();
-            let role = match server.role {
-                RaftRole::Standby => raft_role::RAFT_STANDBY,
-                RaftRole::Voter => raft_role::RAFT_VOTER,
-                RaftRole::Spare => raft_role::RAFT_SPARE,
-            } as _;
+            let role = server.role.as_raw() as _;
             let rc = unsafe { sys::configurationAdd(&mut config, id, address.as_ptr(), role) };
             if rc != raft_result::OK {
                 return Err(anyhow!("failed to add server to configuration"));
@@ -1172,7 +1000,7 @@ where
             .write_all(header.as_slice())
             .and_then(|_| meta.write_all(unsafe { config_buf.as_bytes() }));
         unsafe { sys::raft_free(config_buf.base) };
-        result?; // Avoid leaking `config_buf` content.
+        result?;
 
         Ok(())
     }
@@ -1205,7 +1033,7 @@ where
 
     fn write_cluster_yaml(path: &Path, configuration: &RaftConfiguration) -> Result<()> {
         let mut cluster_file = BufWriter::new(
-            File::create_new(&path).with_context(|| anyhow!("cannot create {}", path.display()))?,
+            File::create_new(path).with_context(|| anyhow!("cannot create {}", path.display()))?,
         );
         for server in &configuration.servers {
             let RaftServer { id, address, role } = server;
@@ -1395,10 +1223,7 @@ where
     pub fn with_snapshot(
         mut self,
         f: impl FnOnce(DqliteSnapshotBuilder<T>) -> DqliteSnapshotBuilder<T>,
-    ) -> Self
-    where
-        T: DqliteDatabaseWriter,
-    {
+    ) -> Self {
         let mut index = self.first_index;
         for entry in self.closed_segments.iter().chain(self.open_segments.iter()) {
             index += entry.0.iter().fold(0, |c, b| c + b.len()) as u64;
@@ -1466,7 +1291,7 @@ impl<T> DqliteDirCreator<T> {
     fn write_segments(&self) -> Result<()> {
         let mut path = self.dir.clone();
         let mut index = self.first_index;
-        for closed_segment in self.closed_segments.iter() {
+        for closed_segment in &self.closed_segments {
             let last_index = index + closed_segment.0.len() as u64 - 1;
             path.push(format!("{index:0>16}-{last_index:0>16}"));
 
@@ -1549,14 +1374,17 @@ where
 mod tests {
     use std::vec;
 
+    use indoc::indoc;
+
     use super::*;
+    use crate::raft::RaftRole;
 
     #[test]
     fn test_non_dqlite_folder() {
         let dir = tempfile::tempdir().unwrap();
         let err = DqliteDir::open(dir.path()).unwrap_err();
 
-        assert!(err.to_string().contains("cannot find dqlite metadata",));
+        assert!(err.to_string().contains("cannot find dqlite metadata"));
     }
 
     #[test]

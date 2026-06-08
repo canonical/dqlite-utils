@@ -1,0 +1,27 @@
+[package]
+name = "dqlite-utils"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+dqlite_utils = { path = "../.." }
+dqlite_utils_rusqlite_ext = { path = "../dqlite_utils_rusqlite_ext" }
+anyhow.workspace = true
+clap = { version = "4.5.48", features = ["color", "derive", "wrap_help"] }
+home = "0.5.11"
+indoc.workspace = true
+libsqlite3-sys.workspace = true
+owo-colors = { version = "4.2.3", features = ["supports-colors"] }
+rusqlite.workspace = true
+rustyline = "18.0.0"
+shell-words = "1.1.0"
+strum = { version = "0.28.0", features = ["derive"] }
+thiserror.workspace = true
+time = { version = "0.3.44", features = ["formatting", "parsing"] }
+fallible-iterator = "0.3.0"
+regex = "1.12.2"
+
+[dev-dependencies]
+googletest = "0.14.2"
+tempfile.workspace = true

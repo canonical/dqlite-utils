@@ -7,9 +7,9 @@ use time::format_description::well_known::Iso8601;
 use crate::command::UnrecognizedArgumentsError;
 use crate::command::help::Help;
 use crate::command::snapshot::{RaftMetadata, RaftServers};
-use crate::dqlite::{RaftRole, RaftServer};
 use crate::utils::AttachedSchemasConnectionExt;
 use crate::{Context, Result};
+use dqlite_utils::raft::{RaftRole, RaftServer};
 
 #[derive(Debug)]
 pub(crate) struct InfoCommand;

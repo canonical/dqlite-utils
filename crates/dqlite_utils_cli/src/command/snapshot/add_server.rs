@@ -4,8 +4,8 @@ use rusqlite::{ErrorCode, named_params};
 
 use crate::command::help::Help;
 use crate::command::{MissingArgumentError, UnrecognizedArgumentsError, UnrecognizedFlagError};
-use crate::dqlite::RaftRole;
 use crate::{Context, Result};
+use dqlite_utils::raft::RaftRole;
 
 #[derive(Debug)]
 pub(crate) struct AddServerCommand {

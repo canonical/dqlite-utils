@@ -18,11 +18,11 @@ use crate::command::open::close::CloseCommand;
 use crate::command::open::databases::DatabasesCommand;
 use crate::command::open::index::IndexCommand;
 use crate::command::{Help, UnknownCommand, UnrecognizedArgumentsError};
-use crate::dqlite::DqliteDir;
 use crate::prompt::Prompt;
-use crate::rusqlite_ext::config::ConnectionConfigExt;
 use crate::utils::TerminalStylizeExt;
 use crate::{Context, Shell};
+use dqlite_utils::DqliteDir;
+use dqlite_utils_rusqlite_ext::config::ConnectionConfigExt;
 
 #[derive(Default)]
 pub struct DqliteDirContent {
@@ -306,12 +306,13 @@ mod tests {
     use tempfile::tempdir;
 
     use crate::command::open::DqliteDirContent;
-    use crate::dqlite::{
-        DqliteDatabaseWriter, DqliteDir, DqliteFrame, DqliteLogEntry, DqliteLogEntryContent,
-        DqliteSegmentBuilder, DqliteSnapshotBuilder, Empty, RaftConfiguration, RaftRole,
-        RaftServer,
+    use dqlite_utils::DqliteDir;
+    use dqlite_utils::dir::{
+        DqliteDatabaseWriter, DqliteFrame, DqliteLogEntry, DqliteLogEntryContent,
+        DqliteSegmentBuilder, DqliteSnapshotBuilder, Empty,
     };
-    use crate::rusqlite_ext::files::{ConnectionFile, ConnectionFilesExt};
+    use dqlite_utils::raft::{RaftConfiguration, RaftRole, RaftServer};
+    use dqlite_utils_rusqlite_ext::files::{ConnectionFile, ConnectionFilesExt};
 
     struct ConnectionWriter<'a> {
         main: RefCell<ConnectionFile<'a>>,

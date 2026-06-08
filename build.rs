@@ -51,6 +51,7 @@ fn main() {
 
     println!("cargo:rustc-link-lib=static=dqlite");
     println!("cargo:rustc-link-lib=static=uv");
+    println!("cargo:rustc-link-lib=static=sqlite3");
 
     let bindings = bindgen::Builder::default()
         .header("dqlite-internal.h")

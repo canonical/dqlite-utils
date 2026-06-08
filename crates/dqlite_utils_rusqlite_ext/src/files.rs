@@ -6,7 +6,7 @@ use std::ptr::{self, NonNull};
 use libsqlite3_sys::{self as sqlite3, sqlite3_file, sqlite3_io_methods};
 use rusqlite::Connection;
 
-use crate::rusqlite_ext::{Result, SmallCString, SqliteCode, SqliteError};
+use crate::{Result, SmallCString, SqliteCode, SqliteError};
 
 pub trait ConnectionFilesExt {
     fn main_file(&self, db: Option<&OsStr>) -> Result<ConnectionFile<'_>>;

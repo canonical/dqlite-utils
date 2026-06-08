@@ -283,6 +283,10 @@ impl FromStr for RootCommandKind {
     }
 }
 
+pub(crate) trait CommandHelper {
+    fn known_commands(&self) -> impl Iterator<Item = &'static str>;
+}
+
 #[derive(Debug, thiserror::Error)]
 #[error("missing argument '{_0}'")]
 struct MissingArgumentError(&'static str);
