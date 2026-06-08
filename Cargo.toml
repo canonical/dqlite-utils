@@ -22,13 +22,13 @@ thiserror = "2.0.17"
 tempfile = "3.23.0"
 
 [dependencies]
-anyhow = { workspace = true }
-indoc = { workspace = true }
-libsqlite3-sys = { workspace = true }
+anyhow.workspace = true
+indoc.workspace = true
+libsqlite3-sys.workspace = true
 lz4_flex = "0.13.0"
-rusqlite = { workspace = true }
+rusqlite.workspace = true
 static_assertions = "1.1.0"
-thiserror = { workspace = true }
+thiserror.workspace = true
 
 [build-dependencies]
 bindgen = "0.72.1"
