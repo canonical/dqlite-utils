@@ -6,7 +6,7 @@ rust-version.workspace = true
 build = "build.rs"
 
 [workspace]
-members = ["crates/dqlite_utils_cli"]
+members = ["crates/dqlite_utils_*"]
 
 [workspace.package]
 version = "0.2.0"
@@ -27,7 +27,6 @@ indoc.workspace = true
 libsqlite3-sys.workspace = true
 lz4_flex = "0.13.0"
 rusqlite.workspace = true
-static_assertions = "1.1.0"
 thiserror.workspace = true
 
 [build-dependencies]

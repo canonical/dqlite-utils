@@ -4,7 +4,7 @@ use std::ptr;
 use libsqlite3_sys as sqlite3;
 use rusqlite::Connection;
 
-use crate::rusqlite_ext::{Result, SqliteCode};
+use crate::{Result, SqliteCode};
 
 /// Extension trait providing additional SQLite database configuration methods.
 #[allow(unused)]

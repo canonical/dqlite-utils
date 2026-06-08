@@ -1,3 +1,5 @@
+//! Type definitions for raft state.
+
 use std::{
     ffi::{CStr, CString},
     fmt::Debug,

@@ -1,3 +1,5 @@
+//! Utilities for reading and creating dqlite directories.
+
 use std::{
     borrow::Cow,
     cmp,

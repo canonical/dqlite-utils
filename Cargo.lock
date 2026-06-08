@@ -279,6 +279,7 @@ dependencies = [
  "anyhow",
  "clap",
  "dqlite_utils",
+ "dqlite_utils_rusqlite_ext",
  "fallible-iterator",
  "googletest",
  "home",
@@ -306,9 +307,18 @@ dependencies = [
  "lz4_flex",
  "pkg-config",
  "rusqlite",
- "static_assertions",
  "tempfile",
  "thiserror",
+]
+
+[[package]]
+name = "dqlite_utils_rusqlite_ext"
+version = "0.2.0"
+dependencies = [
+ "libsqlite3-sys",
+ "rusqlite",
+ "static_assertions",
+ "tempfile",
 ]
 
 [[package]]

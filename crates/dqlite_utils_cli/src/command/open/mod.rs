@@ -22,7 +22,7 @@ use crate::prompt::Prompt;
 use crate::utils::TerminalStylizeExt;
 use crate::{Context, Shell};
 use dqlite_utils::DqliteDir;
-use dqlite_utils::rusqlite_ext::config::ConnectionConfigExt;
+use dqlite_utils_rusqlite_ext::config::ConnectionConfigExt;
 
 #[derive(Default)]
 pub struct DqliteDirContent {
@@ -312,7 +312,7 @@ mod tests {
         DqliteSegmentBuilder, DqliteSnapshotBuilder, Empty,
     };
     use dqlite_utils::raft::{RaftConfiguration, RaftRole, RaftServer};
-    use dqlite_utils::rusqlite_ext::files::{ConnectionFile, ConnectionFilesExt};
+    use dqlite_utils_rusqlite_ext::files::{ConnectionFile, ConnectionFilesExt};
 
     struct ConnectionWriter<'a> {
         main: RefCell<ConnectionFile<'a>>,

@@ -1,6 +1,8 @@
+//! This library provides a way to interact with the on-disk state of a possibly-running dqlite
+//! instance.
+
 pub mod dir;
 pub mod raft;
-pub mod rusqlite_ext;
 
 mod sys;
 
