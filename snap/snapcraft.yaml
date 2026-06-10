@@ -17,9 +17,6 @@ confinement: classic
 apps:
   dqlite-utils:
     command: bin/dqlite-utils
-    plugs:
-      - home
-      - removable-media
 
 parts:
   dqlite-utils:
