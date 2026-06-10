@@ -12,7 +12,7 @@ Thus, `dqlite-utils` never affects existing data or server execution.
 To use the latest release, install from `snapcraft.io`:
 
 ```bash
-sudo snap install dqlite-utils
+sudo snap install dqlite-utils --classic
 ```
 
 ### From crates.io
