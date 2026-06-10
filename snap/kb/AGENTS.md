@@ -4,7 +4,7 @@ This file documents the `snap/` directory, which contains the Snap packaging con
 
 # Overview
 
-The snap packaging builds the Rust binary from this source tree, pulls build dependencies from the `dqlite/dev` PPA, and packages the resulting CLI as a strictly confined `core24` snap.
+The snap packaging builds the Rust binary from this source tree, pulls build dependencies from the `dqlite/dev` PPA, and packages the resulting CLI as a classically confined `core24` snap.
 
 # Important
 
