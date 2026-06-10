@@ -1,2 +1,0 @@
-extend-diff-ignore = "(^|/)(\\.git)(/|$)"
-tar-ignore = ".git"
