@@ -143,3 +143,13 @@ configuration:
 
 To abort snapshot creation, type and run the `.abort` command.
 You will see the REPL’s default shell.
+
+## Supported versions
+
+`dqlite-utils` supports dqlite versions:
+
+- 1.18.*
+- 1.17.*
+- 1.16.*, although this is not guaranteed
+
+Cowsql is also incidentally supported as of version 1.15.9.
