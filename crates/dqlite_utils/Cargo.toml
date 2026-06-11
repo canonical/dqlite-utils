@@ -1,0 +1,21 @@
+[package]
+name = "dqlite_utils"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+build = "build.rs"
+
+[dependencies]
+anyhow.workspace = true
+indoc.workspace = true
+libsqlite3-sys.workspace = true
+lz4_flex = "0.13.0"
+rusqlite.workspace = true
+thiserror.workspace = true
+
+[build-dependencies]
+bindgen = "0.72.1"
+pkg-config = "0.3.32"
+
+[dev-dependencies]
+tempfile.workspace = true
