@@ -17,7 +17,7 @@ sudo snap install dqlite-utils --classic
 
 ### From crates.io
 
-To use the latest stable version, install directly from `crates.io`:
+To use the latest version, install directly from `crates.io`:
 
 ```bash
 cargo install dqlite-utils
