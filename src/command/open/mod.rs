@@ -100,21 +100,22 @@ impl OpenCommand {
     }
 
     pub(crate) fn run(self, ctx: &mut Context) -> Result<()> {
-        let shell = OpenShell::new(self.index)?;
-
-        {
-            let state = ctx.open_state();
-            state.load(ctx.dqlite()?, 4096)?; // TODO get the page size from the snapshot
-            if let Some(index) = self.index {
-                state
-                    .vfs()
-                    .expect("internal error: unregistered VFS")
-                    .set_current_index(index)?;
-            }
-            shell.attach_databases(state.vfs().unwrap().databases()?)?;
+        let state = ctx.open_state();
+        state.load(ctx.dqlite()?, 4096)?; // TODO get the page size from the snapshot
+        if let Some(index) = self.index {
+            state
+                .vfs()
+                .expect("internal error: unregistered VFS")
+                .set_current_index(index)?;
         }
 
+        let shell = {
+            let shell = OpenShell::new(self.index)?;
+            shell.attach_databases(state.vfs().unwrap().databases()?)?;
+            shell
+        };
         ctx.shell = Shell::Open(shell);
+
         Ok(())
     }
 }
