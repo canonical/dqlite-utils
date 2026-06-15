@@ -31,10 +31,15 @@ pub struct DqliteDirContent {
 }
 
 impl DqliteDirContent {
-    fn load(&self, vfs_name: impl AsRef<str>, dqlite: &DqliteDir, page_size: usize) -> Result<()> {
+    fn load(
+        &self,
+        vfs_name: impl AsRef<str>,
+        dqlite: &DqliteDir,
+        page_size: usize,
+    ) -> Result<&VfsRegistrationGuard<DqliteVfs>> {
         // TODO: use `get_mut_or_try_init` when stabilized. See https://github.com/rust-lang/rust/issues/121641
-        if self.vfs_registration_guard.get().is_some() {
-            return Ok(());
+        if let Some(guard) = self.vfs_registration_guard.get() {
+            return Ok(guard);
         }
 
         let vfs = DqliteVfs::from_dir(dqlite, page_size)?;
@@ -44,7 +49,11 @@ impl DqliteDirContent {
         self.vfs_registration_guard
             .set(guard)
             .map_err(|_| anyhow!("internal error: vfs already registered"))?;
-        Ok(())
+        let guard_ref = self
+            .vfs_registration_guard
+            .get()
+            .expect("internal error: vfs not registered");
+        Ok(guard_ref)
     }
 
     fn vfs(&self) -> Option<&DqliteVfs> {
@@ -105,7 +114,7 @@ impl OpenCommand {
         let state = ctx.open_state();
         // NOTE: `state.load` registers the vfs, hence it must come before `OpenShell::new`
         // which uses it.
-        state.load(VFS_NAME, ctx.dqlite()?, 4096)?; // TODO get the page size from the snapshot
+        let vfs_guard = state.load(VFS_NAME, ctx.dqlite()?, 4096)?; // TODO get the page size from the snapshot
         if let Some(index) = self.index {
             state
                 .vfs()
@@ -114,7 +123,7 @@ impl OpenCommand {
         }
 
         let shell = {
-            let shell = OpenShell::new(VFS_NAME, self.index)?;
+            let shell = OpenShell::new(VFS_NAME, vfs_guard, self.index)?;
             let databases = state
                 .vfs()
                 .expect("internal error: unregistered VFS")
@@ -147,8 +156,12 @@ impl OpenShell {
             .expect("internal error: help invalid")
     }
 
-    pub(crate) fn new(vfs_name: &str, index: Option<u64>) -> Result<Self> {
-        let connection = Self::open_connection(vfs_name)?;
+    pub(crate) fn new(
+        vfs_name: &str,
+        vfs_guard: &VfsRegistrationGuard<DqliteVfs>,
+        index: Option<u64>,
+    ) -> Result<Self> {
+        let connection = Self::open_connection(vfs_name, vfs_guard)?;
         let prompt = if let Some(index) = index {
             Prompt::new(format!(
                 "open{}{}",
@@ -173,7 +186,10 @@ impl OpenShell {
         &self.connection
     }
 
-    fn open_connection(vfs_name: &str) -> Result<Connection> {
+    fn open_connection(
+        vfs_name: &str,
+        _vfs_guard: &VfsRegistrationGuard<DqliteVfs>,
+    ) -> Result<Connection> {
         let ret = Connection::open_with_flags_and_vfs(":memory:", OpenFlags::default(), vfs_name)
             .context("internal error: cannot open connection to in-memory database")?;
         ret.set_main_name(c"raft");
@@ -308,7 +324,6 @@ mod tests {
     use std::ffi::{CString, OsStr};
     use std::io::Write;
     use std::ops::{Range, RangeFrom, RangeTo};
-    use std::sync::Mutex;
     use std::time::{Duration, SystemTime};
 
     use anyhow::Result;
@@ -549,7 +564,6 @@ mod tests {
             .create()
             .unwrap();
 
-
         let mut ctx = crate::Context::default();
         ctx.open(tempdir.path(), 1).unwrap();
 
@@ -557,7 +571,6 @@ mod tests {
         cmd.run(&mut ctx).unwrap();
 
         assert!(ctx.shell.open().is_some());
-
     }
 
     #[test]
@@ -671,7 +684,6 @@ mod tests {
                 .add_wal_segment(1, &conn, "main", 0..)
             })
             .create()?;
-
 
         let dqlite_dir = DqliteDir::open(tempdir.path())?;
         let open_state = DqliteDirContent::default();
