@@ -150,6 +150,6 @@ You will see the REPL’s default shell.
 
 - 1.18.*
 - 1.17.*
-- 1.16.*, although this is not guaranteed
+- 1.16.* (untested)
 
 Cowsql is also incidentally supported as of version 1.15.9.
