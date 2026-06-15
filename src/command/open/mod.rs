@@ -488,7 +488,7 @@ mod tests {
     }
 
     #[test]
-    fn test_command() {
+    fn test_command_smoke() {
         const PAGE_SIZE: usize = 4096;
         let tempdir = tempdir().unwrap();
         let dbfile = tempdir.path().join("mydb.sqlite");
