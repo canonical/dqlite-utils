@@ -306,7 +306,7 @@ mod tests {
     use rusqlite::Connection;
     use tempfile::tempdir;
 
-    use crate::command::open::{DqliteDirContent, OpenCommand, DqliteVfs};
+    use crate::command::open::{DqliteDirContent, DqliteVfs, OpenCommand};
     use crate::dqlite::{
         DqliteDatabaseWriter, DqliteDir, DqliteFrame, DqliteLogEntry, DqliteLogEntryContent,
         DqliteSegmentBuilder, DqliteSnapshotBuilder, Empty, RaftConfiguration, RaftRole,
@@ -491,21 +491,23 @@ mod tests {
         let dbfile = tempdir.path().join("mydb.sqlite");
         let conn = Connection::open(&dbfile).unwrap();
 
-        conn.pragma_update(None, "page_size", PAGE_SIZE as i64).unwrap();
+        conn.pragma_update(None, "page_size", PAGE_SIZE as i64)
+            .unwrap();
         conn.pragma_update(None, "journal_mode", "WAL").unwrap();
         conn.execute_batch(
             "
                 CREATE TABLE t(x TEXT);
                 INSERT INTO t VALUES ('hello');
             ",
-        ).unwrap();
-        conn.pragma_update(None, "wal_checkpoint", "TRUNCATE").unwrap();
+        )
+        .unwrap();
+        conn.pragma_update(None, "wal_checkpoint", "TRUNCATE")
+            .unwrap();
 
         let conn2 = Connection::open_in_memory().unwrap();
-        conn2.execute_batch(&format!(
-            "ATTACH DATABASE '{}' AS 'mydb'",
-            dbfile.display()
-        )).unwrap();
+        conn2
+            .execute_batch(&format!("ATTACH DATABASE '{}' AS 'mydb'", dbfile.display()))
+            .unwrap();
 
         DqliteDir::creator(tempdir.path())
             .with_page_size(PAGE_SIZE as u64)
