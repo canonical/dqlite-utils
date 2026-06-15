@@ -306,14 +306,13 @@ mod tests {
     use rusqlite::Connection;
     use tempfile::tempdir;
 
-    use crate::command::open::{DqliteDirContent, DqliteVfs, OpenCommand};
+    use crate::command::open::{DqliteDirContent, OpenCommand};
     use crate::dqlite::{
         DqliteDatabaseWriter, DqliteDir, DqliteFrame, DqliteLogEntry, DqliteLogEntryContent,
         DqliteSegmentBuilder, DqliteSnapshotBuilder, Empty, RaftConfiguration, RaftRole,
         RaftServer,
     };
     use crate::rusqlite_ext::files::{ConnectionFile, ConnectionFilesExt};
-    use rusqlite::vfs::VfsRegistration;
 
     struct ConnectionWriter<'a> {
         main: RefCell<ConnectionFile<'a>>,
@@ -539,13 +538,6 @@ mod tests {
                 .add_wal_segment(1, &conn2, "mydb", 0..)
             })
             .create()
-            .unwrap();
-
-        let dqlite_dir = DqliteDir::open(tempdir.path()).unwrap();
-        let vfs = DqliteVfs::from_dir(&dqlite_dir, PAGE_SIZE).unwrap();
-        let _guard = VfsRegistration::new(vfs)
-            .max_pathlen(256)
-            .register("dqlite")
             .unwrap();
 
         let mut ctx = crate::Context::default();
