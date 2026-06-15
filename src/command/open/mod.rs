@@ -31,20 +31,29 @@ pub struct DqliteDirContent {
 }
 
 impl DqliteDirContent {
-    fn load(&self, dqlite: &DqliteDir, page_size: usize) -> Result<()> {
+    fn load(
+        &self,
+        vfs_name: impl AsRef<str>,
+        dqlite: &DqliteDir,
+        page_size: usize,
+    ) -> Result<&VfsRegistrationGuard<DqliteVfs>> {
         // TODO: use `get_mut_or_try_init` when stabilized. See https://github.com/rust-lang/rust/issues/121641
-        if self.vfs_registration_guard.get().is_some() {
-            return Ok(());
+        if let Some(guard) = self.vfs_registration_guard.get() {
+            return Ok(guard);
         }
 
         let vfs = DqliteVfs::from_dir(dqlite, page_size)?;
         let guard = VfsRegistration::new(vfs)
             .max_pathlen(256)
-            .register("dqlite")?;
+            .register(vfs_name.as_ref())?;
         self.vfs_registration_guard
             .set(guard)
             .map_err(|_| anyhow!("internal error: vfs already registered"))?;
-        Ok(())
+        let guard_ref = self
+            .vfs_registration_guard
+            .get()
+            .expect("internal error: vfs not registered");
+        Ok(guard_ref)
     }
 
     fn vfs(&self) -> Option<&DqliteVfs> {
@@ -100,21 +109,30 @@ impl OpenCommand {
     }
 
     pub(crate) fn run(self, ctx: &mut Context) -> Result<()> {
-        let shell = OpenShell::new(self.index)?;
+        const VFS_NAME: &str = "dqlite";
 
-        {
-            let state = ctx.open_state();
-            state.load(ctx.dqlite()?, 4096)?; // TODO get the page size from the snapshot
-            if let Some(index) = self.index {
-                state
-                    .vfs()
-                    .expect("internal error: unregistered VFS")
-                    .set_current_index(index)?;
-            }
-            shell.attach_databases(state.vfs().unwrap().databases()?)?;
+        let state = ctx.open_state();
+        // NOTE: `state.load` registers the vfs, hence it must come before `OpenShell::new`
+        // which uses it.
+        let vfs_guard = state.load(VFS_NAME, ctx.dqlite()?, 4096)?; // TODO get the page size from the snapshot
+        if let Some(index) = self.index {
+            state
+                .vfs()
+                .expect("internal error: unregistered VFS")
+                .set_current_index(index)?;
         }
 
+        let shell = {
+            let shell = OpenShell::new(VFS_NAME, vfs_guard, self.index)?;
+            let databases = state
+                .vfs()
+                .expect("internal error: unregistered VFS")
+                .databases()?;
+            shell.attach_databases(databases)?;
+            shell
+        };
         ctx.shell = Shell::Open(shell);
+
         Ok(())
     }
 }
@@ -138,8 +156,12 @@ impl OpenShell {
             .expect("internal error: help invalid")
     }
 
-    pub(crate) fn new(index: Option<u64>) -> Result<Self> {
-        let connection = Self::open_connection()?;
+    pub(crate) fn new(
+        vfs_name: &str,
+        vfs_guard: &VfsRegistrationGuard<DqliteVfs>,
+        index: Option<u64>,
+    ) -> Result<Self> {
+        let connection = Self::open_connection(vfs_name, vfs_guard)?;
         let prompt = if let Some(index) = index {
             Prompt::new(format!(
                 "open{}{}",
@@ -164,8 +186,11 @@ impl OpenShell {
         &self.connection
     }
 
-    fn open_connection() -> Result<Connection> {
-        let ret = Connection::open_with_flags_and_vfs(":memory:", OpenFlags::default(), "dqlite")
+    fn open_connection(
+        vfs_name: &str,
+        _vfs_guard: &VfsRegistrationGuard<DqliteVfs>,
+    ) -> Result<Connection> {
+        let ret = Connection::open_with_flags_and_vfs(":memory:", OpenFlags::default(), vfs_name)
             .context("internal error: cannot open connection to in-memory database")?;
         ret.set_main_name(c"raft");
         ret.authorizer(Some(Self::authorizer))?;
@@ -305,7 +330,7 @@ mod tests {
     use rusqlite::Connection;
     use tempfile::tempdir;
 
-    use crate::command::open::DqliteDirContent;
+    use crate::command::open::{DqliteDirContent, OpenCommand};
     use crate::dqlite::{
         DqliteDatabaseWriter, DqliteDir, DqliteFrame, DqliteLogEntry, DqliteLogEntryContent,
         DqliteSegmentBuilder, DqliteSnapshotBuilder, Empty, RaftConfiguration, RaftRole,
@@ -483,6 +508,72 @@ mod tests {
     }
 
     #[test]
+    fn test_command_smoke() {
+        const PAGE_SIZE: usize = 4096;
+        let tempdir = tempdir().unwrap();
+        let dbfile = tempdir.path().join("mydb.sqlite");
+        let conn = Connection::open(&dbfile).unwrap();
+
+        conn.pragma_update(None, "page_size", PAGE_SIZE as i64)
+            .unwrap();
+        conn.pragma_update(None, "journal_mode", "WAL").unwrap();
+        conn.execute_batch(
+            "
+                CREATE TABLE t(x TEXT);
+                INSERT INTO t VALUES ('hello');
+            ",
+        )
+        .unwrap();
+        conn.pragma_update(None, "wal_checkpoint", "TRUNCATE")
+            .unwrap();
+
+        let conn2 = Connection::open_in_memory().unwrap();
+        conn2
+            .execute_batch(&format!("ATTACH DATABASE '{}' AS 'mydb'", dbfile.display()))
+            .unwrap();
+
+        DqliteDir::creator(tempdir.path())
+            .with_page_size(PAGE_SIZE as u64)
+            .with_snapshot(|s| {
+                s.with_configuration(RaftConfiguration {
+                    servers: vec![RaftServer {
+                        id: 1,
+                        address: "192.168.1.2".to_owned(),
+                        role: RaftRole::Voter,
+                    }],
+                })
+                .with_term(1)
+                .with_index(100)
+                .with_timestamp(SystemTime::now() - Duration::from_hours(1))
+                .add_connection(&conn2, "mydb")
+            })
+            .with_first_index(101)
+            .with_closed_segment(|s| {
+                s.add_entries(&[DqliteLogEntry {
+                    term: 1,
+                    content: DqliteLogEntryContent::Change(RaftConfiguration {
+                        servers: vec![RaftServer {
+                            id: 1,
+                            address: "192.168.1.2".to_owned(),
+                            role: RaftRole::Voter,
+                        }],
+                    }),
+                }])
+                .add_wal_segment(1, &conn2, "mydb", 0..)
+            })
+            .create()
+            .unwrap();
+
+        let mut ctx = crate::Context::default();
+        ctx.open(tempdir.path(), 1).unwrap();
+
+        let cmd = OpenCommand::try_from_args(&[]).unwrap();
+        cmd.run(&mut ctx).unwrap();
+
+        assert!(ctx.shell.open().is_some());
+    }
+
+    #[test]
     fn test_read_snapshot() -> Result<()> {
         const PAGE_SIZE: usize = 4096;
         let tempdir = tempdir()?;
@@ -596,7 +687,8 @@ mod tests {
 
         let dqlite_dir = DqliteDir::open(tempdir.path())?;
         let open_state = DqliteDirContent::default();
-        open_state.load(&dqlite_dir, PAGE_SIZE)?;
+        let vfs_name = format!("dqlite-{}-{}", file!(), line!());
+        open_state.load(vfs_name, &dqlite_dir, PAGE_SIZE)?;
 
         Ok(())
     }
