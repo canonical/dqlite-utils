@@ -17,7 +17,7 @@ sudo snap install dqlite-utils --classic
 
 ### From crates.io
 
-To use the latest stable version, install directly from `crates.io`:
+To use the latest version, install directly from `crates.io`:
 
 ```bash
 cargo install dqlite-utils
@@ -143,3 +143,13 @@ configuration:
 
 To abort snapshot creation, type and run the `.abort` command.
 You will see the REPL’s default shell.
+
+## Supported versions
+
+`dqlite-utils` supports dqlite versions:
+
+- 1.18.*
+- 1.17.*
+- 1.16.* (untested)
+
+Cowsql is also incidentally supported as of version 1.15.9.
