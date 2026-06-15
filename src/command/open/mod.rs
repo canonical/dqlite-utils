@@ -306,13 +306,14 @@ mod tests {
     use rusqlite::Connection;
     use tempfile::tempdir;
 
-    use crate::command::open::DqliteDirContent;
+    use crate::command::open::{DqliteDirContent, OpenCommand, DqliteVfs};
     use crate::dqlite::{
         DqliteDatabaseWriter, DqliteDir, DqliteFrame, DqliteLogEntry, DqliteLogEntryContent,
         DqliteSegmentBuilder, DqliteSnapshotBuilder, Empty, RaftConfiguration, RaftRole,
         RaftServer,
     };
     use crate::rusqlite_ext::files::{ConnectionFile, ConnectionFilesExt};
+    use rusqlite::vfs::VfsRegistration;
 
     struct ConnectionWriter<'a> {
         main: RefCell<ConnectionFile<'a>>,
@@ -481,6 +482,77 @@ mod tests {
         ) -> Self {
             self.add_wal_segment(term, conn, db, 0..range.end)
         }
+    }
+
+    #[test]
+    fn test_open_command() {
+        const PAGE_SIZE: usize = 4096;
+        let tempdir = tempdir().unwrap();
+        let dbfile = tempdir.path().join("mydb.sqlite");
+        let conn = Connection::open(&dbfile).unwrap();
+
+        conn.pragma_update(None, "page_size", PAGE_SIZE as i64).unwrap();
+        conn.pragma_update(None, "journal_mode", "WAL").unwrap();
+        conn.execute_batch(
+            "
+                CREATE TABLE t(x TEXT);
+                INSERT INTO t VALUES ('hello');
+            ",
+        ).unwrap();
+        conn.pragma_update(None, "wal_checkpoint", "TRUNCATE").unwrap();
+
+        let conn2 = Connection::open_in_memory().unwrap();
+        conn2.execute_batch(&format!(
+            "ATTACH DATABASE '{}' AS 'mydb'",
+            dbfile.display()
+        )).unwrap();
+
+        DqliteDir::creator(tempdir.path())
+            .with_page_size(PAGE_SIZE as u64)
+            .with_snapshot(|s| {
+                s.with_configuration(RaftConfiguration {
+                    servers: vec![RaftServer {
+                        id: 1,
+                        address: "192.168.1.2".to_owned(),
+                        role: RaftRole::Voter,
+                    }],
+                })
+                .with_term(1)
+                .with_index(100)
+                .with_timestamp(SystemTime::now() - Duration::from_hours(1))
+                .add_connection(&conn2, "mydb")
+            })
+            .with_first_index(101)
+            .with_closed_segment(|s| {
+                s.add_entries(&[DqliteLogEntry {
+                    term: 1,
+                    content: DqliteLogEntryContent::Change(RaftConfiguration {
+                        servers: vec![RaftServer {
+                            id: 1,
+                            address: "192.168.1.2".to_owned(),
+                            role: RaftRole::Voter,
+                        }],
+                    }),
+                }])
+                .add_wal_segment(1, &conn2, "mydb", 0..)
+            })
+            .create()
+            .unwrap();
+
+        let dqlite_dir = DqliteDir::open(tempdir.path()).unwrap();
+        let vfs = DqliteVfs::from_dir(&dqlite_dir, PAGE_SIZE).unwrap();
+        let _guard = VfsRegistration::new(vfs)
+            .max_pathlen(256)
+            .register("dqlite")
+            .unwrap();
+
+        let mut ctx = crate::Context::default();
+        ctx.open(tempdir.path(), 1).unwrap();
+
+        let cmd = OpenCommand::try_from_args(&[]).unwrap();
+        cmd.run(&mut ctx).unwrap();
+
+        assert!(ctx.shell.open().is_some());
     }
 
     #[test]
