@@ -304,6 +304,7 @@ mod tests {
     use std::ffi::{CString, OsStr};
     use std::io::Write;
     use std::ops::{Range, RangeFrom, RangeTo};
+    use std::sync::Mutex;
     use std::time::{Duration, SystemTime};
 
     use anyhow::Result;
@@ -317,6 +318,11 @@ mod tests {
         RaftServer,
     };
     use crate::rusqlite_ext::files::{ConnectionFile, ConnectionFilesExt};
+
+    // Hold this in any test from before the `dqlite` VFS is registered until after the
+    // corresponding registration guard has been dropped, so registration and unregistration
+    // of the global `dqlite` VFS stay serialized across concurrent tests.
+    static DQLITE_VFS_REGISTRATION_SERIALISER: Mutex<()> = Mutex::new(());
 
     struct ConnectionWriter<'a> {
         main: RefCell<ConnectionFile<'a>>,
@@ -544,17 +550,17 @@ mod tests {
             .create()
             .unwrap();
 
-        let mut ctx = crate::Context::default();
-        ctx.open(tempdir.path(), 1).unwrap();
+        {
+            let _guard = DQLITE_VFS_REGISTRATION_SERIALISER.lock().unwrap();
 
-        // NOTE: registers a VFS and will unregister it when dropped. If multiple tests are
-        // added which register and unregister the `dqlite` VFS, they must be serialised to
-        // prevent early unregistration triggering flakey tests. Currently, there is only
-        // one test which registers the `dqlite` VFS, so this is fine for now.
-        let cmd = OpenCommand::try_from_args(&[]).unwrap();
-        cmd.run(&mut ctx).unwrap();
+            let mut ctx = crate::Context::default();
+            ctx.open(tempdir.path(), 1).unwrap();
 
-        assert!(ctx.shell.open().is_some());
+            let cmd = OpenCommand::try_from_args(&[]).unwrap();
+            cmd.run(&mut ctx).unwrap();
+
+            assert!(ctx.shell.open().is_some());
+        }
     }
 
     #[test]
@@ -669,9 +675,13 @@ mod tests {
             })
             .create()?;
 
-        let dqlite_dir = DqliteDir::open(tempdir.path())?;
-        let open_state = DqliteDirContent::default();
-        open_state.load(&dqlite_dir, PAGE_SIZE)?;
+        {
+            let _guard = DQLITE_VFS_REGISTRATION_SERIALISER.lock().unwrap();
+
+            let dqlite_dir = DqliteDir::open(tempdir.path())?;
+            let open_state = DqliteDirContent::default();
+            open_state.load(&dqlite_dir, PAGE_SIZE)?;
+        }
 
         Ok(())
     }
