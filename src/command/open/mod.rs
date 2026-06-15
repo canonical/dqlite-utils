@@ -484,7 +484,7 @@ mod tests {
     }
 
     #[test]
-    fn test_open_command() {
+    fn test_command() {
         const PAGE_SIZE: usize = 4096;
         let tempdir = tempdir().unwrap();
         let dbfile = tempdir.path().join("mydb.sqlite");
