@@ -543,6 +543,10 @@ mod tests {
         let mut ctx = crate::Context::default();
         ctx.open(tempdir.path(), 1).unwrap();
 
+        // NOTE: registers a VFS and will unregister it when dropped. If multiple tests are
+        // added which register and unregister the `dqlite` VFS, they must be serialised to
+        // prevent early unregistration triggering flakey tests. Currently, there is only
+        // one test which registers the `dqlite` VFS, so this is fine for now.
         let cmd = OpenCommand::try_from_args(&[]).unwrap();
         cmd.run(&mut ctx).unwrap();
 
