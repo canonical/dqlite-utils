@@ -111,7 +111,11 @@ impl OpenCommand {
 
         let shell = {
             let shell = OpenShell::new(self.index)?;
-            shell.attach_databases(state.vfs().unwrap().databases()?)?;
+            let databases = state
+                .vfs()
+                .expect("internal error: unregistered VFS")
+                .databases()?;
+            shell.attach_databases(databases)?;
             shell
         };
         ctx.shell = Shell::Open(shell);
