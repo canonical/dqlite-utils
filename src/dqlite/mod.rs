@@ -147,7 +147,7 @@ trait Deserialize: Default {
         let mut chunk = [0u8; 8192];
         loop {
             let mut cursor = cursor {
-                p: buf.as_ptr() as *const i8,
+                p: buf.as_ptr() as *const c_char,
                 cap: buf.len(),
             };
             let rc = unsafe { Self::DECODE(&mut cursor, &mut value) };
