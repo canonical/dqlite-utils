@@ -1,6 +1,6 @@
 use libsqlite3_sys::{self as sqlite3, sqlite3_int64};
 use std::{
-    ffi::{CStr, OsStr, c_int, c_void},
+    ffi::{CStr, OsStr, c_char, c_int, c_void},
     ptr,
     time::Duration,
 };
@@ -206,12 +206,12 @@ impl FileControlExt for Connection {
     }
 
     fn vfs_name(&self, db: Option<&OsStr>) -> Result<String, rusqlite::Error> {
-        let mut name_ptr: *const i8 = ptr::null();
+        let mut name_ptr: *const c_char = ptr::null();
         file_control(
             self,
             db,
             sqlite3::SQLITE_FCNTL_VFSNAME,
-            &mut name_ptr as *mut *const i8 as *mut c_void,
+            &mut name_ptr as *mut *const c_char as *mut c_void,
         )
         .map_err(|e| rusqlite::Error::SqliteFailure(sqlite3::Error::new(e.into_rc()), None))?;
         if name_ptr.is_null() {
