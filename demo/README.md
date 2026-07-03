@@ -69,25 +69,12 @@ A short walkthrough of a few `dqlite-utils` demo scenarios: leadership changes, 
    snapshot> .add-server 127.0.0.1:9009 # New server!
    snapshot> ATTACH 'backup.sqlite' AS demo; # NOTE SAME NAME!
    snapshot> INSERT INTO demo (key, value) VALUES ('new-key', 'new-value');
-   snapshot> .finish 127.0.0.1:9009 # FAILS!
-   snapshot> PRAGMA journal_mode = WAL;
-   snapshot> .finish 127.0.0.1:9009 # Works!
+   snapshot> .finish 127.0.0.1:9009
    ```
 
 2. Then, start a new node with id `127.0.0.1:9009` **no --join!**:
    - See how this is now a separate cluster!
-   
-3. Go-dqlite also requires a couple of extra files, specifically `cluster.yaml` and `info.yaml`
-   ```bash
-   $ dqlite-utils --dir test-data/127.0.0.1:9009
-   > .config # Just to look and see
 
-   $ dqlite-utils --dir test-data/127.0.0.1:9009 -c ".config --raw" > test-data/127.0.0.1:9009/cluster.yaml
-   ```
-
-4. Then, edit the `info.yaml` manually, copy the from `cluster.yaml` (the ID will just be 1).
-
-5. Now, start the node again, new cluster, no `--join` (delete the dumbass `join` file if present)
+3. Now, start the node again, new cluster, no `--join` (delete the dumbass `join` file if present)
 
 // TODO(kcza): shell-expand `~`
-// TODO(kcza): bug not vacuuming from `latest`!
