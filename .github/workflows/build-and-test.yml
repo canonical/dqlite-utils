@@ -25,7 +25,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           # Must be kept in sync with Cargo.toml.
-          toolchain: '1.91'
+          toolchain: '1.97'
           components: clippy,rustfmt
       - name: Set up dependencies
         run: |
