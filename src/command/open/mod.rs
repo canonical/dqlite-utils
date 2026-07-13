@@ -157,10 +157,10 @@ impl OpenShell {
     }
 
     pub(crate) fn new(
-        vfs_guard: &VfsRegistrationGuard<DqliteVfs>,
+        _vfs_guard: &VfsRegistrationGuard<DqliteVfs>,
         index: Option<u64>,
     ) -> Result<Self> {
-        let connection = Self::open_connection(vfs_guard)?;
+        let connection = Self::open_connection()?;
         let prompt = if let Some(index) = index {
             Prompt::new(format!(
                 "open{}{}",
@@ -185,7 +185,7 @@ impl OpenShell {
         &self.connection
     }
 
-    fn open_connection(_vfs_guard: &VfsRegistrationGuard<DqliteVfs>) -> Result<Connection> {
+    fn open_connection() -> Result<Connection> {
         let ret = Connection::open_in_memory()
             .context("internal error: cannot open connection to in-memory database")?;
         ret.set_main_name(c"raft");
