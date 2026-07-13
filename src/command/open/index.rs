@@ -1,6 +1,7 @@
 use anyhow::{Result, anyhow};
 
 use crate::Context;
+use crate::command::open::VFS_NAME;
 use crate::command::{Help, UnrecognizedArgumentsError};
 use crate::prompt::Prompt;
 use crate::utils::TerminalStylizeExt;
@@ -45,7 +46,7 @@ impl IndexCommand {
         let shell = ctx.shell.open_mut().unwrap();
         // Flush cache
         shell.detach_databases()?;
-        shell.attach_databases(databases)?;
+        shell.attach_databases(VFS_NAME, databases)?;
         shell.prompt = Prompt::new(format!(
             "open{}{}",
             "@".terminal_style(Prompt::DEFAULT_STYLE),

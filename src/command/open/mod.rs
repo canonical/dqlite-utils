@@ -9,9 +9,9 @@ use std::ops::Deref;
 use std::str::FromStr;
 
 use anyhow::{Context as _, Error, Result, anyhow};
+use rusqlite::Connection;
 use rusqlite::hooks::{AuthContext, Authorization};
 use rusqlite::vfs::{VfsRegistration, VfsRegistrationGuard};
-use rusqlite::{Connection, OpenFlags};
 
 use self::vfs::DqliteVfs;
 use crate::command::open::close::CloseCommand;
@@ -23,6 +23,8 @@ use crate::prompt::Prompt;
 use crate::rusqlite_ext::config::ConnectionConfigExt;
 use crate::utils::TerminalStylizeExt;
 use crate::{Context, Shell};
+
+const DQLITE_VFS_NAME: &str = "dqlite";
 
 #[derive(Default)]
 pub struct DqliteDirContent {
@@ -109,12 +111,10 @@ impl OpenCommand {
     }
 
     pub(crate) fn run(self, ctx: &mut Context) -> Result<()> {
-        const VFS_NAME: &str = "dqlite";
-
         let state = ctx.open_state();
         // NOTE: `state.load` registers the vfs, hence it must come before `OpenShell::new`
         // which uses it.
-        let vfs_guard = state.load(VFS_NAME, ctx.dqlite()?, 4096)?; // TODO get the page size from the snapshot
+        let vfs_guard = state.load(DQLITE_VFS_NAME, ctx.dqlite()?, 4096)?; // TODO get the page size from the snapshot
         if let Some(index) = self.index {
             state
                 .vfs()
@@ -123,12 +123,12 @@ impl OpenCommand {
         }
 
         let shell = {
-            let shell = OpenShell::new(VFS_NAME, vfs_guard, self.index)?;
+            let shell = OpenShell::new(vfs_guard, self.index)?;
             let databases = state
                 .vfs()
                 .expect("internal error: unregistered VFS")
                 .databases()?;
-            shell.attach_databases(databases)?;
+            shell.attach_databases(DQLITE_VFS_NAME, databases)?;
             shell
         };
         ctx.shell = Shell::Open(shell);
@@ -157,11 +157,10 @@ impl OpenShell {
     }
 
     pub(crate) fn new(
-        vfs_name: &str,
         vfs_guard: &VfsRegistrationGuard<DqliteVfs>,
         index: Option<u64>,
     ) -> Result<Self> {
-        let connection = Self::open_connection(vfs_name, vfs_guard)?;
+        let connection = Self::open_connection(vfs_guard)?;
         let prompt = if let Some(index) = index {
             Prompt::new(format!(
                 "open{}{}",
@@ -186,11 +185,8 @@ impl OpenShell {
         &self.connection
     }
 
-    fn open_connection(
-        vfs_name: &str,
-        _vfs_guard: &VfsRegistrationGuard<DqliteVfs>,
-    ) -> Result<Connection> {
-        let ret = Connection::open_with_flags_and_vfs(":memory:", OpenFlags::default(), vfs_name)
+    fn open_connection(_vfs_guard: &VfsRegistrationGuard<DqliteVfs>) -> Result<Connection> {
+        let ret = Connection::open_in_memory()
             .context("internal error: cannot open connection to in-memory database")?;
         ret.set_main_name(c"raft");
         ret.authorizer(Some(Self::authorizer))?;
@@ -222,11 +218,15 @@ impl OpenShell {
         Ok(result)
     }
 
-    fn attach_databases(&self, databases: impl IntoIterator<Item = String>) -> Result<()> {
+    fn attach_databases(
+        &self,
+        vfs_name: &str,
+        databases: impl IntoIterator<Item = String>,
+    ) -> Result<()> {
         for db in databases {
             self.connection.execute_batch(&format!(
                 "
-                    ATTACH DATABASE 'file:{db}?vfs=dqlite' AS '{db}'
+                    ATTACH DATABASE 'file:{db}?vfs={vfs_name}' AS '{db}'
                 "
             ))?;
         }
