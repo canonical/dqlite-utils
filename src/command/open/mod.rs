@@ -113,10 +113,12 @@ impl OpenCommand {
     }
 
     pub(crate) fn run(self, ctx: &mut Context) -> Result<()> {
+        const VFS_NAME: &str = "dqlite";
+
         let state = ctx.open_state();
         // NOTE: `state.load` registers the vfs, hence it must come before `OpenShell::new`
         // which uses it.
-        let vfs_guard = state.load("dqlite", ctx.dqlite()?, 4096)?; // TODO get the page size from the snapshot
+        let vfs_guard = state.load(VFS_NAME, ctx.dqlite()?, 4096)?; // TODO get the page size from the snapshot
         if let Some(index) = self.index {
             state
                 .vfs()
