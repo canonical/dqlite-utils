@@ -42,7 +42,11 @@ impl IndexCommand {
             vfs.set_current_index(index)?;
             vfs.databases()?
         };
-        let vfs_name = ctx.open_state().vfs_name().expect("internal error: unregistered VFS").to_owned();
+        let vfs_name = ctx
+            .open_state()
+            .vfs_name()
+            .expect("internal error: unregistered VFS")
+            .to_owned();
         let shell = ctx.shell.open_mut().unwrap();
         // Flush cache
         shell.detach_databases()?;

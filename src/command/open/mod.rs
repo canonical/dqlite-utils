@@ -715,8 +715,7 @@ mod tests {
         conn.pragma_update(None, "wal_checkpoint", "TRUNCATE")?;
 
         let conn2 = Connection::open_in_memory()?;
-        conn2
-            .execute_batch(&format!("ATTACH DATABASE '{}' AS 'mydb'", dbfile.display()))?;
+        conn2.execute_batch(&format!("ATTACH DATABASE '{}' AS 'mydb'", dbfile.display()))?;
 
         DqliteDir::creator(tempdir.path())
             .with_page_size(PAGE_SIZE as u64)
@@ -765,17 +764,11 @@ mod tests {
         )?;
 
         let backup_path = tempdir.path().join("backup.sqlite");
-        conn.execute_batch(&format!(
-            "VACUUM INTO '{}'",
-            backup_path.display()
-        ))?;
+        conn.execute_batch(&format!("VACUUM INTO '{}'", backup_path.display()))?;
 
         let backup_conn = Connection::open(backup_path)?;
-        let value: String = backup_conn.query_row(
-            "SELECT x FROM backup_test",
-            [],
-            |row| row.get(0),
-        )?;
+        let value: String =
+            backup_conn.query_row("SELECT x FROM backup_test", [], |row| row.get(0))?;
         assert_eq!(value, "canary");
 
         Ok(())
