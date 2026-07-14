@@ -24,8 +24,6 @@ use crate::rusqlite_ext::config::ConnectionConfigExt;
 use crate::utils::TerminalStylizeExt;
 use crate::{Context, Shell};
 
-const DQLITE_VFS_NAME: &str = "dqlite";
-
 #[derive(Default)]
 pub struct DqliteDirContent {
     /// Content can be accessed through the [`Self::vfs`] method.
@@ -56,6 +54,10 @@ impl DqliteDirContent {
             .get()
             .expect("internal error: vfs not registered");
         Ok(guard_ref)
+    }
+
+    fn vfs_name(&self) -> Option<&str> {
+        self.vfs_registration_guard.get().map(|r| r.name())
     }
 
     fn vfs(&self) -> Option<&DqliteVfs> {
@@ -114,7 +116,7 @@ impl OpenCommand {
         let state = ctx.open_state();
         // NOTE: `state.load` registers the vfs, hence it must come before `OpenShell::new`
         // which uses it.
-        let vfs_guard = state.load(DQLITE_VFS_NAME, ctx.dqlite()?, 4096)?; // TODO get the page size from the snapshot
+        let vfs_guard = state.load("dqlite", ctx.dqlite()?, 4096)?; // TODO get the page size from the snapshot
         if let Some(index) = self.index {
             state
                 .vfs()
@@ -128,7 +130,7 @@ impl OpenCommand {
                 .vfs()
                 .expect("internal error: unregistered VFS")
                 .databases()?;
-            shell.attach_databases(DQLITE_VFS_NAME, databases)?;
+            shell.attach_databases(vfs_guard.name(), databases)?;
             shell
         };
         ctx.shell = Shell::Open(shell);
