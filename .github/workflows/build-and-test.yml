@@ -24,8 +24,8 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - uses: dtolnay/rust-toolchain@master
         with:
-          # Must be kept in sync with Cargo.toml.
-          toolchain: '1.91'
+          # Must be kept in sync with `rust-toolchain.toml`.
+          toolchain: '1.97'
           components: clippy,rustfmt
       - name: Set up dependencies
         run: |
