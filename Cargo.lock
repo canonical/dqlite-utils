@@ -498,14 +498,17 @@ name = "hashbrown"
 version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4f467dd6dccf739c208452f8014c75c18bb8301b050ad1cfb27153803edb0f51"
+dependencies = [
+ "foldhash 0.2.0",
+]
 
 [[package]]
 name = "hashlink"
-version = "0.11.0"
+version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ea0b22561a9c04a7cb1a302c013e0259cd3b4bb619f145b32f72b8b4bcbed230"
+checksum = "32069d97bb81e38fa67eab65e3393bf804bb85969f2bc06bf13f64aef5aba248"
 dependencies = [
- "hashbrown 0.16.1",
+ "hashbrown 0.17.0",
 ]
 
 [[package]]
@@ -783,8 +786,8 @@ dependencies = [
 
 [[package]]
 name = "libsqlite3-sys"
-version = "0.37.0"
-source = "git+https://github.com/rusqlite/rusqlite?rev=48d7eed4dc452360bc13021da17e3922514c7724#48d7eed4dc452360bc13021da17e3922514c7724"
+version = "0.38.1"
+source = "git+https://github.com/rusqlite/rusqlite?rev=eb15edad5becc993625e38bedc64344e17644d63#eb15edad5becc993625e38bedc64344e17644d63"
 dependencies = [
  "cc",
  "pkg-config",
@@ -1092,8 +1095,8 @@ dependencies = [
 
 [[package]]
 name = "rusqlite"
-version = "0.39.0"
-source = "git+https://github.com/rusqlite/rusqlite?rev=48d7eed4dc452360bc13021da17e3922514c7724#48d7eed4dc452360bc13021da17e3922514c7724"
+version = "0.40.1"
+source = "git+https://github.com/rusqlite/rusqlite?rev=eb15edad5becc993625e38bedc64344e17644d63#eb15edad5becc993625e38bedc64344e17644d63"
 dependencies = [
  "bitflags",
  "chrono",

@@ -9,9 +9,9 @@ use std::ops::Deref;
 use std::str::FromStr;
 
 use anyhow::{Context as _, Error, Result, anyhow};
+use rusqlite::Connection;
 use rusqlite::hooks::{AuthContext, Authorization};
 use rusqlite::vfs::{VfsRegistration, VfsRegistrationGuard};
-use rusqlite::{Connection, OpenFlags};
 
 use self::vfs::DqliteVfs;
 use crate::command::open::close::CloseCommand;
@@ -54,6 +54,10 @@ impl DqliteDirContent {
             .get()
             .expect("internal error: vfs not registered");
         Ok(guard_ref)
+    }
+
+    fn vfs_name(&self) -> Option<&str> {
+        self.vfs_registration_guard.get().map(|r| r.name())
     }
 
     fn vfs(&self) -> Option<&DqliteVfs> {
@@ -123,12 +127,12 @@ impl OpenCommand {
         }
 
         let shell = {
-            let shell = OpenShell::new(VFS_NAME, vfs_guard, self.index)?;
+            let shell = OpenShell::new(vfs_guard, self.index)?;
             let databases = state
                 .vfs()
                 .expect("internal error: unregistered VFS")
                 .databases()?;
-            shell.attach_databases(databases)?;
+            shell.attach_databases(vfs_guard.name(), databases)?;
             shell
         };
         ctx.shell = Shell::Open(shell);
@@ -157,11 +161,10 @@ impl OpenShell {
     }
 
     pub(crate) fn new(
-        vfs_name: &str,
-        vfs_guard: &VfsRegistrationGuard<DqliteVfs>,
+        _vfs_guard: &VfsRegistrationGuard<DqliteVfs>,
         index: Option<u64>,
     ) -> Result<Self> {
-        let connection = Self::open_connection(vfs_name, vfs_guard)?;
+        let connection = Self::open_connection()?;
         let prompt = if let Some(index) = index {
             Prompt::new(format!(
                 "open{}{}",
@@ -186,11 +189,8 @@ impl OpenShell {
         &self.connection
     }
 
-    fn open_connection(
-        vfs_name: &str,
-        _vfs_guard: &VfsRegistrationGuard<DqliteVfs>,
-    ) -> Result<Connection> {
-        let ret = Connection::open_with_flags_and_vfs(":memory:", OpenFlags::default(), vfs_name)
+    fn open_connection() -> Result<Connection> {
+        let ret = Connection::open_in_memory()
             .context("internal error: cannot open connection to in-memory database")?;
         ret.set_main_name(c"raft");
         ret.authorizer(Some(Self::authorizer))?;
@@ -222,11 +222,15 @@ impl OpenShell {
         Ok(result)
     }
 
-    fn attach_databases(&self, databases: impl IntoIterator<Item = String>) -> Result<()> {
+    fn attach_databases(
+        &self,
+        vfs_name: &str,
+        databases: impl IntoIterator<Item = String>,
+    ) -> Result<()> {
         for db in databases {
             self.connection.execute_batch(&format!(
                 "
-                    ATTACH DATABASE 'file:{db}?vfs=dqlite' AS '{db}'
+                    ATTACH DATABASE 'file:{db}?vfs={vfs_name}' AS '{db}'
                 "
             ))?;
         }
@@ -689,6 +693,83 @@ mod tests {
         let open_state = DqliteDirContent::default();
         let vfs_name = format!("dqlite-{}-{}", file!(), line!());
         open_state.load(vfs_name, &dqlite_dir, PAGE_SIZE)?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_vacuum() -> Result<()> {
+        const PAGE_SIZE: usize = 4096;
+        let tempdir = tempdir()?;
+        let dbfile = tempdir.path().join("mydb.sqlite");
+        let conn = Connection::open(&dbfile)?;
+
+        conn.pragma_update(None, "page_size", PAGE_SIZE as i64)?;
+        conn.pragma_update(None, "journal_mode", "WAL")?;
+        conn.execute_batch(
+            "
+                CREATE TABLE t(x TEXT);
+                INSERT INTO t VALUES ('hello');
+            ",
+        )?;
+        conn.pragma_update(None, "wal_checkpoint", "TRUNCATE")?;
+
+        let conn2 = Connection::open_in_memory()?;
+        conn2.execute_batch(&format!("ATTACH DATABASE '{}' AS 'mydb'", dbfile.display()))?;
+
+        DqliteDir::creator(tempdir.path())
+            .with_page_size(PAGE_SIZE as u64)
+            .with_snapshot(|s| {
+                s.with_configuration(RaftConfiguration {
+                    servers: vec![RaftServer {
+                        id: 1,
+                        address: "192.168.1.2".to_owned(),
+                        role: RaftRole::Voter,
+                    }],
+                })
+                .with_term(1)
+                .with_index(100)
+                .with_timestamp(SystemTime::now() - Duration::from_hours(1))
+                .add_connection(&conn2, "mydb")
+            })
+            .with_first_index(101)
+            .with_closed_segment(|s| {
+                s.add_entries(&[DqliteLogEntry {
+                    term: 1,
+                    content: DqliteLogEntryContent::Change(RaftConfiguration {
+                        servers: vec![RaftServer {
+                            id: 1,
+                            address: "192.168.1.2".to_owned(),
+                            role: RaftRole::Voter,
+                        }],
+                    }),
+                }])
+                .add_wal_segment(1, &conn2, "mydb", 0..)
+            })
+            .create()?;
+
+        let mut ctx = crate::Context::default();
+        ctx.open(tempdir.path(), 1)?;
+
+        let cmd = OpenCommand::try_from_args(&[])?;
+        cmd.run(&mut ctx)?;
+
+        let shell = ctx.shell.open().expect("open shell");
+        let conn = shell.connection();
+        conn.execute_batch(
+            "
+                CREATE TABLE backup_test(x TEXT);
+                INSERT INTO backup_test VALUES ('canary');
+            ",
+        )?;
+
+        let backup_path = tempdir.path().join("backup.sqlite");
+        conn.execute_batch(&format!("VACUUM INTO '{}'", backup_path.display()))?;
+
+        let backup_conn = Connection::open(backup_path)?;
+        let value: String =
+            backup_conn.query_row("SELECT x FROM backup_test", [], |row| row.get(0))?;
+        assert_eq!(value, "canary");
 
         Ok(())
     }

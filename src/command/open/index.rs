@@ -42,10 +42,15 @@ impl IndexCommand {
             vfs.set_current_index(index)?;
             vfs.databases()?
         };
+        let vfs_name = ctx
+            .open_state()
+            .vfs_name()
+            .expect("internal error: unregistered VFS")
+            .to_owned();
         let shell = ctx.shell.open_mut().unwrap();
         // Flush cache
         shell.detach_databases()?;
-        shell.attach_databases(databases)?;
+        shell.attach_databases(&vfs_name, databases)?;
         shell.prompt = Prompt::new(format!(
             "open{}{}",
             "@".terminal_style(Prompt::DEFAULT_STYLE),
