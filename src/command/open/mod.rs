@@ -696,7 +696,7 @@ mod tests {
     }
 
     #[test]
-    fn test_vacuum_into_in_open_shell() -> Result<()> {
+    fn test_vacuum() -> Result<()> {
         const PAGE_SIZE: usize = 4096;
         let tempdir = tempdir()?;
         let dbfile = tempdir.path().join("mydb.sqlite");
