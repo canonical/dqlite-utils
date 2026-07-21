@@ -15,7 +15,7 @@ libsqlite3-sys = { git = "https://github.com/rusqlite/rusqlite", rev = "eb15edad
 lz4_flex = "0.14.0"
 owo-colors = { version = "4.2.3", features = ["supports-colors"] }
 rand = "0.10.0"
-rusqlite = { git = "https://github.com/rusqlite/rusqlite", rev = "eb15edad5becc993625e38bedc64344e17644d63", features = ["bundled-full"] }
+rusqlite = { git = "https://github.com/rusqlite/rusqlite", rev = "4707a1fce4d1bdbc2c4fc7b35266c13e31643cd8", features = ["bundled-full"] }
 rustyline = "18.0.0"
 shell-words = "1.1.0"
 static_assertions = "1.1.0"
